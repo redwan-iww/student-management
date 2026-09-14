@@ -1,0 +1,23 @@
+{
+  "name": "student-management",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Portable student-management data model: one canonical schema, generated into Zoho CRM metadata and Postgres DDL.",
+  "scripts": {
+    "gen": "npm run gen:sql && npm run gen:zoho && npm run gen:types && npm run gen:docs",
+    "gen:sql": "node generators/gen-sql.mjs",
+    "gen:zoho": "node generators/gen-zoho.mjs",
+    "gen:docs": "node generators/gen-docs.mjs",
+    "verify:sql": "node generators/verify-sql.mjs",
+    "gen:types": "node generators/gen-types.mjs",
+    "verify:types": "tsc --noEmit --strict --target ES2022 --moduleResolution bundler --module ESNext build/types.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "pgsql-parser": "^17.0.0",
+    "typescript": "^5.9.3"
+  }
+}

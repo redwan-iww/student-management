@@ -1,0 +1,199 @@
+{
+  "_entity": "classes",
+  "module": "Classes",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Class Code",
+      "api_name": "Class_Code",
+      "data_type": "text",
+      "length": 40,
+      "system_mandatory": true,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "class_code"
+    },
+    {
+      "field_label": "Section",
+      "api_name": "Section_Label",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "e.g. 'A', 'B', 'Evening'"
+      },
+      "data_type": "text",
+      "length": 10,
+      "_entity_field": "section_label"
+    },
+    {
+      "field_label": "Room",
+      "api_name": "Room",
+      "data_type": "text",
+      "length": 60,
+      "_entity_field": "room"
+    },
+    {
+      "field_label": "Capacity",
+      "api_name": "Capacity",
+      "data_type": "integer",
+      "length": 9,
+      "system_mandatory": true,
+      "default_value": "20",
+      "_entity_field": "capacity"
+    },
+    {
+      "field_label": "Meeting Days",
+      "api_name": "Meeting_Days",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "The weekly pattern that class_sessions rows are generated from."
+      },
+      "data_type": "multiselectpicklist",
+      "pick_list_values": [
+        {
+          "display_value": "Monday",
+          "actual_value": "Monday",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Tuesday",
+          "actual_value": "Tuesday",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Wednesday",
+          "actual_value": "Wednesday",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Thursday",
+          "actual_value": "Thursday",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Friday",
+          "actual_value": "Friday",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Saturday",
+          "actual_value": "Saturday",
+          "sequence_number": 6
+        },
+        {
+          "display_value": "Sunday",
+          "actual_value": "Sunday",
+          "sequence_number": 7
+        }
+      ],
+      "_entity_field": "meeting_days"
+    },
+    {
+      "field_label": "Start Time",
+      "api_name": "Start_Time",
+      "data_type": "text",
+      "length": 5,
+      "_note": "no native time type in Zoho CRM; HH:MM text",
+      "_entity_field": "start_time"
+    },
+    {
+      "field_label": "End Time",
+      "api_name": "End_Time",
+      "data_type": "text",
+      "length": 5,
+      "_note": "no native time type in Zoho CRM; HH:MM text",
+      "_entity_field": "end_time"
+    },
+    {
+      "field_label": "Start Date",
+      "api_name": "Start_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "start_date"
+    },
+    {
+      "field_label": "End Date",
+      "api_name": "End_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "end_date"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Draft",
+          "actual_value": "Draft",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Scheduled",
+          "actual_value": "Scheduled",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Running",
+          "actual_value": "Running",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Completed",
+          "actual_value": "Completed",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Cancelled",
+          "actual_value": "Cancelled",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Draft",
+      "_entity_field": "status"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Course",
+      "api_name": "Course",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Course_Catalog"
+        },
+        "display_label": "Classes"
+      },
+      "system_mandatory": true,
+      "_entity_field": "course"
+    },
+    {
+      "field_label": "Term",
+      "api_name": "Term",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Terms"
+        },
+        "display_label": "Classes"
+      },
+      "system_mandatory": true,
+      "_entity_field": "term"
+    },
+    {
+      "field_label": "Primary Teacher",
+      "api_name": "Primary_Teacher",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Teachers"
+        },
+        "display_label": "Classes"
+      },
+      "_entity_field": "primary_teacher"
+    }
+  ],
+  "relabel_stock_fields": []
+}

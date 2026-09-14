@@ -1,0 +1,197 @@
+{
+  "_entity": "households",
+  "module": "Contacts",
+  "strategy": "extend_standard",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Household Code",
+      "api_name": "Household_Code",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "HH-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "household_code"
+    },
+    {
+      "field_label": "Primary Guardian",
+      "api_name": "Primary_Guardian_Name",
+      "data_type": "text",
+      "length": 120,
+      "system_mandatory": true,
+      "_entity_field": "primary_guardian_name"
+    },
+    {
+      "field_label": "Primary Guardian Rel",
+      "api_name": "Primary_Guardian_Relationship",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Mother",
+          "actual_value": "Mother",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Father",
+          "actual_value": "Father",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Grandparent",
+          "actual_value": "Grandparent",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Legal Guardian",
+          "actual_value": "Legal Guardian",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Sibling",
+          "actual_value": "Sibling",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 6
+        }
+      ],
+      "_entity_field": "primary_guardian_relationship"
+    },
+    {
+      "field_label": "Secondary Guardian",
+      "api_name": "Secondary_Guardian_Name",
+      "data_type": "text",
+      "length": 120,
+      "_entity_field": "secondary_guardian_name"
+    },
+    {
+      "field_label": "Secondary Guardian Rel",
+      "api_name": "Secondary_Guardian_Relationship",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Mother",
+          "actual_value": "Mother",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Father",
+          "actual_value": "Father",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Grandparent",
+          "actual_value": "Grandparent",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Legal Guardian",
+          "actual_value": "Legal Guardian",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Sibling",
+          "actual_value": "Sibling",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 6
+        }
+      ],
+      "_entity_field": "secondary_guardian_relationship"
+    },
+    {
+      "field_label": "Secondary Guardian Phone",
+      "api_name": "Secondary_Guardian_Phone",
+      "data_type": "phone",
+      "length": 30,
+      "_entity_field": "secondary_guardian_phone"
+    },
+    {
+      "field_label": "Secondary Guardian Email",
+      "api_name": "Secondary_Guardian_Email",
+      "data_type": "email",
+      "length": 100,
+      "_entity_field": "secondary_guardian_email"
+    },
+    {
+      "field_label": "Preferred Contact Method",
+      "api_name": "Preferred_Contact_Method",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Email",
+          "actual_value": "Email",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Phone",
+          "actual_value": "Phone",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "SMS",
+          "actual_value": "SMS",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "WhatsApp",
+          "actual_value": "WhatsApp",
+          "sequence_number": 4
+        }
+      ],
+      "default_value": "Email",
+      "_entity_field": "preferred_contact_method"
+    },
+    {
+      "field_label": "Billing Status",
+      "api_name": "Billing_Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Current",
+          "actual_value": "Current",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Overdue",
+          "actual_value": "Overdue",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "On Hold",
+          "actual_value": "On Hold",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Closed",
+          "actual_value": "Closed",
+          "sequence_number": 4
+        }
+      ],
+      "default_value": "Current",
+      "_entity_field": "billing_status"
+    },
+    {
+      "field_label": "Household Notes",
+      "api_name": "Household_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [],
+  "relabel_stock_fields": []
+}

@@ -1,0 +1,134 @@
+{
+  "_entity": "courses",
+  "module": "Course_Catalog",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Course Code",
+      "api_name": "Course_Code",
+      "data_type": "text",
+      "length": 30,
+      "system_mandatory": true,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "course_code"
+    },
+    {
+      "field_label": "Description",
+      "api_name": "Description",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "description"
+    },
+    {
+      "field_label": "Level",
+      "api_name": "Level",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Foundation",
+          "actual_value": "Foundation",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Beginner",
+          "actual_value": "Beginner",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Intermediate",
+          "actual_value": "Intermediate",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Advanced",
+          "actual_value": "Advanced",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Professional",
+          "actual_value": "Professional",
+          "sequence_number": 5
+        }
+      ],
+      "_entity_field": "level"
+    },
+    {
+      "field_label": "Contact Hours",
+      "api_name": "Contact_Hours",
+      "data_type": "double",
+      "length": 6,
+      "decimal_place": 2,
+      "_entity_field": "contact_hours"
+    },
+    {
+      "field_label": "Default Capacity",
+      "api_name": "Default_Capacity",
+      "data_type": "integer",
+      "length": 9,
+      "default_value": "20",
+      "_entity_field": "default_capacity"
+    },
+    {
+      "field_label": "Default Fee",
+      "api_name": "Default_Fee",
+      "data_type": "currency",
+      "length": 16,
+      "decimal_place": 2,
+      "currency": {
+        "precision": "2",
+        "rounding_option": "normal"
+      },
+      "_entity_field": "default_fee"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Draft",
+          "actual_value": "Draft",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Inactive",
+          "actual_value": "Inactive",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Retired",
+          "actual_value": "Retired",
+          "sequence_number": 4
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Active",
+      "_entity_field": "status"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Program",
+      "api_name": "Program",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Programs"
+        },
+        "display_label": "Courses"
+      },
+      "_entity_field": "program"
+    }
+  ],
+  "relabel_stock_fields": []
+}

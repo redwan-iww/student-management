@@ -1,0 +1,73 @@
+{
+  "_comment": "Constraints the Zoho field model cannot express natively.",
+  "validations": [
+    {
+      "_entity": "terms",
+      "module": "Terms",
+      "name": "term_dates_ordered",
+      "expression": "end_date >= start_date",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
+      "_entity": "classes",
+      "module": "Classes",
+      "name": "class_dates_ordered",
+      "expression": "end_date >= start_date",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
+      "_entity": "classes",
+      "module": "Classes",
+      "name": "class_capacity_positive",
+      "expression": "capacity > 0",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
+      "_entity": "class_sessions",
+      "module": "Class_Sessions",
+      "name": "uq_session_per_class_date",
+      "fields": [
+        "Class",
+        "Session_Date",
+        "Start_Time"
+      ],
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Class + Session_Date + Start_Time); reject when count > 0."
+    },
+    {
+      "_entity": "enrollments",
+      "module": "Enrollments",
+      "name": "uq_enrollment_student_class",
+      "fields": [
+        "Student",
+        "Class"
+      ],
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Student + Class); reject when count > 0.",
+      "note": "Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md."
+    },
+    {
+      "_entity": "allocations",
+      "module": "Allocations",
+      "name": "allocation_dates_ordered",
+      "expression": "effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
+      "_entity": "attendance",
+      "module": "Attendance",
+      "name": "uq_attendance_enrollment_session",
+      "fields": [
+        "Enrollment",
+        "Class_Session"
+      ],
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Enrollment + Class_Session); reject when count > 0.",
+      "note": "Zoho: enforced by validation rule, not a native composite unique."
+    },
+    {
+      "_entity": "attendance",
+      "module": "Attendance",
+      "name": "attendance_minutes_late_nonneg",
+      "expression": "minutes_late >= 0",
+      "enforcement": "Zoho validation rule on the listed expression."
+    }
+  ]
+}

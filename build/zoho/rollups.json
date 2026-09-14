@@ -1,0 +1,125 @@
+{
+  "_comment": "Apply AFTER modules and lookups exist. Zoho rollup criteria are set in the UI/API as a criteria block; the _criteria_note carries the canonical filter.",
+  "rollups": [
+    {
+      "_entity": "households",
+      "module": "Contacts",
+      "field_label": "Active Students",
+      "api_name": "Active_Students_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Students"
+        },
+        "linking_field": "Household",
+        "function": "count",
+        "_criteria_note": "status = 'Active'"
+      }
+    },
+    {
+      "_entity": "students",
+      "module": "Students",
+      "field_label": "Active Enrollments",
+      "api_name": "Active_Enrollments_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Enrollments"
+        },
+        "linking_field": "Student",
+        "function": "count",
+        "_criteria_note": "status = 'Active'"
+      }
+    },
+    {
+      "_entity": "programs",
+      "module": "Programs",
+      "field_label": "Courses",
+      "api_name": "Courses_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Course_Catalog"
+        },
+        "linking_field": "Program",
+        "function": "count"
+      }
+    },
+    {
+      "_entity": "classes",
+      "module": "Classes",
+      "field_label": "Enrolled",
+      "api_name": "Enrolled_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Enrollments"
+        },
+        "linking_field": "Class",
+        "function": "count",
+        "_criteria_note": "status = 'Active'"
+      }
+    },
+    {
+      "_entity": "classes",
+      "module": "Classes",
+      "field_label": "Sessions",
+      "api_name": "Sessions_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Class_Sessions"
+        },
+        "linking_field": "Class",
+        "function": "count"
+      }
+    },
+    {
+      "_entity": "class_sessions",
+      "module": "Class_Sessions",
+      "field_label": "Present",
+      "api_name": "Present_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Attendance"
+        },
+        "linking_field": "Class_Session",
+        "function": "count",
+        "_criteria_note": "status IN ('Present','Late')"
+      }
+    },
+    {
+      "_entity": "class_sessions",
+      "module": "Class_Sessions",
+      "field_label": "Absent",
+      "api_name": "Absent_Count",
+      "data_type": "integer",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Attendance"
+        },
+        "linking_field": "Class_Session",
+        "function": "count",
+        "_criteria_note": "status = 'Absent'"
+      }
+    },
+    {
+      "_entity": "enrollments",
+      "module": "Enrollments",
+      "field_label": "Attendance Rate",
+      "api_name": "Attendance_Rate",
+      "data_type": "percent",
+      "rollup_summary": {
+        "based_on": {
+          "api_name": "Attendance"
+        },
+        "linking_field": "Enrollment",
+        "function": "count",
+        "_criteria_note": "status IN ('Present','Late')",
+        "_denominator_note": "status <> 'Excused'"
+      },
+      "_manual": "Zoho rollup summaries cannot express a ratio. Create two count rollups (numerator, denominator) and a formula field dividing them."
+    }
+  ]
+}

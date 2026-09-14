@@ -1,0 +1,9 @@
+-a parent table named contacts
+-under parent table named students
+-terms/session table
+-program/course table
+-enrollments table
+-admission table
+-classes table
+-allocation table
+-attendance is managed by teacher who took class

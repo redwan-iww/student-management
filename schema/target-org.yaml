@@ -1,0 +1,23 @@
+# The Zoho CRM organisation these payloads are built for.
+#
+# Profile IDs are ORG-SPECIFIC. Copying them between orgs fails with
+# "Invalid profile id" -- that is exactly how the demo3/demo4 mix-up surfaced.
+#
+# To fill `profiles`, run against THIS org:
+#     getProfiles(type = "normal_profile")
+# and copy each id/name. Then: npm run gen:zoho
+#
+# Leave `profiles` empty and build/zoho/modules.json carries a loud warning
+# instead of unusable IDs.
+
+org:
+  name: demo 4
+  domain: org735208498
+  note: >-
+    Contacts is the given parent module; every other entity is a custom module.
+    Not reachable from the currently connected MCP connectors -- see
+    docs/architecture.md.
+
+profiles: []
+  # - { id: "...", name: Administrator }
+  # - { id: "...", name: Standard }

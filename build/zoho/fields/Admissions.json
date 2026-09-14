@@ -1,0 +1,295 @@
+{
+  "_entity": "admissions",
+  "module": "Admissions",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Application No",
+      "api_name": "Application_No",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "APP-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "application_no"
+    },
+    {
+      "field_label": "Applicant First Name",
+      "api_name": "Applicant_First_Name",
+      "data_type": "text",
+      "length": 60,
+      "system_mandatory": true,
+      "_entity_field": "applicant_first_name"
+    },
+    {
+      "field_label": "Applicant Last Name",
+      "api_name": "Applicant_Last_Name",
+      "data_type": "text",
+      "length": 60,
+      "system_mandatory": true,
+      "_entity_field": "applicant_last_name"
+    },
+    {
+      "field_label": "Applicant Date of Birth",
+      "api_name": "Applicant_Date_Of_Birth",
+      "data_type": "date",
+      "_entity_field": "applicant_date_of_birth"
+    },
+    {
+      "field_label": "Applicant Gender",
+      "api_name": "Applicant_Gender",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Male",
+          "actual_value": "Male",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Female",
+          "actual_value": "Female",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Prefer Not To Say",
+          "actual_value": "Prefer Not To Say",
+          "sequence_number": 4
+        }
+      ],
+      "_entity_field": "applicant_gender"
+    },
+    {
+      "field_label": "Guardian Name",
+      "api_name": "Guardian_Name",
+      "data_type": "text",
+      "length": 120,
+      "_entity_field": "guardian_name"
+    },
+    {
+      "field_label": "Guardian Phone",
+      "api_name": "Guardian_Phone",
+      "data_type": "phone",
+      "length": 30,
+      "_entity_field": "guardian_phone"
+    },
+    {
+      "field_label": "Guardian Email",
+      "api_name": "Guardian_Email",
+      "data_type": "email",
+      "length": 100,
+      "_entity_field": "guardian_email"
+    },
+    {
+      "field_label": "Source",
+      "api_name": "Source",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Walk In",
+          "actual_value": "Walk In",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Website",
+          "actual_value": "Website",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Referral",
+          "actual_value": "Referral",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Social Media",
+          "actual_value": "Social Media",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Agent",
+          "actual_value": "Agent",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Event",
+          "actual_value": "Event",
+          "sequence_number": 6
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 7
+        }
+      ],
+      "_entity_field": "source"
+    },
+    {
+      "field_label": "Stage",
+      "api_name": "Stage",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Enquiry",
+          "actual_value": "Enquiry",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Application Submitted",
+          "actual_value": "Application Submitted",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Documents Pending",
+          "actual_value": "Documents Pending",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Interview",
+          "actual_value": "Interview",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Offered",
+          "actual_value": "Offered",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Accepted",
+          "actual_value": "Accepted",
+          "sequence_number": 6
+        },
+        {
+          "display_value": "Enrolled",
+          "actual_value": "Enrolled",
+          "sequence_number": 7
+        },
+        {
+          "display_value": "Rejected",
+          "actual_value": "Rejected",
+          "sequence_number": 8
+        },
+        {
+          "display_value": "Withdrawn",
+          "actual_value": "Withdrawn",
+          "sequence_number": 9
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Enquiry",
+      "_entity_field": "stage"
+    },
+    {
+      "field_label": "Applied Date",
+      "api_name": "Applied_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "applied_date"
+    },
+    {
+      "field_label": "Interview Date",
+      "api_name": "Interview_Date",
+      "data_type": "datetime",
+      "_entity_field": "interview_date"
+    },
+    {
+      "field_label": "Decision Date",
+      "api_name": "Decision_Date",
+      "data_type": "date",
+      "_entity_field": "decision_date"
+    },
+    {
+      "field_label": "Rejection Reason",
+      "api_name": "Rejection_Reason",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "rejection_reason"
+    },
+    {
+      "field_label": "Admission Notes",
+      "api_name": "Admission_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Household",
+      "api_name": "Household",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Linked once an existing family is matched, or created on acceptance."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Contacts"
+        },
+        "display_label": "Admissions"
+      },
+      "_entity_field": "household"
+    },
+    {
+      "field_label": "Student",
+      "api_name": "Student",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Back-filled when the application is accepted."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Students"
+        },
+        "display_label": "Admissions"
+      },
+      "_entity_field": "student"
+    },
+    {
+      "field_label": "Applying For Term",
+      "api_name": "Term",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Terms"
+        },
+        "display_label": "Admissions"
+      },
+      "system_mandatory": true,
+      "_entity_field": "term"
+    },
+    {
+      "field_label": "Program",
+      "api_name": "Program",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Programs"
+        },
+        "display_label": "Admissions"
+      },
+      "_entity_field": "program"
+    },
+    {
+      "field_label": "Decision By",
+      "api_name": "Decision_By",
+      "data_type": "userlookup",
+      "_entity_field": "decision_by"
+    }
+  ],
+  "relabel_stock_fields": []
+}

@@ -1,0 +1,471 @@
+# Canonical data model for the Student Management system.
+#
+# This file is the SINGLE SOURCE OF TRUTH. Nothing else in schema/, docs/ or
+# build/ is hand-edited -- everything is generated from here by generators/*.mjs.
+#
+# ---------------------------------------------------------------------------
+# NAMING RULES (implemented by generators/lib/naming.mjs -- do not re-invent)
+# ---------------------------------------------------------------------------
+#   sql.column    defaults to <field name>              (snake_case, as written)
+#   sql.table     defaults to <entity name>             (snake_case plural)
+#   zoho.api_name defaults to PascalCase_With_Underscores of <field name>
+#                 e.g. household_code -> Household_Code
+#   reference fields get SQL column <name>_id and Zoho api_name <PascalCase>
+#                 e.g. household -> household_id / Household
+#
+# Override either block explicitly ONLY when the target requires a name we do
+# not control (Zoho stock fields such as Last_Name, Email, Record_Image).
+#
+# ---------------------------------------------------------------------------
+# FIELD TYPES
+# ---------------------------------------------------------------------------
+#   text textarea email phone url
+#   integer decimal currency percent boolean
+#   date datetime time
+#   enum multi_enum    -> `enum:` names a key in enums.yaml
+#   reference          -> `ref:` names another entity
+#   user_reference     -> a Zoho CRM user / an app user row
+#   autonumber         -> `format:` e.g. "STU-{00000}"
+#   image
+#   rollup             -> derived; emitted as a Zoho rollup summary field and as
+#                         a Postgres VIEW column, never as a base table column
+#
+# ---------------------------------------------------------------------------
+# ZOHO STRATEGY (per entity)
+# ---------------------------------------------------------------------------
+#   extend_standard -- module already exists in the org; only add custom fields
+#   extend_custom   -- custom module already exists; only add custom fields
+#   create          -- module must be created from gen-zoho.mjs output
+
+version: 1
+enums_file: enums.yaml
+
+entities:
+
+  # =========================================================================
+  # households -- the family / billing unit. Students hang under this.
+  # =========================================================================
+  - name: households
+    label: Household
+    plural_label: Households
+    description: >
+      Family or billing unit. In Zoho this rides on the stock Contacts module,
+      so one record is "the household plus its primary guardian". The entity is
+      kept distinct in this spec so a future move to Accounts-as-household is a
+      mapping change, not a remodel.
+    zoho:
+      module: Contacts
+      strategy: extend_standard
+      display_field: Last_Name
+    fields:
+      - { name: household_name, label: Household Name, type: text, length: 120, required: true,
+          zoho: { api_name: Last_Name, stock: true },
+          note: "Stock Zoho display field. Holds e.g. 'Rahman Family'." }
+      - { name: household_code, label: Household Code, type: autonumber, format: "HH-{00000}", unique: true }
+      - { name: primary_guardian_name, label: Primary Guardian, type: text, length: 120, required: true }
+      - { name: primary_guardian_relationship, label: Primary Guardian Rel, type: enum, enum: guardian_relationship }
+      - { name: email, label: Email, type: email, zoho: { api_name: Email, stock: true } }
+      - { name: phone, label: Phone, type: phone, zoho: { api_name: Phone, stock: true } }
+      - { name: mobile, label: Mobile, type: phone, zoho: { api_name: Mobile, stock: true } }
+      - { name: secondary_guardian_name, label: Secondary Guardian, type: text, length: 120 }
+      - { name: secondary_guardian_relationship, label: Secondary Guardian Rel, type: enum, enum: guardian_relationship }
+      - { name: secondary_guardian_phone, label: Secondary Guardian Phone, type: phone }
+      - { name: secondary_guardian_email, label: Secondary Guardian Email, type: email }
+      - { name: preferred_contact_method, label: Preferred Contact Method, type: enum, enum: contact_method, default: Email }
+      - { name: address_line, label: Address, type: text, length: 250,
+          zoho: { api_name: Mailing_Street, stock: true },
+          note: "Zoho stock Mailing_Street is text, not textarea." }
+      - { name: city, label: City, type: text, length: 80, zoho: { api_name: Mailing_City, stock: true } }
+      - { name: postcode, label: Postcode, type: text, length: 20, zoho: { api_name: Mailing_Zip, stock: true } }
+      - { name: country, label: Country, type: text, length: 80, zoho: { api_name: Mailing_Country, stock: true } }
+      - { name: billing_status, label: Billing Status, type: enum, enum: billing_status, default: Current }
+      - { name: notes, label: Household Notes, type: textarea,
+          zoho: { api_name: Household_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+      - { name: active_students_count, label: Active Students, type: rollup,
+          rollup: { from: students, via: household, function: count, where: "status = 'Active'" } }
+
+  # =========================================================================
+  # students
+  # =========================================================================
+  - name: students
+    label: Student
+    plural_label: Students
+    description: The learner. Always belongs to exactly one household.
+    zoho:
+      module: Students
+      strategy: extend_custom
+      display_field: Name
+      note: "CustomModule45. Exists in the org with stock system fields only."
+    fields:
+      - { name: full_name, label: Student Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Stock display field. Keep in step with first_name + last_name." }
+      - { name: student_code, label: Student Code, type: autonumber, format: "STU-{00000}", unique: true }
+      - { name: household, label: Household, type: reference, ref: households, required: true, on_delete: restrict }
+      - { name: first_name, label: First Name, type: text, length: 60, required: true }
+      - { name: last_name, label: Last Name, type: text, length: 60, required: true }
+      - { name: date_of_birth, label: Date of Birth, type: date }
+      - { name: gender, label: Gender, type: enum, enum: gender }
+      - { name: status, label: Status, type: enum, enum: student_status, required: true, default: Prospective }
+      - { name: email, label: Email, type: email, zoho: { api_name: Email, stock: true } }
+      - { name: phone, label: Phone, type: phone }
+      - { name: enrollment_date, label: Enrollment Date, type: date }
+      - { name: exit_date, label: Exit Date, type: date }
+      - { name: emergency_contact_name, label: Emergency Contact, type: text, length: 120 }
+      - { name: emergency_contact_phone, label: Emergency Contact Phone, type: phone }
+      - { name: medical_notes, label: Medical Notes, type: textarea }
+      - { name: photo, label: Student Photo, type: image, zoho: { api_name: Record_Image, stock: true, relabel: true } }
+      - { name: active_enrollments_count, label: Active Enrollments, type: rollup,
+          rollup: { from: enrollments, via: student, function: count, where: "status = 'Active'" } }
+
+  # =========================================================================
+  # teachers -- deliberately NOT CRM users (only 2 licences in the org)
+  # =========================================================================
+  - name: teachers
+    label: Teacher
+    plural_label: Teachers
+    description: >
+      Teaching staff. A separate module rather than CRM users because the org
+      holds only 2 user licences; crm_user links the minority who do have one.
+    zoho:
+      module: Teachers
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: full_name, label: Teacher Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true } }
+      - { name: staff_code, label: Staff Code, type: autonumber, format: "TCH-{0000}", unique: true }
+      - { name: email, label: Email, type: email, unique: true }
+      - { name: phone, label: Phone, type: phone }
+      - { name: crm_user, label: CRM User, type: user_reference,
+          note: "Null for unlicensed staff. Set only when the teacher has a CRM seat." }
+      - { name: employment_type, label: Employment Type, type: enum, enum: teacher_employment_type }
+      - { name: specialisms, label: Specialisms, type: multi_enum, enum: academic_level }
+      - { name: status, label: Status, type: enum, enum: teacher_status, required: true, default: Active }
+      - { name: joined_on, label: Joined On, type: date }
+      - { name: notes, label: Teacher Notes, type: textarea,
+          zoho: { api_name: Teacher_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+
+  # =========================================================================
+  # terms -- the academic calendar window
+  # =========================================================================
+  - name: terms
+    label: Term
+    plural_label: Terms
+    description: An academic term/session. Classes and enrollments are scoped to one.
+    zoho:
+      module: Terms
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Term Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true }, note: "e.g. '2026 Term 1'" }
+      - { name: term_code, label: Term Code, type: text, length: 30, required: true, unique: true,
+          note: "e.g. '2026T1'" }
+      - { name: academic_year, label: Academic Year, type: integer, required: true }
+      - { name: sequence_no, label: Sequence, type: integer,
+          note: "Order within the academic year: 1, 2, 3..." }
+      - { name: start_date, label: Start Date, type: date, required: true }
+      - { name: end_date, label: End Date, type: date, required: true }
+      - { name: enrollment_opens, label: Enrollment Opens, type: date }
+      - { name: enrollment_closes, label: Enrollment Closes, type: date }
+      - { name: status, label: Status, type: enum, enum: term_status, required: true, default: Planned }
+    constraints:
+      - { type: check, name: term_dates_ordered, expr: "end_date >= start_date" }
+
+  # =========================================================================
+  # programs -- grouping above courses (a diploma, a stream)
+  # =========================================================================
+  - name: programs
+    label: Program
+    plural_label: Programs
+    zoho:
+      module: Programs
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Program Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true } }
+      - { name: program_code, label: Program Code, type: text, length: 30, required: true, unique: true }
+      - { name: description, label: Description, type: textarea }
+      - { name: level, label: Level, type: enum, enum: academic_level }
+      - { name: duration_terms, label: Duration (Terms), type: integer }
+      - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
+      - { name: courses_count, label: Courses, type: rollup,
+          rollup: { from: courses, via: program, function: count } }
+
+  # =========================================================================
+  # courses -- catalog entry, independent of when it runs
+  # =========================================================================
+  - name: courses
+    label: Course
+    plural_label: Courses
+    description: >
+      What is taught. A course has no date and no teacher -- that is a `classes`
+      row. The Zoho module name is resolved by the phase-3 audit: the org already
+      holds an unrelated `Courses` (CustomModule2).
+    zoho:
+      module: Course_Catalog
+      singular_label: Course
+      plural_label: Courses
+      strategy: create
+      display_field: Name
+      note: >-
+        api_name is Course_Catalog, not Courses: CustomModule2 already holds the
+        Courses api_name. Audited 2026-09-14 -- that module is status
+        user_hidden and COQL returns NO_PERMISSION, so it can be neither read
+        nor safely reused. User-facing labels stay Course / Courses.
+    fields:
+      - { name: name, label: Course Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true } }
+      - { name: course_code, label: Course Code, type: text, length: 30, required: true, unique: true }
+      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null }
+      - { name: description, label: Description, type: textarea }
+      - { name: level, label: Level, type: enum, enum: academic_level }
+      - { name: contact_hours, label: Contact Hours, type: decimal, precision: 6, scale: 2 }
+      - { name: default_capacity, label: Default Capacity, type: integer, default: 20 }
+      - { name: default_fee, label: Default Fee, type: currency }
+      - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
+
+  # =========================================================================
+  # admissions -- application pipeline, BEFORE a student record exists
+  # =========================================================================
+  - name: admissions
+    label: Admission
+    plural_label: Admissions
+    description: >
+      An application. Applicant details are held inline because no student row
+      exists until the application is accepted; `student` is back-filled then.
+    zoho:
+      module: Admissions
+      strategy: create
+      display_field: Name
+      blueprint: { on_field: stage, enum: admission_stage }
+    fields:
+      - { name: name, label: Application Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from application_no." }
+      - { name: application_no, label: Application No, type: autonumber, format: "APP-{00000}", unique: true }
+      - { name: applicant_first_name, label: Applicant First Name, type: text, length: 60, required: true }
+      - { name: applicant_last_name, label: Applicant Last Name, type: text, length: 60, required: true }
+      - { name: applicant_date_of_birth, label: Applicant Date of Birth, type: date }
+      - { name: applicant_gender, label: Applicant Gender, type: enum, enum: gender }
+      - { name: guardian_name, label: Guardian Name, type: text, length: 120 }
+      - { name: guardian_phone, label: Guardian Phone, type: phone }
+      - { name: guardian_email, label: Guardian Email, type: email }
+      - { name: household, label: Household, type: reference, ref: households, required: false, on_delete: set_null,
+          note: "Linked once an existing family is matched, or created on acceptance." }
+      - { name: student, label: Student, type: reference, ref: students, required: false, on_delete: set_null,
+          note: "Back-filled when the application is accepted." }
+      - { name: term, label: Applying For Term, type: reference, ref: terms, required: true, on_delete: restrict }
+      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null }
+      - { name: source, label: Source, type: enum, enum: admission_source }
+      - { name: stage, label: Stage, type: enum, enum: admission_stage, required: true, default: Enquiry }
+      - { name: applied_date, label: Applied Date, type: date, required: true }
+      - { name: interview_date, label: Interview Date, type: datetime }
+      - { name: decision_date, label: Decision Date, type: date }
+      - { name: decision_by, label: Decision By, type: user_reference }
+      - { name: rejection_reason, label: Rejection Reason, type: textarea }
+      - { name: notes, label: Admission Notes, type: textarea,
+          zoho: { api_name: Admission_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+
+  # =========================================================================
+  # classes -- a SECTION: one course running in one term on a weekly pattern
+  # =========================================================================
+  - name: classes
+    label: Class
+    plural_label: Classes
+    description: >
+      A section/batch: course x term x weekly timetable. NOT a dated lesson --
+      that is `class_sessions`. Attendance never attaches here.
+    zoho:
+      module: Classes
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Class Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true }, note: "e.g. 'MATH101 - 2026T1 - A'" }
+      - { name: class_code, label: Class Code, type: text, length: 40, required: true, unique: true }
+      - { name: course, label: Course, type: reference, ref: courses, required: true, on_delete: restrict }
+      - { name: term, label: Term, type: reference, ref: terms, required: true, on_delete: restrict }
+      - { name: section_label, label: Section, type: text, length: 10, note: "e.g. 'A', 'B', 'Evening'" }
+      - { name: primary_teacher, label: Primary Teacher, type: reference, ref: teachers, required: false, on_delete: set_null }
+      - { name: room, label: Room, type: text, length: 60 }
+      - { name: capacity, label: Capacity, type: integer, required: true, default: 20 }
+      - { name: meeting_days, label: Meeting Days, type: multi_enum, enum: weekday,
+          note: "The weekly pattern that class_sessions rows are generated from." }
+      - { name: start_time, label: Start Time, type: time }
+      - { name: end_time, label: End Time, type: time }
+      - { name: start_date, label: Start Date, type: date, required: true }
+      - { name: end_date, label: End Date, type: date, required: true }
+      - { name: status, label: Status, type: enum, enum: class_status, required: true, default: Draft }
+      - { name: enrolled_count, label: Enrolled, type: rollup,
+          rollup: { from: enrollments, via: class, function: count, where: "status = 'Active'" } }
+      - { name: sessions_count, label: Sessions, type: rollup,
+          rollup: { from: class_sessions, via: class, function: count } }
+    constraints:
+      - { type: check, name: class_dates_ordered, expr: "end_date >= start_date" }
+      - { type: check, name: class_capacity_positive, expr: "capacity > 0" }
+
+  # =========================================================================
+  # class_sessions -- one dated occurrence. Attendance hangs off THIS.
+  # =========================================================================
+  - name: class_sessions
+    label: Class Session
+    plural_label: Class Sessions
+    description: >
+      A single dated meeting of a class, generated from the weekly pattern on
+      `classes`. teacher_taken records who actually ran it, which may differ
+      from the class primary_teacher (substitutions).
+    zoho:
+      module: Class_Sessions
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Session Name, type: text, length: 160, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Auto-composed: '<class_code> - <session_date>'" }
+      - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade }
+      - { name: session_date, label: Session Date, type: date, required: true }
+      - { name: start_time, label: Start Time, type: time }
+      - { name: end_time, label: End Time, type: time }
+      - { name: sequence_no, label: Session No, type: integer, note: "1-based ordinal within the class." }
+      - { name: teacher_taken, label: Teacher Who Took Class, type: reference, ref: teachers, required: false, on_delete: set_null }
+      - { name: status, label: Status, type: enum, enum: session_status, required: true, default: Scheduled }
+      - { name: topic, label: Topic, type: text, length: 200 }
+      - { name: notes, label: Session Notes, type: textarea,
+          zoho: { api_name: Session_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+      - { name: attendance_taken, label: Attendance Taken, type: boolean, default: false }
+      - { name: attendance_taken_at, label: Attendance Taken At, type: datetime }
+      - { name: present_count, label: Present, type: rollup,
+          rollup: { from: attendance, via: class_session, function: count, where: "status IN ('Present','Late')" } }
+      - { name: absent_count, label: Absent, type: rollup,
+          rollup: { from: attendance, via: class_session, function: count, where: "status = 'Absent'" } }
+    constraints:
+      - { type: unique, name: uq_session_per_class_date, fields: [class, session_date, start_time] }
+
+  # =========================================================================
+  # enrollments -- a student place in a section
+  # =========================================================================
+  - name: enrollments
+    label: Enrollment
+    plural_label: Enrollments
+    description: >
+      Joins a student to a class. `course` and `term` are intentionally
+      denormalized: Zoho COQL cannot join two hops, so "all enrollments in
+      Term 1" is only answerable if the term sits on this record. Both are
+      derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
+    zoho:
+      module: Enrollments
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Enrollment Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from enrollment_no." }
+      - { name: enrollment_no, label: Enrollment No, type: autonumber, format: "ENR-{000000}", unique: true }
+      - { name: student, label: Student, type: reference, ref: students, required: true, on_delete: cascade }
+      - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade }
+      - { name: course, label: Course, type: reference, ref: courses, required: false, on_delete: set_null,
+          derived_from: "class.course" }
+      - { name: term, label: Term, type: reference, ref: terms, required: false, on_delete: set_null,
+          derived_from: "class.term" }
+      - { name: status, label: Status, type: enum, enum: enrollment_status, required: true, default: Pending }
+      - { name: enrolled_on, label: Enrolled On, type: date, required: true }
+      - { name: dropped_on, label: Dropped On, type: date }
+      - { name: drop_reason, label: Drop Reason, type: textarea }
+      - { name: fee_amount, label: Fee Amount, type: currency }
+      - { name: discount, label: Discount, type: currency, default: 0 }
+      - { name: payment_status, label: Payment Status, type: enum, enum: payment_status, default: Unpaid }
+      - { name: final_grade, label: Final Grade, type: text, length: 10 }
+      - { name: attendance_rate, label: Attendance Rate, type: rollup,
+          rollup: { from: attendance, via: enrollment, function: percent,
+                    where: "status IN ('Present','Late')", of: "status <> 'Excused'" } }
+    constraints:
+      - { type: unique, name: uq_enrollment_student_class, fields: [student, class],
+          note: "Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md." }
+
+  # =========================================================================
+  # allocations -- staff assigned to a section, or to a single session
+  # =========================================================================
+  - name: allocations
+    label: Allocation
+    plural_label: Allocations
+    description: >
+      Teacher assigned to a class. class_session is NULL for a whole-term
+      allocation and set only for a one-off substitution on that date.
+    zoho:
+      module: Allocations
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Allocation Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from allocation_no." }
+      - { name: allocation_no, label: Allocation No, type: autonumber, format: "ALC-{00000}", unique: true }
+      - { name: teacher, label: Teacher, type: reference, ref: teachers, required: true, on_delete: restrict }
+      - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade }
+      - { name: class_session, label: Class Session, type: reference, ref: class_sessions, required: false, on_delete: cascade,
+          note: "NULL = allocation covers the whole class. Set = single-session substitution." }
+      - { name: role, label: Role, type: enum, enum: allocation_role, required: true, default: Lead Teacher }
+      - { name: effective_from, label: Effective From, type: date }
+      - { name: effective_to, label: Effective To, type: date }
+      - { name: status, label: Status, type: enum, enum: allocation_status, required: true, default: Planned }
+      - { name: notes, label: Allocation Notes, type: textarea,
+          zoho: { api_name: Allocation_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+    constraints:
+      - { type: check, name: allocation_dates_ordered,
+          expr: "effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from" }
+
+  # =========================================================================
+  # attendance -- one row per student per session
+  # =========================================================================
+  - name: attendance
+    label: Attendance
+    plural_label: Attendance
+    description: >
+      One mark per enrolled student per session. `student` and `class` are
+      denormalized off the enrollment for the same COQL reason as enrollments.
+      Highest-volume table: students x classes-each x sessions-per-term.
+    zoho:
+      module: Attendance
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Attendance Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from attendance_no." }
+      - { name: attendance_no, label: Attendance No, type: autonumber, format: "ATT-{0000000}", unique: true }
+      - { name: class_session, label: Class Session, type: reference, ref: class_sessions, required: true, on_delete: cascade }
+      - { name: enrollment, label: Enrollment, type: reference, ref: enrollments, required: true, on_delete: cascade }
+      - { name: student, label: Student, type: reference, ref: students, required: true, on_delete: cascade,
+          derived_from: "enrollment.student" }
+      - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade,
+          derived_from: "enrollment.class" }
+      - { name: status, label: Attendance, type: enum, enum: attendance_status, required: true, default: Present }
+      - { name: minutes_late, label: Minutes Late, type: integer, default: 0 }
+      - { name: marked_by, label: Marked By, type: reference, ref: teachers, required: false, on_delete: set_null,
+          note: "The teacher who took the class and recorded the mark." }
+      - { name: marked_at, label: Marked At, type: datetime }
+      - { name: remarks, label: Remarks, type: textarea }
+    constraints:
+      - { type: unique, name: uq_attendance_enrollment_session, fields: [enrollment, class_session],
+          note: "Zoho: enforced by validation rule, not a native composite unique." }
+      - { type: check, name: attendance_minutes_late_nonneg, expr: "minutes_late >= 0" }
+
+# ---------------------------------------------------------------------------
+# Extra indexes, beyond the automatic one-per-reference-field.
+# ---------------------------------------------------------------------------
+indexes:
+  - { entity: class_sessions, fields: [class, session_date],      name: idx_session_class_date }
+  - { entity: class_sessions, fields: [session_date],             name: idx_session_date }
+  - { entity: students,       fields: [status],                   name: idx_student_status }
+  - { entity: enrollments,    fields: [term, status],             name: idx_enrollment_term_status }
+  - { entity: attendance,     fields: [student, status],          name: idx_attendance_student_status }
+  - { entity: attendance,     fields: [class_session, status],    name: idx_attendance_session_status }
+  - { entity: admissions,     fields: [term, stage],              name: idx_admission_term_stage }

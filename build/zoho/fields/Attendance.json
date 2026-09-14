@@ -1,0 +1,148 @@
+{
+  "_entity": "attendance",
+  "module": "Attendance",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Attendance No",
+      "api_name": "Attendance_No",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "ATT-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "attendance_no"
+    },
+    {
+      "field_label": "Attendance",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Present",
+          "actual_value": "Present",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Absent",
+          "actual_value": "Absent",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Late",
+          "actual_value": "Late",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Excused",
+          "actual_value": "Excused",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Left Early",
+          "actual_value": "Left Early",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Present",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Minutes Late",
+      "api_name": "Minutes_Late",
+      "data_type": "integer",
+      "length": 9,
+      "default_value": "0",
+      "_entity_field": "minutes_late"
+    },
+    {
+      "field_label": "Marked At",
+      "api_name": "Marked_At",
+      "data_type": "datetime",
+      "_entity_field": "marked_at"
+    },
+    {
+      "field_label": "Remarks",
+      "api_name": "Remarks",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "remarks"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Class Session",
+      "api_name": "Class_Session",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Class_Sessions"
+        },
+        "display_label": "Attendance"
+      },
+      "system_mandatory": true,
+      "_entity_field": "class_session"
+    },
+    {
+      "field_label": "Enrollment",
+      "api_name": "Enrollment",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Enrollments"
+        },
+        "display_label": "Attendance"
+      },
+      "system_mandatory": true,
+      "_entity_field": "enrollment"
+    },
+    {
+      "field_label": "Student",
+      "api_name": "Student",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Students"
+        },
+        "display_label": "Attendance"
+      },
+      "system_mandatory": true,
+      "_entity_field": "student"
+    },
+    {
+      "field_label": "Class",
+      "api_name": "Class",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Classes"
+        },
+        "display_label": "Attendance"
+      },
+      "system_mandatory": true,
+      "_entity_field": "class"
+    },
+    {
+      "field_label": "Marked By",
+      "api_name": "Marked_By",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "The teacher who took the class and recorded the mark."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Teachers"
+        },
+        "display_label": "Attendance"
+      },
+      "_entity_field": "marked_by"
+    }
+  ],
+  "relabel_stock_fields": []
+}

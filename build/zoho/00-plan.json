@@ -1,0 +1,129 @@
+{
+  "_comment": "Execute top to bottom. Each step is idempotent-checkable with getFields / getModuleByApiName.",
+  "generated_from": "schema/model.yaml",
+  "steps": [
+    {
+      "step": 1,
+      "action": "audit",
+      "detail": "getModuleByApiName + getRecordCount on Courses (CustomModule2) and Students (CustomModule45) before any write."
+    },
+    {
+      "step": 2,
+      "action": "createModules",
+      "file": "modules.json",
+      "count": 10
+    },
+    {
+      "step": 3,
+      "action": "createFields (scalar pass)",
+      "files": [
+        "fields/Contacts.json",
+        "fields/Students.json",
+        "fields/Teachers.json",
+        "fields/Terms.json",
+        "fields/Programs.json",
+        "fields/Course_Catalog.json",
+        "fields/Admissions.json",
+        "fields/Classes.json",
+        "fields/Class_Sessions.json",
+        "fields/Enrollments.json",
+        "fields/Allocations.json",
+        "fields/Attendance.json"
+      ]
+    },
+    {
+      "step": 4,
+      "action": "createFields (lookup pass)",
+      "files": [
+        "fields/Students.json",
+        "fields/Teachers.json",
+        "fields/Course_Catalog.json",
+        "fields/Admissions.json",
+        "fields/Classes.json",
+        "fields/Class_Sessions.json",
+        "fields/Enrollments.json",
+        "fields/Allocations.json",
+        "fields/Attendance.json"
+      ]
+    },
+    {
+      "step": 5,
+      "action": "rollup summaries",
+      "file": "rollups.json",
+      "count": 8
+    },
+    {
+      "step": 6,
+      "action": "validation rules / custom functions",
+      "file": "validations.json",
+      "count": 8
+    },
+    {
+      "step": 7,
+      "action": "blueprint",
+      "detail": "Admissions.Stage -- see schema/model.yaml entities[admissions].zoho.blueprint"
+    }
+  ],
+  "module_order": [
+    {
+      "entity": "households",
+      "module": "Contacts",
+      "strategy": "extend_standard"
+    },
+    {
+      "entity": "students",
+      "module": "Students",
+      "strategy": "extend_custom"
+    },
+    {
+      "entity": "teachers",
+      "module": "Teachers",
+      "strategy": "create"
+    },
+    {
+      "entity": "terms",
+      "module": "Terms",
+      "strategy": "create"
+    },
+    {
+      "entity": "programs",
+      "module": "Programs",
+      "strategy": "create"
+    },
+    {
+      "entity": "courses",
+      "module": "Course_Catalog",
+      "strategy": "create"
+    },
+    {
+      "entity": "admissions",
+      "module": "Admissions",
+      "strategy": "create"
+    },
+    {
+      "entity": "classes",
+      "module": "Classes",
+      "strategy": "create"
+    },
+    {
+      "entity": "class_sessions",
+      "module": "Class_Sessions",
+      "strategy": "create"
+    },
+    {
+      "entity": "enrollments",
+      "module": "Enrollments",
+      "strategy": "create"
+    },
+    {
+      "entity": "allocations",
+      "module": "Allocations",
+      "strategy": "create"
+    },
+    {
+      "entity": "attendance",
+      "module": "Attendance",
+      "strategy": "create"
+    }
+  ]
+}

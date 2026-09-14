@@ -1,0 +1,100 @@
+{
+  "_entity": "programs",
+  "module": "Programs",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Program Code",
+      "api_name": "Program_Code",
+      "data_type": "text",
+      "length": 30,
+      "system_mandatory": true,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "program_code"
+    },
+    {
+      "field_label": "Description",
+      "api_name": "Description",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "description"
+    },
+    {
+      "field_label": "Level",
+      "api_name": "Level",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Foundation",
+          "actual_value": "Foundation",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Beginner",
+          "actual_value": "Beginner",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Intermediate",
+          "actual_value": "Intermediate",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Advanced",
+          "actual_value": "Advanced",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Professional",
+          "actual_value": "Professional",
+          "sequence_number": 5
+        }
+      ],
+      "_entity_field": "level"
+    },
+    {
+      "field_label": "Duration (Terms)",
+      "api_name": "Duration_Terms",
+      "data_type": "integer",
+      "length": 9,
+      "_entity_field": "duration_terms"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Draft",
+          "actual_value": "Draft",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Inactive",
+          "actual_value": "Inactive",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Retired",
+          "actual_value": "Retired",
+          "sequence_number": 4
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Active",
+      "_entity_field": "status"
+    }
+  ],
+  "lookup_fields": [],
+  "relabel_stock_fields": []
+}

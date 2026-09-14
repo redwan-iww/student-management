@@ -1,0 +1,195 @@
+{
+  "_entity": "enrollments",
+  "module": "Enrollments",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Enrollment No",
+      "api_name": "Enrollment_No",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "ENR-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "enrollment_no"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Pending",
+          "actual_value": "Pending",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Completed",
+          "actual_value": "Completed",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Dropped",
+          "actual_value": "Dropped",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Transferred",
+          "actual_value": "Transferred",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Pending",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Enrolled On",
+      "api_name": "Enrolled_On",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "enrolled_on"
+    },
+    {
+      "field_label": "Dropped On",
+      "api_name": "Dropped_On",
+      "data_type": "date",
+      "_entity_field": "dropped_on"
+    },
+    {
+      "field_label": "Drop Reason",
+      "api_name": "Drop_Reason",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "drop_reason"
+    },
+    {
+      "field_label": "Fee Amount",
+      "api_name": "Fee_Amount",
+      "data_type": "currency",
+      "length": 16,
+      "decimal_place": 2,
+      "currency": {
+        "precision": "2",
+        "rounding_option": "normal"
+      },
+      "_entity_field": "fee_amount"
+    },
+    {
+      "field_label": "Discount",
+      "api_name": "Discount",
+      "data_type": "currency",
+      "length": 16,
+      "decimal_place": 2,
+      "currency": {
+        "precision": "2",
+        "rounding_option": "normal"
+      },
+      "default_value": "0",
+      "_entity_field": "discount"
+    },
+    {
+      "field_label": "Payment Status",
+      "api_name": "Payment_Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Unpaid",
+          "actual_value": "Unpaid",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Partially Paid",
+          "actual_value": "Partially Paid",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Paid",
+          "actual_value": "Paid",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Waived",
+          "actual_value": "Waived",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Refunded",
+          "actual_value": "Refunded",
+          "sequence_number": 5
+        }
+      ],
+      "default_value": "Unpaid",
+      "_entity_field": "payment_status"
+    },
+    {
+      "field_label": "Final Grade",
+      "api_name": "Final_Grade",
+      "data_type": "text",
+      "length": 10,
+      "_entity_field": "final_grade"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Student",
+      "api_name": "Student",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Students"
+        },
+        "display_label": "Enrollments"
+      },
+      "system_mandatory": true,
+      "_entity_field": "student"
+    },
+    {
+      "field_label": "Class",
+      "api_name": "Class",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Classes"
+        },
+        "display_label": "Enrollments"
+      },
+      "system_mandatory": true,
+      "_entity_field": "class"
+    },
+    {
+      "field_label": "Course",
+      "api_name": "Course",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Course_Catalog"
+        },
+        "display_label": "Enrollments"
+      },
+      "_entity_field": "course"
+    },
+    {
+      "field_label": "Term",
+      "api_name": "Term",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Terms"
+        },
+        "display_label": "Enrollments"
+      },
+      "_entity_field": "term"
+    }
+  ],
+  "relabel_stock_fields": []
+}

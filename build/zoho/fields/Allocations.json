@@ -1,0 +1,149 @@
+{
+  "_entity": "allocations",
+  "module": "Allocations",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Allocation No",
+      "api_name": "Allocation_No",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "ALC-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "allocation_no"
+    },
+    {
+      "field_label": "Role",
+      "api_name": "Role",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Lead Teacher",
+          "actual_value": "Lead Teacher",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Assistant",
+          "actual_value": "Assistant",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Substitute",
+          "actual_value": "Substitute",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Observer",
+          "actual_value": "Observer",
+          "sequence_number": 4
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Lead Teacher",
+      "_entity_field": "role"
+    },
+    {
+      "field_label": "Effective From",
+      "api_name": "Effective_From",
+      "data_type": "date",
+      "_entity_field": "effective_from"
+    },
+    {
+      "field_label": "Effective To",
+      "api_name": "Effective_To",
+      "data_type": "date",
+      "_entity_field": "effective_to"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Planned",
+          "actual_value": "Planned",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Ended",
+          "actual_value": "Ended",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Cancelled",
+          "actual_value": "Cancelled",
+          "sequence_number": 4
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Planned",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Allocation Notes",
+      "api_name": "Allocation_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Teacher",
+      "api_name": "Teacher",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Teachers"
+        },
+        "display_label": "Allocations"
+      },
+      "system_mandatory": true,
+      "_entity_field": "teacher"
+    },
+    {
+      "field_label": "Class",
+      "api_name": "Class",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Classes"
+        },
+        "display_label": "Allocations"
+      },
+      "system_mandatory": true,
+      "_entity_field": "class"
+    },
+    {
+      "field_label": "Class Session",
+      "api_name": "Class_Session",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "NULL = allocation covers the whole class. Set = single-session substitution."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Class_Sessions"
+        },
+        "display_label": "Allocations"
+      },
+      "_entity_field": "class_session"
+    }
+  ],
+  "relabel_stock_fields": []
+}

@@ -1,0 +1,113 @@
+# Shared picklists / enumerations.
+#
+# Every `type: enum` or `type: multi_enum` field in model.yaml names one of these.
+# Values are the canonical stored values. They are used verbatim as:
+#   - Zoho CRM picklist `actual_value` and `display_value`
+#   - Postgres CHECK constraint members (via the generated enum types)
+#
+# Rule: never renumber or rename a value in place once data exists — add a new one
+# and migrate. Order here is the display order in Zoho.
+
+version: 1
+
+enums:
+  # ---- households / people -------------------------------------------------
+
+  billing_status:
+    label: Billing Status
+    values: [Current, Overdue, On Hold, Closed]
+
+  guardian_relationship:
+    label: Relationship
+    values: [Mother, Father, Grandparent, Legal Guardian, Sibling, Other]
+
+  contact_method:
+    label: Preferred Contact Method
+    values: [Email, Phone, SMS, WhatsApp]
+
+  gender:
+    label: Gender
+    values: [Male, Female, Other, Prefer Not To Say]
+
+  student_status:
+    label: Student Status
+    values: [Prospective, Active, On Hold, Withdrawn, Graduated, Alumni]
+
+  teacher_employment_type:
+    label: Employment Type
+    values: [Full Time, Part Time, Contract, Visiting]
+
+  teacher_status:
+    label: Teacher Status
+    values: [Active, On Leave, Inactive]
+
+  # ---- academic calendar & catalog ----------------------------------------
+
+  term_status:
+    label: Term Status
+    values: [Planned, Open, In Progress, Closed, Archived]
+
+  catalog_status:
+    label: Status
+    values: [Draft, Active, Inactive, Retired]
+
+  academic_level:
+    label: Level
+    values: [Foundation, Beginner, Intermediate, Advanced, Professional]
+
+  # ---- admissions ----------------------------------------------------------
+
+  admission_stage:
+    label: Stage
+    values:
+      - Enquiry
+      - Application Submitted
+      - Documents Pending
+      - Interview
+      - Offered
+      - Accepted
+      - Enrolled
+      - Rejected
+      - Withdrawn
+
+  admission_source:
+    label: Source
+    values: [Walk In, Website, Referral, Social Media, Agent, Event, Other]
+
+  # ---- delivery ------------------------------------------------------------
+
+  class_status:
+    label: Class Status
+    values: [Draft, Scheduled, Running, Completed, Cancelled]
+
+  weekday:
+    label: Day
+    values: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
+
+  session_status:
+    label: Session Status
+    values: [Scheduled, Held, Cancelled, Rescheduled, Makeup]
+
+  # ---- enrollment & money --------------------------------------------------
+
+  enrollment_status:
+    label: Enrollment Status
+    values: [Pending, Active, Completed, Dropped, Transferred]
+
+  payment_status:
+    label: Payment Status
+    values: [Unpaid, Partially Paid, Paid, Waived, Refunded]
+
+  # ---- staffing & attendance ----------------------------------------------
+
+  allocation_role:
+    label: Role
+    values: [Lead Teacher, Assistant, Substitute, Observer]
+
+  allocation_status:
+    label: Allocation Status
+    values: [Planned, Active, Ended, Cancelled]
+
+  attendance_status:
+    label: Attendance
+    values: [Present, Absent, Late, Excused, Left Early]

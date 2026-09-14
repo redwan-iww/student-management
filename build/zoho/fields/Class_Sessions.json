@@ -1,0 +1,138 @@
+{
+  "_entity": "class_sessions",
+  "module": "Class_Sessions",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Session Date",
+      "api_name": "Session_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "session_date"
+    },
+    {
+      "field_label": "Start Time",
+      "api_name": "Start_Time",
+      "data_type": "text",
+      "length": 5,
+      "_note": "no native time type in Zoho CRM; HH:MM text",
+      "_entity_field": "start_time"
+    },
+    {
+      "field_label": "End Time",
+      "api_name": "End_Time",
+      "data_type": "text",
+      "length": 5,
+      "_note": "no native time type in Zoho CRM; HH:MM text",
+      "_entity_field": "end_time"
+    },
+    {
+      "field_label": "Session No",
+      "api_name": "Sequence_No",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "1-based ordinal within the class."
+      },
+      "data_type": "integer",
+      "length": 9,
+      "_entity_field": "sequence_no"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Scheduled",
+          "actual_value": "Scheduled",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Held",
+          "actual_value": "Held",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Cancelled",
+          "actual_value": "Cancelled",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Rescheduled",
+          "actual_value": "Rescheduled",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Makeup",
+          "actual_value": "Makeup",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Scheduled",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Topic",
+      "api_name": "Topic",
+      "data_type": "text",
+      "length": 200,
+      "_entity_field": "topic"
+    },
+    {
+      "field_label": "Session Notes",
+      "api_name": "Session_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    },
+    {
+      "field_label": "Attendance Taken",
+      "api_name": "Attendance_Taken",
+      "data_type": "boolean",
+      "default_value": "false",
+      "_entity_field": "attendance_taken"
+    },
+    {
+      "field_label": "Attendance Taken At",
+      "api_name": "Attendance_Taken_At",
+      "data_type": "datetime",
+      "_entity_field": "attendance_taken_at"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Class",
+      "api_name": "Class",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Classes"
+        },
+        "display_label": "Class Sessions"
+      },
+      "system_mandatory": true,
+      "_entity_field": "class"
+    },
+    {
+      "field_label": "Teacher Who Took Class",
+      "api_name": "Teacher_Taken",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Teachers"
+        },
+        "display_label": "Class Sessions"
+      },
+      "_entity_field": "teacher_taken"
+    }
+  ],
+  "relabel_stock_fields": []
+}

@@ -1,0 +1,154 @@
+{
+  "_entity": "teachers",
+  "module": "Teachers",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Staff Code",
+      "api_name": "Staff_Code",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "TCH-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "staff_code"
+    },
+    {
+      "field_label": "Email",
+      "api_name": "Email",
+      "data_type": "email",
+      "length": 100,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "email"
+    },
+    {
+      "field_label": "Phone",
+      "api_name": "Phone",
+      "data_type": "phone",
+      "length": 30,
+      "_entity_field": "phone"
+    },
+    {
+      "field_label": "Employment Type",
+      "api_name": "Employment_Type",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Full Time",
+          "actual_value": "Full Time",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Part Time",
+          "actual_value": "Part Time",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Contract",
+          "actual_value": "Contract",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Visiting",
+          "actual_value": "Visiting",
+          "sequence_number": 4
+        }
+      ],
+      "_entity_field": "employment_type"
+    },
+    {
+      "field_label": "Specialisms",
+      "api_name": "Specialisms",
+      "data_type": "multiselectpicklist",
+      "pick_list_values": [
+        {
+          "display_value": "Foundation",
+          "actual_value": "Foundation",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Beginner",
+          "actual_value": "Beginner",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Intermediate",
+          "actual_value": "Intermediate",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Advanced",
+          "actual_value": "Advanced",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Professional",
+          "actual_value": "Professional",
+          "sequence_number": 5
+        }
+      ],
+      "_entity_field": "specialisms"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "On Leave",
+          "actual_value": "On Leave",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Inactive",
+          "actual_value": "Inactive",
+          "sequence_number": 3
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Active",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Joined On",
+      "api_name": "Joined_On",
+      "data_type": "date",
+      "_entity_field": "joined_on"
+    },
+    {
+      "field_label": "Teacher Notes",
+      "api_name": "Teacher_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "CRM User",
+      "api_name": "CRM_User",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Null for unlicensed staff. Set only when the teacher has a CRM seat."
+      },
+      "data_type": "userlookup",
+      "_entity_field": "crm_user"
+    }
+  ],
+  "relabel_stock_fields": []
+}

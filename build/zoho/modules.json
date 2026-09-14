@@ -1,0 +1,91 @@
+{
+  "_comment": "POST to ZohoCRM_createModules, one entry at a time, in this order. Verify each with getModuleByApiName before moving on.",
+  "_target_org": {
+    "name": "demo 4",
+    "domain": "org735208498",
+    "note": "Contacts is the given parent module; every other entity is a custom module. Not reachable from the currently connected MCP connectors -- see docs/architecture.md."
+  },
+  "_profiles_required": "profiles[] is EMPTY and org_based modules require it. Profile IDs are org-specific -- run getProfiles(type=normal_profile) against the TARGET org and fill schema/target-org.yaml, then re-run npm run gen:zoho. Reusing IDs from another org fails with \"Invalid profile id\".",
+  "modules": [
+    {
+      "_entity": "teachers",
+      "singular_label": "Teacher",
+      "plural_label": "Teachers",
+      "api_name": "Teachers",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "terms",
+      "singular_label": "Term",
+      "plural_label": "Terms",
+      "api_name": "Terms",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "programs",
+      "singular_label": "Program",
+      "plural_label": "Programs",
+      "api_name": "Programs",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "courses",
+      "singular_label": "Course",
+      "plural_label": "Courses",
+      "api_name": "Course_Catalog",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "admissions",
+      "singular_label": "Admission",
+      "plural_label": "Admissions",
+      "api_name": "Admissions",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "classes",
+      "singular_label": "Class",
+      "plural_label": "Classes",
+      "api_name": "Classes",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "class_sessions",
+      "singular_label": "Class Session",
+      "plural_label": "Class Sessions",
+      "api_name": "Class_Sessions",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "enrollments",
+      "singular_label": "Enrollment",
+      "plural_label": "Enrollments",
+      "api_name": "Enrollments",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "allocations",
+      "singular_label": "Allocation",
+      "plural_label": "Allocations",
+      "api_name": "Allocations",
+      "access_type": "org_based",
+      "profiles": []
+    },
+    {
+      "_entity": "attendance",
+      "singular_label": "Attendance",
+      "plural_label": "Attendance",
+      "api_name": "Attendance",
+      "access_type": "org_based",
+      "profiles": []
+    }
+  ]
+}

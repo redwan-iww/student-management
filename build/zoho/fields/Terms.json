@@ -1,0 +1,105 @@
+{
+  "_entity": "terms",
+  "module": "Terms",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Term Code",
+      "api_name": "Term_Code",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "e.g. '2026T1'"
+      },
+      "data_type": "text",
+      "length": 30,
+      "system_mandatory": true,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "term_code"
+    },
+    {
+      "field_label": "Academic Year",
+      "api_name": "Academic_Year",
+      "data_type": "integer",
+      "length": 9,
+      "system_mandatory": true,
+      "_entity_field": "academic_year"
+    },
+    {
+      "field_label": "Sequence",
+      "api_name": "Sequence_No",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Order within the academic year: 1, 2, 3..."
+      },
+      "data_type": "integer",
+      "length": 9,
+      "_entity_field": "sequence_no"
+    },
+    {
+      "field_label": "Start Date",
+      "api_name": "Start_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "start_date"
+    },
+    {
+      "field_label": "End Date",
+      "api_name": "End_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "end_date"
+    },
+    {
+      "field_label": "Enrollment Opens",
+      "api_name": "Enrollment_Opens",
+      "data_type": "date",
+      "_entity_field": "enrollment_opens"
+    },
+    {
+      "field_label": "Enrollment Closes",
+      "api_name": "Enrollment_Closes",
+      "data_type": "date",
+      "_entity_field": "enrollment_closes"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Planned",
+          "actual_value": "Planned",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Open",
+          "actual_value": "Open",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "In Progress",
+          "actual_value": "In Progress",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Closed",
+          "actual_value": "Closed",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Archived",
+          "actual_value": "Archived",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Planned",
+      "_entity_field": "status"
+    }
+  ],
+  "lookup_fields": [],
+  "relabel_stock_fields": []
+}

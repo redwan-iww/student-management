@@ -1,0 +1,173 @@
+{
+  "_entity": "students",
+  "module": "Students",
+  "strategy": "extend_custom",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Student Code",
+      "api_name": "Student_Code",
+      "data_type": "autonumber",
+      "auto_number": {
+        "prefix": "STU-",
+        "start_number": "1",
+        "suffix": ""
+      },
+      "_entity_field": "student_code"
+    },
+    {
+      "field_label": "First Name",
+      "api_name": "First_Name",
+      "data_type": "text",
+      "length": 60,
+      "system_mandatory": true,
+      "_entity_field": "first_name"
+    },
+    {
+      "field_label": "Last Name",
+      "api_name": "Last_Name",
+      "data_type": "text",
+      "length": 60,
+      "system_mandatory": true,
+      "_entity_field": "last_name"
+    },
+    {
+      "field_label": "Date of Birth",
+      "api_name": "Date_Of_Birth",
+      "data_type": "date",
+      "_entity_field": "date_of_birth"
+    },
+    {
+      "field_label": "Gender",
+      "api_name": "Gender",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Male",
+          "actual_value": "Male",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Female",
+          "actual_value": "Female",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Prefer Not To Say",
+          "actual_value": "Prefer Not To Say",
+          "sequence_number": 4
+        }
+      ],
+      "_entity_field": "gender"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Prospective",
+          "actual_value": "Prospective",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Active",
+          "actual_value": "Active",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "On Hold",
+          "actual_value": "On Hold",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Withdrawn",
+          "actual_value": "Withdrawn",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Graduated",
+          "actual_value": "Graduated",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Alumni",
+          "actual_value": "Alumni",
+          "sequence_number": 6
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Prospective",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Phone",
+      "api_name": "Phone",
+      "data_type": "phone",
+      "length": 30,
+      "_entity_field": "phone"
+    },
+    {
+      "field_label": "Enrollment Date",
+      "api_name": "Enrollment_Date",
+      "data_type": "date",
+      "_entity_field": "enrollment_date"
+    },
+    {
+      "field_label": "Exit Date",
+      "api_name": "Exit_Date",
+      "data_type": "date",
+      "_entity_field": "exit_date"
+    },
+    {
+      "field_label": "Emergency Contact",
+      "api_name": "Emergency_Contact_Name",
+      "data_type": "text",
+      "length": 120,
+      "_entity_field": "emergency_contact_name"
+    },
+    {
+      "field_label": "Emergency Contact Phone",
+      "api_name": "Emergency_Contact_Phone",
+      "data_type": "phone",
+      "length": 30,
+      "_entity_field": "emergency_contact_phone"
+    },
+    {
+      "field_label": "Medical Notes",
+      "api_name": "Medical_Notes",
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "medical_notes"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Household",
+      "api_name": "Household",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Contacts"
+        },
+        "display_label": "Students"
+      },
+      "system_mandatory": true,
+      "_entity_field": "household"
+    }
+  ],
+  "relabel_stock_fields": [
+    {
+      "api_name": "Record_Image",
+      "new_label": "Student Photo",
+      "_entity_field": "photo"
+    }
+  ]
+}

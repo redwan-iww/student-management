@@ -1,0 +1,26 @@
+{
+  "locale": ["en"],
+  "csp": "",
+  "storage": false,
+  "whiteListedDomains": [],
+  "cspDomains": { "connect-src": [], "img-src": [] },
+  "modules": {
+    "widgets": [
+      {
+        "location": "crm.webtab",
+        "name": "class_allocation",
+        "url": "/app/class-allocation.html",
+        "logo": "/app/logo.png"
+      },
+      {
+        "location": "crm.webtab",
+        "name": "attendance_manager",
+        "url": "/app/attendance-manager.html",
+        "logo": "/app/logo.png"
+      }
+    ]
+  },
+  "config": [],
+  "service": "CRM",
+  "sdkVersions": { "crm": "v8.0" }
+}
