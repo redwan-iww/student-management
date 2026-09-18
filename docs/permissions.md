@@ -1,5 +1,8 @@
 # Who can do what
 
+For *where* these are enforced in Zoho and in a fullstack app, see
+[roles-enforcement.md](roles-enforcement.md).
+
 Access for each role, per table.
 
 **Key:** C = create · R = read · U = update · D = delete · — = no access
