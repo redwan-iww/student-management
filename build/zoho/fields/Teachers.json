@@ -16,16 +16,6 @@
       "_entity_field": "staff_code"
     },
     {
-      "field_label": "Email",
-      "api_name": "Email",
-      "data_type": "email",
-      "length": 100,
-      "unique": {
-        "case_sensitive": false
-      },
-      "_entity_field": "email"
-    },
-    {
       "field_label": "Phone",
       "api_name": "Phone",
       "data_type": "phone",

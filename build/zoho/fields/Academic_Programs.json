@@ -1,6 +1,6 @@
 {
   "_entity": "programs",
-  "module": "Programs",
+  "module": "Academic_Programs",
   "strategy": "create",
   "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
   "scalar_fields": [

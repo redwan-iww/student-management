@@ -34,6 +34,34 @@ export const RESERVED_ZOHO_FIELD_LABELS = new Set([
   'Notes', 'Tags', 'Tag', 'Owner', 'Attachments', 'Approval', 'Currency', 'Layout',
 ]);
 
+/**
+ * Zoho rejects these as *module* names too -- "You cannot have a module name
+ * that matches a system keyword", raised against both Plural and Singular Name
+ * in the Create Module form. A third, separate check from the two above:
+ * 'Program' passes the field checks and fails here. Set zoho.module plus
+ * zoho.singular_label / zoho.plural_label when an entity label lands on one.
+ */
+/**
+ * Every Zoho *custom* module ships with these fields already present, so
+ * creating one returns DUPLICATE_DATA ("API NAME DUPLICATE"). Observed on
+ * CustomModule2 and hit live on Teachers.Email (2026-09-19). A spec field
+ * landing on one of these must be declared zoho: { stock: true }.
+ */
+export const CUSTOM_MODULE_STOCK_FIELDS = new Set([
+  'Name', 'Owner', 'Email', 'Secondary_Email', 'Email_Opt_Out', 'Tag',
+  'Record_Image', 'Created_By', 'Modified_By', 'Created_Time', 'Modified_Time',
+  'Last_Activity_Time', 'Unsubscribed_Mode', 'Unsubscribed_Time',
+  'Locked__s', 'Record_Status__s', 'id',
+]);
+
+export const RESERVED_ZOHO_MODULE_NAMES = new Set([
+  'Program', 'Programs', 'Note', 'Notes', 'Tag', 'Tags', 'Attachment', 'Attachments',
+  'Event', 'Events', 'Task', 'Tasks', 'Call', 'Calls', 'User', 'Users', 'Role', 'Roles',
+  'Profile', 'Profiles', 'Territory', 'Territories', 'Currency', 'Currencies',
+  'Approval', 'Layout', 'Layouts', 'Field', 'Fields', 'Module', 'Modules',
+  'Report', 'Reports', 'Dashboard', 'Dashboards', 'Owner', 'Portal', 'Portals',
+]);
+
 /** household_code -> Household_Code ; crm_user -> CRM_User */
 // 'no' is deliberately absent: it means "number" here, so enrollment_no ->
 // Enrollment_No, not Enrollment_NO.
@@ -91,6 +119,19 @@ function validate(model) {
 
     if (!entity.zoho?.module) problems.push(`${entity.name}: missing zoho.module`);
 
+    // Module names get their own reserved-keyword check -- see
+    // RESERVED_ZOHO_MODULE_NAMES. Both labels and the api_name are rejected.
+    const zSingular = entity.zoho?.singular_label ?? entity.label;
+    const zPlural = entity.zoho?.plural_label ?? entity.plural_label ?? `${entity.label}s`;
+    for (const [what, value] of [["api_name", entity.zoho?.module], ["singular_label", zSingular], ["plural_label", zPlural]]) {
+      if (value && RESERVED_ZOHO_MODULE_NAMES.has(value)) {
+        problems.push(
+          `${entity.name}: module ${what} '${value}' is a Zoho system keyword -- ` +
+            'set zoho.module / zoho.singular_label / zoho.plural_label explicitly',
+        );
+      }
+    }
+
     const seenField = new Set();
     const seenColumn = new Set();
     const seenApi = new Set();
@@ -141,6 +182,14 @@ function validate(model) {
       }
       if (RESERVED_ZOHO_FIELD_LABELS.has(field.label) && !field.zoho?.stock) {
         problems.push(`${where}: field label '${field.label}' is a Zoho reserved keyword`);
+      }
+      // Custom modules already own these api_names -- createFields returns
+      // DUPLICATE_DATA. Only applies to modules Zoho generates as custom.
+      if (entity.zoho?.strategy !== 'extend_standard' && CUSTOM_MODULE_STOCK_FIELDS.has(api) && !field.zoho?.stock) {
+        problems.push(
+          `${where}: api_name '${api}' is a stock field on every Zoho custom module -- ` +
+            'declare zoho: { stock: true } instead of creating it',
+        );
       }
       if (field.label.length > 25) {
         problems.push(`${where}: field label '${field.label}' exceeds Zoho's 25-char limit`);

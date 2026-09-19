@@ -134,12 +134,14 @@ const toCreate = order.filter((e) => e.zoho.strategy === 'create');
 // against the target org at apply time (getProfiles -> normal_profile).
 // Optional: schema/target-org.yaml supplies them so the payload ships filled in.
 let PROFILES = [];
+let TEAM_SPACE = null;
 let TARGET_ORG = null;
 try {
   const YAML = (await import('yaml')).default;
   const cfg = YAML.parse(readFileSync(join(paths.schema, 'target-org.yaml'), 'utf8'));
   TARGET_ORG = cfg.org ?? null;
   PROFILES = (cfg.profiles ?? []).map((p) => ({ id: p.id, _name: p.name }));
+  TEAM_SPACE = cfg.team_space ?? null;
 } catch {
   // No target-org.yaml -- emit the placeholder form.
 }
@@ -158,15 +160,22 @@ write('modules.json', {
           'org and fill schema/target-org.yaml, then re-run npm run gen:zoho. ' +
           'Reusing IDs from another org fails with "Invalid profile id".',
       }),
-  modules: toCreate.map((e) => ({
-    _entity: e.name,
-    singular_label: e.zoho.singular_label ?? e.label,
-    plural_label: e.zoho.plural_label ?? e.plural_label ?? `${e.label}s`,
-    api_name: e.zoho.module,
-    access_type: 'org_based',
-    profiles: PROFILES,
-    ...(e.zoho.collision_risk ? { _collision_risk: e.zoho.collision_risk } : {}),
-  })),
+  modules: toCreate.map((e) => {
+    const teamBased = e.zoho.access_type === 'team_based';
+    return {
+      _entity: e.name,
+      singular_label: e.zoho.singular_label ?? e.label,
+      plural_label: e.zoho.plural_label ?? e.plural_label ?? `${e.label}s`,
+      api_name: e.zoho.module,
+      access_type: e.zoho.access_type ?? 'org_based',
+      // A team module answers to its team space's five private profiles
+      // (Admins/Managers/Members/Participants/Requesters), NOT to org
+      // profiles. Sending org profile ids for one is meaningless.
+      profiles: teamBased ? (TEAM_SPACE?.profiles ?? []).map((p) => ({ id: p.id, _name: p.name })) : PROFILES,
+      ...(teamBased && TEAM_SPACE ? { _team_space: TEAM_SPACE.name, private_profile: { name: 'Admins' } } : {}),
+      ...(e.zoho.collision_risk ? { _collision_risk: e.zoho.collision_risk } : {}),
+    };
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -198,7 +207,9 @@ for (const entity of order) {
     // Stock fields that only need their label changed -- updateField, not createFields.
     relabel_stock_fields: relabels,
   });
-  fieldFiles.push({ entity: entity.name, module: entity.zoho.module, file: rel, scalars: scalars.length, lookups: lookups.length });
+  fieldFiles.push({ entity: entity.name, module: entity.zoho.module, file: rel,
+    scalars: scalars.length, lookups: lookups.length, relabels: relabels.length,
+    mandatory: [...scalars, ...lookups].filter((f) => f.system_mandatory).length });
 }
 
 // ---------------------------------------------------------------------------
@@ -279,17 +290,36 @@ write('validations.json', {
 // ---------------------------------------------------------------------------
 // 00-plan.json -- the ordered runbook
 // ---------------------------------------------------------------------------
+// Counts for the two post-create passes that are not createFields calls.
+const mandatoryCount = fieldFiles.reduce((n, f) => n + f.mandatory, 0);
+const relabelCount = fieldFiles.reduce((n, f) => n + f.relabels, 0);
+
 const plan = {
   _comment: 'Execute top to bottom. Each step is idempotent-checkable with getFields / getModuleByApiName.',
   generated_from: 'schema/model.yaml',
+  _access_model: {
+    org_based: order.filter((e) => (e.zoho.access_type ?? 'org_based') === 'org_based').map((e) => e.zoho.module),
+    team_based: order.filter((e) => e.zoho.access_type === 'team_based').map((e) => e.zoho.module),
+    note: 'Two permission systems. org_based modules answer to org profiles + role hierarchy + sharing rules; team_based modules answer to their team space\'s five private profiles. See docs/roles-enforcement.md.',
+  },
   steps: [
+    { step: 0, action: 'assert target org', detail: TARGET_ORG?.zgid
+        ? `getOrganization must return zgid ${TARGET_ORG.zgid} (${TARGET_ORG.name}). Abort on any other org -- the profile IDs in modules.json and the module IDs below are org-specific.`
+        : 'getOrganization and confirm the org matches schema/target-org.yaml before any write. Profile IDs are org-specific.' },
     { step: 1, action: 'audit', detail: 'getModuleByApiName + getRecordCount on Courses (CustomModule2) and Students (CustomModule45) before any write.' },
     { step: 2, action: 'createModules', file: 'modules.json', count: toCreate.length },
     { step: 3, action: 'createFields (scalar pass)', files: fieldFiles.map((f) => f.file) },
     { step: 4, action: 'createFields (lookup pass)', files: fieldFiles.filter((f) => f.lookups).map((f) => f.file) },
     { step: 5, action: 'rollup summaries', file: 'rollups.json', count: rollups.length },
     { step: 6, action: 'validation rules / custom functions', file: 'validations.json', count: validations.length },
-    { step: 7, action: 'blueprint', detail: 'Admissions.Stage -- see schema/model.yaml entities[admissions].zoho.blueprint' },
+    // Mandatory is layout config, not field metadata: system_mandatory sent to
+    // createFields returns SUCCESS but does not take effect. See docs/architecture.md.
+    { step: 7, action: 'mandatory flags (layout API)', count: mandatoryCount, detail:
+        `getLayouts per module, then updateLayout marking required the ${mandatoryCount} fields flagged system_mandatory in fields/*.json. ` +
+        'createFields silently ignores the flag and getFields does not report it reliably, so this step is not optional.' },
+    { step: 8, action: 'relabel stock fields', count: relabelCount, detail:
+        `updateField on the ${relabelCount} stock field${relabelCount === 1 ? "" : "s"} listed under relabel_stock_fields. Needs ZohoCRM.settings.fields.ALL.` },
+    { step: 9, action: 'blueprint', detail: 'Admissions.Stage -- see schema/model.yaml entities[admissions].zoho.blueprint. UI only; no MCP/API coverage.' },
   ],
   module_order: order.map((e) => ({ entity: e.name, module: e.zoho.module, strategy: e.zoho.strategy })),
 };
@@ -300,6 +330,8 @@ console.log(`  modules to create : ${toCreate.length}`);
 console.log(`  field files       : ${fieldFiles.length}`);
 console.log(`  scalar fields     : ${fieldFiles.reduce((n, f) => n + f.scalars, 0)}`);
 console.log(`  lookup fields     : ${fieldFiles.reduce((n, f) => n + f.lookups, 0)}`);
+console.log(`  mandatory (layout): ${mandatoryCount}`);
+console.log(`  stock relabels    : ${relabelCount}`);
 console.log(`  rollups           : ${rollups.length}`);
 console.log(`  validations       : ${validations.length}`);
 console.log(`  module order      : ${order.map((e) => e.zoho.module).join(' -> ')}`);

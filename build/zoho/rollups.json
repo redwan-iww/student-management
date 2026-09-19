@@ -33,7 +33,7 @@
     },
     {
       "_entity": "programs",
-      "module": "Programs",
+      "module": "Academic_Programs",
       "field_label": "Courses",
       "api_name": "Courses_Count",
       "data_type": "integer",

@@ -416,7 +416,7 @@ export interface Program {
 }
 
 /**
- * What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is resolved by the phase-3 audit: the org already holds an unrelated `Courses` (CustomModule2).
+ * What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
  * Zoho module: Course_Catalog
  */
 export interface Course {
@@ -667,7 +667,7 @@ export const ZOHO_MODULES = {
     },
   },
   programs: {
-    module: 'Programs',
+    module: 'Academic_Programs',
     displayField: 'Name',
     fields: {
       name: 'Name',

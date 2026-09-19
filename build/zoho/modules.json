@@ -1,35 +1,110 @@
 {
   "_comment": "POST to ZohoCRM_createModules, one entry at a time, in this order. Verify each with getModuleByApiName before moving on.",
   "_target_org": {
-    "name": "demo 4",
-    "domain": "org735208498",
-    "note": "Contacts is the given parent module; every other entity is a custom module. Not reachable from the currently connected MCP connectors -- see docs/architecture.md."
+    "name": "demo3",
+    "domain": "org731242989",
+    "zgid": "731242989",
+    "note": "\"Demo Id\" / demo3 -- BD, BDT, Zoho One Enterprise (25-profile, 200-custom-module caps; 2 user licences). Contacts is the parent module; every other entity is a custom module. Reachable via the claude.ai Zoho CRM connector -- assert zgid 731242989 with getOrganization before any write."
   },
-  "_profiles_required": "profiles[] is EMPTY and org_based modules require it. Profile IDs are org-specific -- run getProfiles(type=normal_profile) against the TARGET org and fill schema/target-org.yaml, then re-run npm run gen:zoho. Reusing IDs from another org fails with \"Invalid profile id\".",
   "modules": [
     {
       "_entity": "teachers",
       "singular_label": "Teacher",
       "plural_label": "Teachers",
       "api_name": "Teachers",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "terms",
       "singular_label": "Term",
       "plural_label": "Terms",
       "api_name": "Terms",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "programs",
-      "singular_label": "Program",
-      "plural_label": "Programs",
-      "api_name": "Programs",
-      "access_type": "org_based",
-      "profiles": []
+      "singular_label": "Academic Program",
+      "plural_label": "Academic Programs",
+      "api_name": "Academic_Programs",
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "courses",
@@ -37,55 +112,214 @@
       "plural_label": "Courses",
       "api_name": "Course_Catalog",
       "access_type": "org_based",
-      "profiles": []
+      "profiles": [
+        {
+          "id": "4731441000000026011",
+          "_name": "Administrator"
+        },
+        {
+          "id": "4731441000000026014",
+          "_name": "Standard"
+        }
+      ]
     },
     {
       "_entity": "admissions",
       "singular_label": "Admission",
       "plural_label": "Admissions",
       "api_name": "Admissions",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "classes",
       "singular_label": "Class",
       "plural_label": "Classes",
       "api_name": "Classes",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "class_sessions",
       "singular_label": "Class Session",
       "plural_label": "Class Sessions",
       "api_name": "Class_Sessions",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "enrollments",
       "singular_label": "Enrollment",
       "plural_label": "Enrollments",
       "api_name": "Enrollments",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "allocations",
       "singular_label": "Allocation",
       "plural_label": "Allocations",
       "api_name": "Allocations",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     },
     {
       "_entity": "attendance",
       "singular_label": "Attendance",
       "plural_label": "Attendance",
       "api_name": "Attendance",
-      "access_type": "org_based",
-      "profiles": []
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
     }
   ]
 }

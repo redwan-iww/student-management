@@ -11,11 +11,11 @@ drift check.
 | Entity | Zoho module | Strategy | Notes |
 |---|---|---|---|
 | `households` | `Contacts` | extend_standard |  |
-| `students` | `Students` | extend_custom | CustomModule45. Exists in the org with stock system fields only. |
+| `students` | `Students` | extend_custom | CustomModule45 (id 4731441000029976123) in demo3: status visible, custom, api-supported, stock system fields only. Re-verified 2026-09-19. |
 | `teachers` | `Teachers` | create |  |
 | `terms` | `Terms` | create |  |
-| `programs` | `Programs` | create |  |
-| `courses` | `Course_Catalog` | create | api_name is Course_Catalog, not Courses: CustomModule2 already holds the Courses api_name. Audited 2026-09-14 -- that module is status user_hidden and COQL returns NO_PERMISSION, so it can be neither read nor safely reused. User-facing labels stay Course / Courses. |
+| `programs` | `Academic_Programs` | create | Zoho rejects "Program"/"Programs" as a module name -- "You cannot have a module name that matches a system keyword" (hit 2026-09-19 creating this module in demo3). Both the labels and the api_name have to change, unlike Course_Catalog where only the api_name did. The canonical entity stays `programs` and SQL/TypeScript are unaffected. |
+| `courses` | `Course_Catalog` | create | api_name is Course_Catalog, not Courses: CustomModule2 already holds the Courses api_name. Audited 2026-09-14 and re-verified 2026-09-19 against demo3 (id 4731441000000553422) -- that module is status user_hidden and COQL returns NO_PERMISSION, so it can be neither read nor safely reused. User-facing labels stay Course / Courses. |
 | `admissions` | `Admissions` | create |  |
 | `classes` | `Classes` | create |  |
 | `class_sessions` | `Class_Sessions` | create |  |
@@ -80,7 +80,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 |---|---|---|:-:|
 | `full_name` | `Name` | text | ✓ |
 | `staff_code` | `Staff_Code` | autonumber |  |
-| `email` | `Email` | email |  |
+| `email` | `Email` | email | ✓ |
 | `phone` | `Phone` | phone |  |
 | `crm_user` | `CRM_User` | userlookup |  |
 | `employment_type` | `Employment_Type` | picklist |  |
@@ -103,7 +103,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `enrollment_closes` | `Enrollment_Closes` | date |  |
 | `status` | `Status` | picklist |  |
 
-### Programs — `programs`
+### Academic_Programs — `programs`
 
 | Field | Zoho api_name | Zoho data_type | Stock? |
 |---|---|---|:-:|
@@ -121,7 +121,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 |---|---|---|:-:|
 | `name` | `Name` | text | ✓ |
 | `course_code` | `Course_Code` | text |  |
-| `program` | `Program` | lookup → `Programs` |  |
+| `program` | `Program` | lookup → `Academic_Programs` |  |
 | `description` | `Description` | textarea |  |
 | `level` | `Level` | picklist |  |
 | `contact_hours` | `Contact_Hours` | double |  |
@@ -145,7 +145,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `household` | `Household` | lookup → `Contacts` |  |
 | `student` | `Student` | lookup → `Students` |  |
 | `term` | `Term` | lookup → `Terms` |  |
-| `program` | `Program` | lookup → `Programs` |  |
+| `program` | `Program` | lookup → `Academic_Programs` |  |
 | `source` | `Source` | picklist |  |
 | `stage` | `Stage` | picklist |  |
 | `applied_date` | `Applied_Date` | date |  |
@@ -275,7 +275,7 @@ Contacts
   -> Students
   -> Teachers
   -> Terms
-  -> Programs
+  -> Academic_Programs
   -> Course_Catalog
   -> Admissions
   -> Classes

@@ -278,7 +278,7 @@
       "data_type": "lookup",
       "lookup": {
         "module": {
-          "api_name": "Programs"
+          "api_name": "Academic_Programs"
         },
         "display_label": "Admissions"
       },

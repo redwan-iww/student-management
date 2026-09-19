@@ -11,6 +11,11 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   base: './',
+  // Port 3000, not Vite's default 5173. `strictPort` makes a clash fail loudly
+  // instead of silently moving to 3001 -- a widget URL registered in Zoho points
+  // at one port, so a silent shift would just 404 inside the CRM frame.
+  server: { port: 3000, strictPort: true },
+  preview: { port: 3000, strictPort: true },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

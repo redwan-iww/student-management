@@ -1,9 +1,10 @@
 # The Zoho CRM organisation these payloads are built for.
 #
 # Profile IDs are ORG-SPECIFIC. Copying them between orgs fails with
-# "Invalid profile id" -- that is exactly how the demo3/demo4 mix-up surfaced.
+# "Invalid profile id" -- that is exactly how the demo3/demo4 mix-up surfaced,
+# so re-source this list whenever `org` below changes.
 #
-# To fill `profiles`, run against THIS org:
+# To refill `profiles`, run against THIS org:
 #     getProfiles(type = "normal_profile")
 # and copy each id/name. Then: npm run gen:zoho
 #
@@ -11,13 +12,34 @@
 # instead of unusable IDs.
 
 org:
-  name: demo 4
-  domain: org735208498
+  name: demo3
+  domain: org731242989
+  zgid: "731242989"
   note: >-
-    Contacts is the given parent module; every other entity is a custom module.
-    Not reachable from the currently connected MCP connectors -- see
-    docs/architecture.md.
+    "Demo Id" / demo3 -- BD, BDT, Zoho One Enterprise (25-profile,
+    200-custom-module caps; 2 user licences). Contacts is the parent module;
+    every other entity is a custom module. Reachable via the claude.ai Zoho CRM
+    connector -- assert zgid 731242989 with getOrganization before any write.
 
-profiles: []
-  # - { id: "...", name: Administrator }
-  # - { id: "...", name: Standard }
+# Verified against demo3 on 2026-09-19 (Contacts layout profiles array).
+# demo3 also holds a custom profile `Nasir` (4731441000001754228); it is
+# omitted deliberately -- adding it here grants it access to all 10 new modules.
+profiles:
+  - { id: "4731441000000026011", name: Administrator }
+  - { id: "4731441000000026014", name: Standard }
+
+# The 9 team modules live in a team space and answer to ITS five private
+# profiles, not to the org profiles above. Max 5 Admins per team module.
+# Read: Admins = full control of the module; Managers = all records;
+# Members = read all, write own; Participants = own records only;
+# Requesters = no module access, submit via My Requests.
+team_space:
+  # UNCONFIRMED: no connected API exposes the team space name. Read it from
+  # Setup -> Team Spaces in demo3 and correct this line.
+  name: "(unconfirmed)"
+  profiles:
+    - { id: "4731441000031826001", name: Admins }
+    - { id: "4731441000031826002", name: Managers }
+    - { id: "4731441000031826003", name: Members }
+    - { id: "4731441000031826004", name: Participants }
+    - { id: "4731441000031826005", name: Requesters }

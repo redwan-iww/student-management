@@ -1,7 +1,31 @@
 {
   "_comment": "Execute top to bottom. Each step is idempotent-checkable with getFields / getModuleByApiName.",
   "generated_from": "schema/model.yaml",
+  "_access_model": {
+    "org_based": [
+      "Contacts",
+      "Students",
+      "Course_Catalog"
+    ],
+    "team_based": [
+      "Teachers",
+      "Terms",
+      "Academic_Programs",
+      "Admissions",
+      "Classes",
+      "Class_Sessions",
+      "Enrollments",
+      "Allocations",
+      "Attendance"
+    ],
+    "note": "Two permission systems. org_based modules answer to org profiles + role hierarchy + sharing rules; team_based modules answer to their team space's five private profiles. See docs/roles-enforcement.md."
+  },
   "steps": [
+    {
+      "step": 0,
+      "action": "assert target org",
+      "detail": "getOrganization must return zgid 731242989 (demo3). Abort on any other org -- the profile IDs in modules.json and the module IDs below are org-specific."
+    },
     {
       "step": 1,
       "action": "audit",
@@ -21,7 +45,7 @@
         "fields/Students.json",
         "fields/Teachers.json",
         "fields/Terms.json",
-        "fields/Programs.json",
+        "fields/Academic_Programs.json",
         "fields/Course_Catalog.json",
         "fields/Admissions.json",
         "fields/Classes.json",
@@ -60,8 +84,20 @@
     },
     {
       "step": 7,
+      "action": "mandatory flags (layout API)",
+      "count": 43,
+      "detail": "getLayouts per module, then updateLayout marking required the 43 fields flagged system_mandatory in fields/*.json. createFields silently ignores the flag and getFields does not report it reliably, so this step is not optional."
+    },
+    {
+      "step": 8,
+      "action": "relabel stock fields",
+      "count": 1,
+      "detail": "updateField on the 1 stock field listed under relabel_stock_fields. Needs ZohoCRM.settings.fields.ALL."
+    },
+    {
+      "step": 9,
       "action": "blueprint",
-      "detail": "Admissions.Stage -- see schema/model.yaml entities[admissions].zoho.blueprint"
+      "detail": "Admissions.Stage -- see schema/model.yaml entities[admissions].zoho.blueprint. UI only; no MCP/API coverage."
     }
   ],
   "module_order": [
@@ -87,7 +123,7 @@
     },
     {
       "entity": "programs",
-      "module": "Programs",
+      "module": "Academic_Programs",
       "strategy": "create"
     },
     {

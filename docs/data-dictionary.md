@@ -69,7 +69,7 @@ SQL table `teachers` · Zoho module `Teachers` (create)
 |---|---|:-:|:-:|---|---|
 | `full_name` | text | ✓ |  | `full_name` |  |
 | `staff_code` | autonumber |  | ✓ | `staff_code` |  |
-| `email` | email |  | ✓ | `email` |  |
+| `email` | email |  | ✓ | `email` | Stock field: every Zoho custom module ships with Email + Secondary_Email. Creating it returns DUPLICATE_DATA (hit 2026-09-19 on Teachers). |
 | `phone` | phone |  |  | `phone` |  |
 | `crm_user` | user_reference |  |  | `crm_user_id` | Null for unlicensed staff. Set only when the teacher has a CRM seat. |
 | `employment_type` | enum `teacher_employment_type` |  |  | `employment_type` |  |
@@ -102,7 +102,7 @@ SQL table `terms` · Zoho module `Terms` (create)
 
 ## Program — `programs`
 
-SQL table `programs` · Zoho module `Programs` (create)
+SQL table `programs` · Zoho module `Academic_Programs` (create)
 
 | Field | Type | Req | Unique | SQL column | Notes |
 |---|---|:-:|:-:|---|---|
@@ -116,7 +116,7 @@ SQL table `programs` · Zoho module `Programs` (create)
 
 ## Course — `courses`
 
-What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is resolved by the phase-3 audit: the org already holds an unrelated `Courses` (CustomModule2).
+What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
 
 SQL table `courses` · Zoho module `Course_Catalog` (create)
 

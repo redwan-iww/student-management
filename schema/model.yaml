@@ -94,9 +94,10 @@ entities:
     description: The learner. Always belongs to exactly one household.
     zoho:
       module: Students
+      access_type: org_based
       strategy: extend_custom
       display_field: Name
-      note: "CustomModule45. Exists in the org with stock system fields only."
+      note: "CustomModule45 (id 4731441000029976123) in demo3: status visible, custom, api-supported, stock system fields only. Re-verified 2026-09-19."
     fields:
       - { name: full_name, label: Student Name, type: text, length: 120, required: true,
           zoho: { api_name: Name, stock: true },
@@ -130,13 +131,16 @@ entities:
       holds only 2 user licences; crm_user links the minority who do have one.
     zoho:
       module: Teachers
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
       - { name: full_name, label: Teacher Name, type: text, length: 120, required: true,
           zoho: { api_name: Name, stock: true } }
       - { name: staff_code, label: Staff Code, type: autonumber, format: "TCH-{0000}", unique: true }
-      - { name: email, label: Email, type: email, unique: true }
+      - { name: email, label: Email, type: email, unique: true,
+          zoho: { api_name: Email, stock: true },
+          note: "Stock field: every Zoho custom module ships with Email + Secondary_Email. Creating it returns DUPLICATE_DATA (hit 2026-09-19 on Teachers)." }
       - { name: phone, label: Phone, type: phone }
       - { name: crm_user, label: CRM User, type: user_reference,
           note: "Null for unlicensed staff. Set only when the teacher has a CRM seat." }
@@ -157,6 +161,7 @@ entities:
     description: An academic term/session. Classes and enrollments are scoped to one.
     zoho:
       module: Terms
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
@@ -182,9 +187,18 @@ entities:
     label: Program
     plural_label: Programs
     zoho:
-      module: Programs
+      module: Academic_Programs
+      access_type: team_based
+      singular_label: Academic Program
+      plural_label: Academic Programs
       strategy: create
       display_field: Name
+      note: >-
+        Zoho rejects "Program"/"Programs" as a module name -- "You cannot have
+        a module name that matches a system keyword" (hit 2026-09-19 creating
+        this module in demo3). Both the labels and the api_name have to change,
+        unlike Course_Catalog where only the api_name did. The canonical entity
+        stays `programs` and SQL/TypeScript are unaffected.
     fields:
       - { name: name, label: Program Name, type: text, length: 120, required: true,
           zoho: { api_name: Name, stock: true } }
@@ -204,17 +218,19 @@ entities:
     plural_label: Courses
     description: >
       What is taught. A course has no date and no teacher -- that is a `classes`
-      row. The Zoho module name is resolved by the phase-3 audit: the org already
+      row. The Zoho module name is forced by the target org: demo3 already
       holds an unrelated `Courses` (CustomModule2).
     zoho:
       module: Course_Catalog
+      access_type: org_based
       singular_label: Course
       plural_label: Courses
       strategy: create
       display_field: Name
       note: >-
         api_name is Course_Catalog, not Courses: CustomModule2 already holds the
-        Courses api_name. Audited 2026-09-14 -- that module is status
+        Courses api_name. Audited 2026-09-14 and re-verified 2026-09-19 against
+        demo3 (id 4731441000000553422) -- that module is status
         user_hidden and COQL returns NO_PERMISSION, so it can be neither read
         nor safely reused. User-facing labels stay Course / Courses.
     fields:
@@ -240,6 +256,7 @@ entities:
       exists until the application is accepted; `student` is back-filled then.
     zoho:
       module: Admissions
+      access_type: team_based
       strategy: create
       display_field: Name
       blueprint: { on_field: stage, enum: admission_stage }
@@ -283,6 +300,7 @@ entities:
       that is `class_sessions`. Attendance never attaches here.
     zoho:
       module: Classes
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
@@ -322,6 +340,7 @@ entities:
       from the class primary_teacher (substitutions).
     zoho:
       module: Class_Sessions
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
@@ -361,6 +380,7 @@ entities:
       derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
     zoho:
       module: Enrollments
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
@@ -400,6 +420,7 @@ entities:
       allocation and set only for a one-off substitution on that date.
     zoho:
       module: Allocations
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:
@@ -434,6 +455,7 @@ entities:
       Highest-volume table: students x classes-each x sessions-per-term.
     zoho:
       module: Attendance
+      access_type: team_based
       strategy: create
       display_field: Name
     fields:

@@ -571,6 +571,7 @@ COMMENT ON COLUMN "households"."notes" IS 'api_name is not ''Notes'' -- Zoho res
 COMMENT ON TABLE "households" IS 'Family or billing unit. In Zoho this rides on the stock Contacts module, so one record is "the household plus its primary guardian". The entity is kept distinct in this spec so a future move to Accounts-as-household is a mapping change, not a remodel.';
 COMMENT ON COLUMN "students"."full_name" IS 'Stock display field. Keep in step with first_name + last_name.';
 COMMENT ON TABLE "students" IS 'The learner. Always belongs to exactly one household.';
+COMMENT ON COLUMN "teachers"."email" IS 'Stock field: every Zoho custom module ships with Email + Secondary_Email. Creating it returns DUPLICATE_DATA (hit 2026-09-19 on Teachers).';
 COMMENT ON COLUMN "teachers"."crm_user_id" IS 'Null for unlicensed staff. Set only when the teacher has a CRM seat.';
 COMMENT ON COLUMN "teachers"."notes" IS 'api_name is not ''Notes'' -- Zoho reserves that keyword.';
 COMMENT ON TABLE "teachers" IS 'Teaching staff. A separate module rather than CRM users because the org holds only 2 user licences; crm_user links the minority who do have one.';
@@ -578,7 +579,7 @@ COMMENT ON COLUMN "terms"."name" IS 'e.g. ''2026 Term 1''';
 COMMENT ON COLUMN "terms"."term_code" IS 'e.g. ''2026T1''';
 COMMENT ON COLUMN "terms"."sequence_no" IS 'Order within the academic year: 1, 2, 3...';
 COMMENT ON TABLE "terms" IS 'An academic term/session. Classes and enrollments are scoped to one.';
-COMMENT ON TABLE "courses" IS 'What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is resolved by the phase-3 audit: the org already holds an unrelated `Courses` (CustomModule2).';
+COMMENT ON TABLE "courses" IS 'What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).';
 COMMENT ON COLUMN "admissions"."name" IS 'Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from application_no.';
 COMMENT ON COLUMN "admissions"."household_id" IS 'Linked once an existing family is matched, or created on acceptance.';
 COMMENT ON COLUMN "admissions"."student_id" IS 'Back-filled when the application is accepted.';
