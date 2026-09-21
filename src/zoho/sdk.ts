@@ -48,19 +48,45 @@ declare global {
   var ZOHO: ZohoGlobal | undefined;
 }
 
+/**
+ * Why the handshake did not complete. The two causes look identical on screen
+ * but need opposite fixes, so they are kept apart:
+ *
+ * - 'no-sdk'      the ZOHO global is absent -- the SDK <script> never loaded
+ *                 (blocked, offline, or the page opened outside any frame).
+ * - 'no-response' the SDK loaded and we called init(), but the parent never
+ *                 answered. That is what a plain Web Tab does: only a
+ *                 registered widget gets the postMessage handshake.
+ * - 'unframed'    the page is its own top window, so there is no parent at all.
+ */
+export type HandshakeFailure = 'no-sdk' | 'no-response' | 'unframed';
+
 export class NotInsideCrmError extends Error {
-  constructor() {
-    super(
-      'The Zoho SDK did not initialise. A CRM web tab only runs inside the Zoho ' +
-        'CRM frame -- opening this page directly will always fail here.',
-    );
+  readonly reason: HandshakeFailure;
+  readonly waitedMs: number;
+
+  constructor(reason: HandshakeFailure, waitedMs = 0) {
+    super(NotInsideCrmError.describe(reason));
     this.name = 'NotInsideCrmError';
+    this.reason = reason;
+    this.waitedMs = waitedMs;
+  }
+
+  static describe(reason: HandshakeFailure): string {
+    switch (reason) {
+      case 'no-sdk':
+        return 'The Zoho SDK script did not load, so there is no ZOHO global to call.';
+      case 'unframed':
+        return 'This page is not inside a frame, so there is no CRM parent to hand it context.';
+      case 'no-response':
+        return 'The SDK loaded and init() was called, but the CRM parent never answered.';
+    }
   }
 }
 
 /** Narrow the global, or fail with an explanation rather than a TypeError. */
 export function zoho(): ZohoGlobal {
-  if (typeof globalThis.ZOHO === 'undefined') throw new NotInsideCrmError();
+  if (typeof globalThis.ZOHO === 'undefined') throw new NotInsideCrmError('no-sdk');
   return globalThis.ZOHO;
 }
 
@@ -81,7 +107,17 @@ export function initTab(timeoutMs = 8000): Promise<PageLoadData> {
       return;
     }
 
-    const timer = setTimeout(() => reject(new NotInsideCrmError()), timeoutMs);
+    // Unframed is knowable immediately -- no need to burn the full timeout.
+    if (window.self === window.top) {
+      reject(new NotInsideCrmError('unframed'));
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = setTimeout(
+      () => reject(new NotInsideCrmError('no-response', Date.now() - startedAt)),
+      timeoutMs,
+    );
     const done = (data: PageLoadData) => {
       clearTimeout(timer);
       resolve(data);

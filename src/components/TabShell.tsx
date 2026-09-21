@@ -1,11 +1,37 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { initTab, NotInsideCrmError } from '../zoho/sdk';
+import { initTab, NotInsideCrmError, type HandshakeFailure } from '../zoho/sdk';
 
 type State =
   | { kind: 'init' }
-  | { kind: 'outside' }
+  | { kind: 'outside'; reason: HandshakeFailure; waitedMs: number }
   | { kind: 'failed'; message: string }
-  | { kind: 'ready' };
+  | { kind: 'ready' }
+  // Handshake never came, but dev fixtures were installed so the UI still runs.
+  | { kind: 'ready-mock'; reason: HandshakeFailure };
+
+/** What to do about each failure, in the reader's terms. */
+const REMEDY: Record<HandshakeFailure, { headline: string; detail: string }> = {
+  'no-sdk': {
+    headline: 'The Zoho SDK script never loaded',
+    detail:
+      'ZohoEmbededAppSDK.min.js could not be fetched from live.zwidgets.com. ' +
+      'Check the Network tab: a blocked request, an offline machine, or a CSP rule.',
+  },
+  unframed: {
+    headline: 'Open this from inside Zoho CRM',
+    detail:
+      'This URL was loaded on its own. A web tab is handed its context by the ' +
+      'parent CRM page, so there is nothing to connect to here.',
+  },
+  'no-response': {
+    headline: 'Registered as a Web Tab, not as a widget',
+    detail:
+      'The SDK loaded and init() was called, but the CRM never answered. Zoho ' +
+      'performs that handshake only for registered widgets. Create it under ' +
+      'Setup > Developer Space > Widgets (type: Web Tab) and point the tab at ' +
+      'the widget rather than at this URL.',
+  },
+};
 
 /**
  * Common chrome for both web tabs: waits for the CRM handshake, then renders.
@@ -22,7 +48,21 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       .then(() => { if (!cancelled) setState({ kind: 'ready' }); })
       .catch((err: unknown) => {
         if (cancelled) return;
-        if (err instanceof NotInsideCrmError) setState({ kind: 'outside' });
+        if (err instanceof NotInsideCrmError) {
+          // In dev, an unanswered handshake should not be a dead end: install the
+          // fixtures and render, so the tab can be worked on inside the CRM frame
+          // before the widget is registered. Never in a production build -- there,
+          // fake data masquerading as CRM data would be worse than an error.
+          if (import.meta.env.DEV) {
+            void import('../zoho/mock').then(({ installMockZoho }) => {
+              if (cancelled) return;
+              installMockZoho();
+              setState({ kind: 'ready-mock', reason: err.reason });
+            });
+            return;
+          }
+          setState({ kind: 'outside', reason: err.reason, waitedMs: err.waitedMs });
+        }
         else setState({ kind: 'failed', message: err instanceof Error ? err.message : String(err) });
       });
     return () => { cancelled = true; };
@@ -43,16 +83,24 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
 
       {state.kind === 'outside' && (
         <div className="notice">
-          <h2>Open this from inside Zoho CRM</h2>
-          <p>
-            A CRM web tab is handed its context through a postMessage handshake
-            with the parent CRM page. Loading this URL directly can never work.
+          <h2>{REMEDY[state.reason].headline}</h2>
+          <p>{REMEDY[state.reason].detail}</p>
+          <p className="muted">
+            diagnosis: <code>{state.reason}</code>
+            {state.waitedMs > 0 && <> after {(state.waitedMs / 1000).toFixed(1)}s</>}
           </p>
         </div>
       )}
 
+      {state.kind === 'ready-mock' && (
+        <p className="devbar">
+          No CRM handshake ({state.reason}) — showing sample data, not demo3.
+          {' '}Register this as a widget to read live records.
+        </p>
+      )}
+
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
-      {state.kind === 'ready' && children}
+      {(state.kind === 'ready' || state.kind === 'ready-mock') && children}
     </>
   );
 }
