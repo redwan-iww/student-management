@@ -1,1 +1,5 @@
 node_modules/
+dist/
+dist-ext/
+*.local
+ZET-debug.log

@@ -1,6 +1,11 @@
-# Student Management — Zoho CRM widget
+# The Zoho CRM web tabs
 
 React + TypeScript + Vite, built to run **inside** Zoho CRM as an embedded widget.
+
+This used to be a standalone npm project under `app/`. It now shares the repo
+root's `package.json` and `node_modules` with the schema pipeline, so `npm run
+dev` and `npm run gen` are run from the same place. The `app/` paths that remain
+below are *inside the extension zip*, which is a separate layout from the repo.
 
 ## Why it can only run inside CRM
 
@@ -16,7 +21,7 @@ separately hosted app using server-side OAuth — see `../docs/architecture.md`.
 
 ## Field names come from the schema
 
-`src/generated/types.ts` is copied from `../build/types.ts` by `npm run sync:types`,
+`src/generated/types.ts` is copied from `build/types.ts` by `npm run sync:types`,
 which every `dev`/`build`/`typecheck` runs first. Nothing here hard-codes a Zoho
 api_name; calls go through `ZOHO_MODULES`:
 

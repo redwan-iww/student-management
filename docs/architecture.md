@@ -76,7 +76,7 @@ ZOHO.CRM.API.insertRecord({ Entity: module, APIData: {
 A rename in `schema/model.yaml` then breaks the build instead of failing silently
 at runtime.
 
-There are **two** surfaces, both registered in `app/plugin-manifest.json` at
+There are **two** surfaces, both registered in `plugin-manifest.json` at
 `location: crm.webtab` — so they are widgets *hosted as* web tabs, which is what
 makes the JS SDK handshake work. A plain Web Tab pointing at an external URL gets
 no handshake and would need server-side OAuth instead.
@@ -93,7 +93,7 @@ Two things fall out of that map:
   the org/team permission boundary at runtime. The five untouched modules are
   back-office, worked in the CRM UI.
 - **Student names come from the Enrollment's `Student` lookup display value**
-  (`refName` in `app/src/zoho/client.ts`), not from a read of Students. That is
+  (`refName` in `src/zoho/client.ts`), not from a read of Students. That is
   what keeps the roster off the org modules — worth preserving.
 
 ### 7. Nine modules are team modules, three are organization modules
