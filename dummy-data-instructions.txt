@@ -1,0 +1,7 @@
+-add three 70 days terms
+-each term has six separate program/course
+-add two parents
+-under first parent there will be one student
+-under second parent there will be two students
+-those three students will admit on three separate terms
+-class allocation for them

@@ -19,6 +19,7 @@ build/types.ts         generated: TypeScript for the React widget
 docs/                  generated: ERD, data dictionary, Zoho field map
 docs/architecture.md   hand-written: the decisions and why
 docs/widget.md         hand-written: how the web tabs are built and deployed
+docs/new-term-workflow.md  hand-written: admin runbook for opening a new term
 
 src/                   the React app -- two Zoho CRM web tabs
 src/entries/           one entry per web tab
