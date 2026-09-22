@@ -30,7 +30,15 @@ interface ZohoCrmApi {
   getRecord(o: { Entity: string; RecordID: string }): Promise<ZohoApiResponse>;
   getAllRecords(o: { Entity: string; sort_by?: string; sort_order?: string; per_page?: number; page?: number }): Promise<ZohoApiResponse>;
   searchRecord(o: { Entity: string; Type: 'criteria' | 'email' | 'phone' | 'word'; Query: string; per_page?: number; page?: number }): Promise<ZohoApiResponse>;
-  insertRecord(o: { Entity: string; APIData: Record<string, unknown>; Trigger?: string[] }): Promise<ZohoApiResponse>;
+  /**
+   * APIData takes a single record or an array of up to 100 -- Zoho's bulk
+   * create. One call for 100 rows instead of 100 calls.
+   */
+  insertRecord(o: {
+    Entity: string;
+    APIData: Record<string, unknown> | Array<Record<string, unknown>>;
+    Trigger?: string[];
+  }): Promise<ZohoApiResponse>;
   updateRecord(o: { Entity: string; RecordID: string; APIData: Record<string, unknown>; Trigger?: string[] }): Promise<ZohoApiResponse>;
   deleteRecord(o: { Entity: string; RecordID: string }): Promise<ZohoApiResponse>;
 }
@@ -118,15 +126,32 @@ export function initTab(timeoutMs = 8000): Promise<PageLoadData> {
       () => reject(new NotInsideCrmError('no-response', Date.now() - startedAt)),
       timeoutMs,
     );
+    // resolve() is idempotent, so whichever of the two signals below arrives
+    // first wins and the other is a no-op.
     const done = (data: PageLoadData) => {
       clearTimeout(timer);
       resolve(data);
     };
 
+    // Two independent signals that the handshake completed, and a web tab may
+    // only ever give the second:
+    //
+    //   PageLoad  fires when CRM hands over a record. A detail-view widget
+    //             always gets one; a WEB TAB has no record context, so on a web
+    //             tab this may never fire at all.
+    //   init()    resolves when the postMessage handshake itself completes,
+    //             record or no record.
+    //
+    // Waiting only on PageLoad -- which this did until 2026-09-22 -- meant a
+    // perfectly connected web tab timed out as 'no-response' and fell back to
+    // fixtures, even though ZOHO.CRM.API was live and authenticated the whole
+    // time. Resolve on either.
     sdk.embeddedApp.on('PageLoad', done);
-    sdk.embeddedApp.init().catch((err: unknown) => {
-      clearTimeout(timer);
-      reject(err instanceof Error ? err : new Error(String(err)));
-    });
+    sdk.embeddedApp.init()
+      .then(() => done({}))
+      .catch((err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
   });
 }

@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Loader, useDelayed } from './Loader';
+import { describeError } from '../zoho/client';
 import { initTab, NotInsideCrmError, type HandshakeFailure } from '../zoho/sdk';
 
 type State =
@@ -7,7 +9,10 @@ type State =
   | { kind: 'failed'; message: string }
   | { kind: 'ready' }
   // Handshake never came, but dev fixtures were installed so the UI still runs.
-  | { kind: 'ready-mock'; reason: HandshakeFailure };
+  | { kind: 'ready-mock'; reason: HandshakeFailure }
+  // Handshake never came, but the live dev proxy is configured -- so this is
+  // real demo3 data reached over REST rather than through the SDK.
+  | { kind: 'ready-live'; reason: HandshakeFailure };
 
 /** What to do about each failure, in the reader's terms. */
 const REMEDY: Record<HandshakeFailure, { headline: string; detail: string }> = {
@@ -24,12 +29,13 @@ const REMEDY: Record<HandshakeFailure, { headline: string; detail: string }> = {
       'parent CRM page, so there is nothing to connect to here.',
   },
   'no-response': {
-    headline: 'Registered as a Web Tab, not as a widget',
+    headline: 'The CRM never completed the handshake',
     detail:
-      'The SDK loaded and init() was called, but the CRM never answered. Zoho ' +
-      'performs that handshake only for registered widgets. Create it under ' +
-      'Setup > Developer Space > Widgets (type: Web Tab) and point the tab at ' +
-      'the widget rather than at this URL.',
+      'The SDK loaded and init() was called, but neither init() nor PageLoad ' +
+      'came back within the timeout. Usually this means the page is framed by ' +
+      'something other than CRM, or it was registered in a way that does not ' +
+      'get a handshake. If the tab is registered and this persists, the dev ' +
+      'proxy (.env, docs/live-dev.md) is the fallback route to real data.',
   },
 };
 
@@ -49,24 +55,39 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       .catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof NotInsideCrmError) {
-          // In dev, an unanswered handshake should not be a dead end: install the
-          // fixtures and render, so the tab can be worked on inside the CRM frame
-          // before the widget is registered. Never in a production build -- there,
-          // fake data masquerading as CRM data would be worse than an error.
+          // In dev, an unanswered handshake should not be a dead end: install a
+          // transport and render, so the tab can be worked on inside the CRM
+          // frame before the widget is registered. Prefer the live adapter when
+          // the dev proxy has credentials -- that is real demo3 data, just
+          // reached over REST instead of through the SDK -- and fall back to
+          // fixtures otherwise. Never in a production build: there, fake data
+          // masquerading as CRM data would be worse than an error.
           if (import.meta.env.DEV) {
-            void import('../zoho/mock').then(({ installMockZoho }) => {
+            void import('virtual:zoho-mode').then(async ({ LIVE }) => {
               if (cancelled) return;
-              installMockZoho();
-              setState({ kind: 'ready-mock', reason: err.reason });
+              if (LIVE) {
+                const { installLiveZoho } = await import('../zoho/live');
+                if (cancelled) return;
+                installLiveZoho();
+                setState({ kind: 'ready-live', reason: err.reason });
+              } else {
+                const { installMockZoho } = await import('../zoho/mock');
+                if (cancelled) return;
+                installMockZoho();
+                setState({ kind: 'ready-mock', reason: err.reason });
+              }
             });
             return;
           }
           setState({ kind: 'outside', reason: err.reason, waitedMs: err.waitedMs });
         }
-        else setState({ kind: 'failed', message: err instanceof Error ? err.message : String(err) });
+        else setState({ kind: 'failed', message: describeError(err) });
       });
     return () => { cancelled = true; };
   }, []);
+
+  // The handshake is usually quick; only mention the wait if it is not.
+  const showConnecting = useDelayed(state.kind === 'init');
 
   const isDevPreview = import.meta.env.DEV && window.self === window.top;
 
@@ -79,7 +100,9 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
         <h1>{title}</h1>
       </header>
 
-      {state.kind === 'init' && <p className="muted">Connecting to Zoho CRM…</p>}
+      {state.kind === 'init' && showConnecting && (
+        <Loader label="Connecting to Zoho CRM…" />
+      )}
 
       {state.kind === 'outside' && (
         <div className="notice">
@@ -93,14 +116,25 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       )}
 
       {state.kind === 'ready-mock' && (
+        <p className="devbar warnbar">
+          <strong>Sample data — nothing you save here is kept.</strong>{' '}
+          Running on in-memory fixtures ({state.reason}): edits survive until you
+          reload, then reset. Inside CRM this should normally reach demo3 through
+          the SDK with no credentials at all — if you are seeing this there, the
+          handshake did not complete. The dev proxy (<code>.env</code>,{' '}
+          <code>docs/live-dev.md</code>) is the fallback route.
+        </p>
+      )}
+
+      {state.kind === 'ready-live' && (
         <p className="devbar">
-          No CRM handshake ({state.reason}) — showing sample data, not demo3.
-          {' '}Register this as a widget to read live records.
+          No CRM handshake ({state.reason}) — but reading and writing <strong>real demo3
+          records</strong> over the dev proxy. Register this as a widget to use the SDK path.
         </p>
       )}
 
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
-      {(state.kind === 'ready' || state.kind === 'ready-mock') && children}
+      {(state.kind === 'ready' || state.kind === 'ready-mock' || state.kind === 'ready-live') && children}
     </>
   );
 }

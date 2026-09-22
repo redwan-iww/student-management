@@ -6,17 +6,19 @@
 //   - two parents; one student under the first, two under the second
 //   - the three students admitted across the three separate terms
 //   - class allocation for them
+//   - class sessions expanded from each class weekly pattern (300 rows)
 //
 // Module and field api_names are never hard-coded: they come from
 // build/types.ts via ZOHO_MODULES, so a rename in schema/model.yaml breaks this
 // script at the call site instead of writing to a field that no longer exists.
 //
-//   node scripts/seed-dummy.mjs --out seed/dummy-data.json
-//   node scripts/seed-dummy.mjs --token <oauth-access-token> [--api https://www.zohoapis.com]
+//   node scripts/seed-dummy.mjs --out seed/dummy-data.json   build the file only
+//   node scripts/seed-dummy.mjs --post                       post using .env credentials
+//   node scripts/seed-dummy.mjs --token <access-token>       post with your own token
 //
 // Posting is dependency-ordered: each stage resolves the ids the next one needs.
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -34,8 +36,49 @@ const arg = (name) => {
   return i === -1 ? null : argv[i + 1];
 };
 const OUT = arg('out');
-const TOKEN = arg('token');
-const API = arg('api') ?? 'https://www.zohoapis.com';
+
+// Credentials come from .env (the same three the dev proxy uses) unless an
+// access token is passed explicitly. Reading them here means posting is
+// `node scripts/seed-dummy.mjs --post` rather than "first go and mint a token".
+function readDotEnv() {
+  try {
+    const text = readFileSync(join(ROOT, '.env'), 'utf8');
+    return Object.fromEntries(
+      text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#') && line.includes('='))
+        .map((line) => {
+          const i = line.indexOf('=');
+          return [line.slice(0, i).trim(), line.slice(i + 1).trim().replace(/^["']|["']$/g, '')];
+        }),
+    );
+  } catch {
+    return {};
+  }
+}
+
+const ENV = { ...readDotEnv(), ...process.env };
+const DC = arg('dc') ?? ENV.ZOHO_DC ?? 'com';
+const API = arg('api') ?? `https://www.zohoapis.${DC}`;
+
+async function accessTokenFromRefresh() {
+  const { ZOHO_CLIENT_ID: id, ZOHO_CLIENT_SECRET: secret, ZOHO_REFRESH_TOKEN: refresh } = ENV;
+  if (!id || !secret || !refresh) return null;
+  const body = new URLSearchParams({
+    refresh_token: refresh, client_id: id, client_secret: secret, grant_type: 'refresh_token',
+  });
+  const res = await fetch(`https://accounts.zoho.${DC}/oauth/v2/token`, { method: 'POST', body });
+  const json = await res.json();
+  if (!json.access_token) {
+    throw new Error(`token refresh failed: ${json.error ?? res.status} (ZOHO_DC="${DC}")`);
+  }
+  console.log(`got access token from refresh token (dc=${DC})`);
+  return json.access_token;
+}
+
+const POST = argv.includes('--post');
+const TOKEN = arg('token') ?? (POST ? await accessTokenFromRefresh() : null);
 
 // ---------------------------------------------------------------------------
 // dates -- a "70 day term" is 70 days inclusive, so end = start + 69
@@ -108,6 +151,7 @@ const K = M.classes.fields;
 const A = M.admissions.fields;
 const E = M.enrollments.fields;
 const AL = M.allocations.fields;
+const CS = M.class_sessions.fields;
 
 const terms = TERM_STARTS.map((start, i) => ({
   _ref: `term${i + 1}`,
@@ -268,7 +312,42 @@ const allocations = classes.map((k) => ({
   [AL.status]: 'Active',
 }));
 
-const dataset = { terms, programs, courses, households, students, classes, admissions, enrollments, allocations };
+// Class sessions: the weekly pattern on each class expanded into dated
+// meetings. This is the grain attendance hangs off -- without it the
+// Attendance Manager tab has nothing to open.
+const WEEKDAY_INDEX = {
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+};
+
+const sessions = [];
+classes.forEach((k) => {
+  const wanted = new Set((k[K.meeting_days] ?? []).map((d) => WEEKDAY_INDEX[d]));
+  if (!wanted.size) return;
+  let seq = 0;
+  const last = new Date(`${k[K.end_date]}T00:00:00Z`);
+  for (
+    const cursor = new Date(`${k[K.start_date]}T00:00:00Z`);
+    cursor <= last;
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  ) {
+    if (!wanted.has(cursor.getUTCDay())) continue;
+    const date = iso(cursor);
+    seq += 1;
+    sessions.push({
+      _ref: `sess-${k._ref}-${date}`,
+      _classRef: k._ref,
+      [CS.name]: `${k[K.class_code]} - ${date}`,
+      [CS.session_date]: date,
+      [CS.start_time]: k[K.start_time],
+      [CS.end_time]: k[K.end_time],
+      [CS.sequence_no]: seq,
+      [CS.status]: 'Scheduled',
+      [CS.attendance_taken]: false,
+    });
+  }
+});
+
+const dataset = { terms, programs, courses, households, students, classes, admissions, enrollments, allocations, sessions };
 
 const counts = Object.fromEntries(Object.entries(dataset).map(([k, v]) => [k, v.length]));
 console.log('dataset:', counts);
@@ -357,6 +436,17 @@ await post(
   })),
   'enrollments',
 );
+// Sessions are posted in chunks: Zoho caps a create at 100 records per call,
+// and 18 classes expand to ~300 rows.
+for (let i = 0; i < sessions.length; i += 100) {
+  const chunk = sessions.slice(i, i + 100);
+  await post(
+    M.class_sessions.module,
+    chunk.map((s) => ({ ...s, [CS.class]: ref(s._classRef) })),
+    `sessions ${i + 1}-${i + chunk.length}`,
+  );
+}
+
 console.log('\nallocations need teacher ids -- pass --teachers id1,id2,id3');
 const teacherIds = (arg('teachers') ?? '').split(',').filter(Boolean);
 if (teacherIds.length) {

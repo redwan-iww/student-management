@@ -3,3 +3,8 @@ dist/
 dist-ext/
 *.local
 ZET-debug.log
+
+# OAuth credentials for the live dev proxy -- never commit
+.env
+.env.*
+!.env.example

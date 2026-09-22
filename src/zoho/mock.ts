@@ -149,15 +149,24 @@ export function installMockZoho(): void {
       return { data: [] };
     },
 
-    async insertRecord({ Entity, APIData }: { Entity: string; APIData: Record<string, unknown> }) {
-      const rec = { ...APIData, id: String(++nextId) } as Rec;
-      if (Entity === M.attendance.module) attendance.push(rec);
-      if (Entity === M.allocations.module) {
-        rec[AL.effective_from] ??= today;
-        allocations.push(rec);
+    async insertRecord({ Entity, APIData }: { Entity: string; APIData: Record<string, unknown> | Array<Record<string, unknown>> }) {
+      // Mirrors the real SDK: a single record or a bulk array, answered with one
+      // status row per record. Without this the generator's 100-row batch would
+      // insert a single malformed record here and look fine.
+      const incoming = Array.isArray(APIData) ? APIData : [APIData];
+      const made: Rec[] = [];
+      for (const item of incoming) {
+        const rec = { ...item, id: String(++nextId) } as Rec;
+        if (Entity === M.attendance.module) attendance.push(rec);
+        if (Entity === M.allocations.module) {
+          rec[AL.effective_from] ??= today;
+          allocations.push(rec);
+        }
+        if (Entity === M.class_sessions.module) sessions.push(rec);
+        made.push(rec);
       }
-      console.info('[mock] insert', Entity, rec);
-      return { data: [{ code: 'SUCCESS', details: { id: rec.id } }] };
+      console.info('[mock] insert', Entity, made.length === 1 ? made[0] : `${made.length} records`);
+      return { data: made.map((r) => ({ code: 'SUCCESS', details: { id: r.id } })) };
     },
 
     async updateRecord({ Entity, RecordID, APIData }: { Entity: string; RecordID: string; APIData: Record<string, unknown> }) {

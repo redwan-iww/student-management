@@ -20,6 +20,7 @@ docs/                  generated: ERD, data dictionary, Zoho field map
 docs/architecture.md   hand-written: the decisions and why
 docs/widget.md         hand-written: how the web tabs are built and deployed
 docs/new-term-workflow.md  hand-written: admin runbook for opening a new term
+docs/live-dev.md       hand-written: running the widgets against real CRM data
 
 src/                   the React app -- two Zoho CRM web tabs
 src/entries/           one entry per web tab
