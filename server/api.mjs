@@ -261,13 +261,51 @@ export function createApi(db) {
     } catch (err) { next(err); }
   });
 
-  // Errors carry a code and a message, matching what the client already knows
-  // how to describe.
+  /**
+   * SQLite states constraint failures in its own terms:
+   *
+   *   "FOREIGN KEY constraint failed"
+   *   "UNIQUE constraint failed: terms.term_code"
+   *
+   * The first says nothing about which record is in the way, and the second
+   * names a column but not what to do. Both reach a person filling in a form,
+   * so they are restated before they leave the server.
+   */
+  function explain(err) {
+    const raw = String(err.message ?? '');
+
+    let m = /UNIQUE constraint failed: ([\w.]+)/.exec(raw);
+    if (m) {
+      const col = m[1].split('.').pop();
+      return { code: 'DUPLICATE', message: `another record already uses that ${col}` };
+    }
+    m = /NOT NULL constraint failed: ([\w.]+)/.exec(raw);
+    if (m) {
+      const col = m[1].split('.').pop();
+      return { code: 'REQUIRED', message: `${col} is required` };
+    }
+    m = /CHECK constraint failed: (\w+)/.exec(raw);
+    if (m) {
+      return { code: 'INVALID', message: `value not allowed here (${m[1]})` };
+    }
+    if (/FOREIGN KEY constraint failed/.test(raw)) {
+      return {
+        code: 'IN_USE',
+        message:
+          'this record is still referenced by other records, or points at one ' +
+          'that does not exist. Remove or repoint those first.',
+      };
+    }
+    return null;
+  }
+
   router.use((err, _req, res, _next) => {
+    const friendly = err.status ? null : explain(err);
     const status = err.status ?? 400;
-    const code = err.code ?? 'SQLITE_ERROR';
+    const code = friendly?.code ?? err.code ?? 'SQLITE_ERROR';
+    const message = friendly?.message ?? err.message;
     if (status >= 500) console.error('[api]', err);
-    res.status(status).json({ code, message: err.message });
+    res.status(status).json({ code, message });
   });
 
   return router;

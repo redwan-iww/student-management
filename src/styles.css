@@ -283,3 +283,73 @@ tr.ended td { opacity: .55; }
   min-height: 200px;
   padding: 16px;
 }
+
+/* ---- setup page --------------------------------------------------------- */
+
+.admin { display: flex; gap: 22px; align-items: flex-start; }
+
+.admin-nav {
+  flex: 0 0 190px;
+  position: sticky;
+  top: 16px;
+}
+.admin-nav h3 {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin: 16px 0 4px;
+}
+.admin-nav h3:first-child { margin-top: 0; }
+.admin-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+.admin-nav button:hover { background: #f0f3f6; }
+.admin-nav button.active { background: var(--accent); color: #fff; }
+
+.admin-main { flex: 1; min-width: 0; }
+
+/* Wide tables scroll rather than forcing the page sideways. */
+.tablewrap { overflow-x: auto; }
+.rowactions { white-space: nowrap; display: flex; gap: 6px; }
+
+.recform {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 18px;
+  background: #fbfcfd;
+}
+.recform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px 16px;
+}
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field-wide { grid-column: 1 / -1; }
+.field-inline { flex-direction: row; align-items: center; gap: 7px; }
+.field-label { font-size: .82rem; color: var(--muted); }
+.field-label em { color: var(--danger); font-style: normal; }
+.field input, .field select, .field textarea { font: inherit; width: 100%; }
+.field textarea {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+}
+.field small { font-size: .74rem; line-height: 1.35; }
+
+.recform-actions { display: flex; gap: 8px; margin-top: 16px; }
+.recform-actions button:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.recform-actions button:first-child:disabled { background: #fff; color: var(--muted); border-color: var(--line); }

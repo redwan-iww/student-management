@@ -12,7 +12,7 @@
 // half-finished run can simply be repeated.
 
 import { useEffect, useState } from 'react';
-import { ZOHO_MODULES } from '../generated/types';
+
 import { Loader, useDelayed } from './Loader';
 import {
   BULK_LIMIT,
@@ -24,8 +24,8 @@ import {
   plannedSessions,
   str,
   type PlannedSession,
-  type RawRecord,
-} from '../zoho/client';
+  type Term,
+} from '../data/client';
 
 type Preview =
   | { kind: 'none' }
@@ -40,8 +40,8 @@ type Run =
   | { kind: 'error'; message: string };
 
 export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
-  const [terms, setTerms] = useState<RawRecord[] | null>(null);
-  const [termId, setTermId] = useState('');
+  const [terms, setTerms] = useState<Term[] | null>(null);
+  const [termId, setTermId] = useState<number | null>(null);
   const [run, setRun] = useState<Run>({ kind: 'idle' });
   // What clicking would actually do, worked out up front: 'what does this mean'
   // is answered far better by a concrete count than by any wording.
@@ -49,9 +49,6 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
 
   // One flag for both fetch phases, so they cannot chain two separate spinners.
   const preparingSlow = useDelayed(terms === null || preview.kind === 'counting');
-
-  const T = ZOHO_MODULES.terms.fields;
-  const K = ZOHO_MODULES.classes.fields;
 
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +94,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
 
         scheduled.forEach((c, i) => {
           const already = keySets[i]!;
-          const startTime = str(c.klass[K.start_time]);
+          const startTime = str(c.klass.start_time);
           for (const s of c.planned) {
             if (already.has(`${s.date}|${startTime}`)) existing += 1;
             else { lessons += 1; dates.push(s.date); }
@@ -119,7 +116,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
     })();
 
     return () => { cancelled = true; };
-  }, [termId, K.start_time]);
+  }, [termId]);
 
   async function generate() {
     if (!termId) return;
@@ -142,7 +139,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
       let skipped = 0;
       scheduled.forEach((c, i) => {
         const existing = keySets[i]!;
-        const startTime = str(c.klass[K.start_time]);
+        const startTime = str(c.klass.start_time);
         for (const s of c.planned) {
           if (existing.has(`${s.date}|${startTime}`)) skipped += 1;
           else plan.push({ klass: c.klass, date: s.date, sequenceNo: s.sequenceNo });
@@ -228,10 +225,10 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
     return (
       <p className="muted generated">
         All {preview.existing} lessons already exist for{' '}
-        <select value={termId} onChange={(e) => setTermId(e.target.value)}>
+        <select value={termId ?? ''} onChange={(e) => setTermId(Number(e.target.value))}>
           {terms.map((t) => (
             <option key={t.id} value={t.id}>
-              {str(t[T.name], t.id)}
+              {str(t.name, String(t.id))}
             </option>
           ))}
         </select>{' '}
@@ -254,10 +251,10 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
       <div className="toolbar">
         <label>
           Term{' '}
-          <select value={termId} onChange={(e) => setTermId(e.target.value)}>
+          <select value={termId ?? ''} onChange={(e) => setTermId(Number(e.target.value))}>
             {terms.map((t) => (
               <option key={t.id} value={t.id}>
-                {str(t[T.name], t.id)} ({str(t[T.start_date], '?')} → {str(t[T.end_date], '?')})
+                {str(t.name, String(t.id))} ({str(t.start_date, '?')} → {str(t.end_date, '?')})
               </option>
             ))}
           </select>

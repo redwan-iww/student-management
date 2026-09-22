@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader, ButtonBusy, useDelayed } from '../components/Loader';
-import {
-  ZOHO_MODULES,
-  ALLOCATION_ROLE_VALUES,
-  type AllocationRole,
-} from "../generated/types";
+import { ALLOCATION_ROLE_VALUES, type AllocationRole } from '../generated/db-types';
 import {
   createAllocation,
   describeError,
@@ -13,33 +9,38 @@ import {
   getAllocationsForClass,
   getClassesForTerm,
   getTeachers,
-  refId,
-  refName,
   setPrimaryTeacher,
   str,
-  type RawRecord,
-} from "../zoho/client";
+  type Allocation,
+  type Class,
+  type Teacher,
+  type Term,
+} from '../data/client';
 
-const C = ZOHO_MODULES.classes.fields;
-const T = ZOHO_MODULES.terms.fields;
-const TE = ZOHO_MODULES.teachers.fields;
-const AL = ZOHO_MODULES.allocations.fields;
-
-/** Web-tab entry point for staffing: term → class → who teaches it. */
+/** Page entry point for staffing: term -> class -> who teaches it. */
 export function ClassAllocation() {
-  const [terms, setTerms] = useState<RawRecord[] | null>(null);
-  const [termId, setTermId] = useState<string>("");
-  const [classes, setClasses] = useState<RawRecord[] | null>(null);
-  const [teachers, setTeachers] = useState<RawRecord[]>([]);
-  const [selectedClass, setSelectedClass] = useState<RawRecord | null>(null);
+  const [terms, setTerms] = useState<Term[] | null>(null);
+  const [termId, setTermId] = useState<number | null>(null);
+  const [classes, setClasses] = useState<Class[] | null>(null);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [selectedClass, setSelectedClass] = useState<Class | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Active allocation count per class. The list showed only Primary_Teacher,
-  // which tracks the lead role alone -- so a class staffed entirely by a
-  // substitute read as "Unassigned", contradicting its own detail screen.
-  const [staffCount, setStaffCount] = useState<Map<string, number>>(new Map());
+  // Active allocation count per class. The list shows only the lead teacher,
+  // so a class staffed entirely by a substitute would otherwise read as
+  // unstaffed, contradicting its own detail screen.
+  const [staffCount, setStaffCount] = useState<Map<number, number>>(new Map());
   // Switching term keeps the previous list on screen and dims it, rather than
   // tearing the table down and rebuilding it.
   const [loadingClasses, setLoadingClasses] = useState(true);
+
+  const showTermsSpinner = useDelayed(terms === null);
+  const showClassSpinner = useDelayed(loadingClasses);
+
+  /** id -> name, since a class carries primary_teacher_id, not a name. */
+  const teacherNames = useMemo(
+    () => new Map(teachers.map((t) => [t.id, str(t.full_name)])),
+    [teachers],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -51,20 +52,18 @@ export function ClassAllocation() {
         if (ts[0]) setTermId(ts[0].id);
       })
       .catch((err: unknown) => {
-        if (!cancelled)
-          setError(describeError(err));
+        if (!cancelled) setError(describeError(err));
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    if (!termId) return;
+    if (termId === null) return;
     let cancelled = false;
     setLoadingClasses(true);
     setSelectedClass(null);
     setStaffCount(new Map());
+
     getClassesForTerm(termId)
       .then(async (cs) => {
         if (cancelled) return;
@@ -76,7 +75,7 @@ export function ClassAllocation() {
           cs.map(async (k) => {
             try {
               const allocs = await getAllocationsForClass(k.id);
-              return [k.id, allocs.filter((a) => a[AL.status] !== "Ended").length] as const;
+              return [k.id, allocs.filter((a) => a.status !== 'Ended').length] as const;
             } catch {
               return [k.id, 0] as const;
             }
@@ -89,22 +88,18 @@ export function ClassAllocation() {
         setError(describeError(err));
         setLoadingClasses(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [termId]);
 
-  const showClassSpinner = useDelayed(loadingClasses);
-  const showTermsSpinner = useDelayed(terms === null);
-
   const selectedId = selectedClass?.id ?? null;
+
   // Stable identity, and a no-op when the count has not moved. ClassStaffing's
   // refresh() depends on this callback and an effect depends on refresh, so an
   // inline arrow here would remake both on every parent render and loop:
   // fetch -> setStaffCount -> re-render -> fetch.
   const handleStaffChanged = useCallback(
     (activeCount: number) => {
-      if (!selectedId) return;
+      if (selectedId === null) return;
       setStaffCount((prev) =>
         prev.get(selectedId) === activeCount
           ? prev
@@ -116,30 +111,24 @@ export function ClassAllocation() {
 
   if (error) return <p className="error">{error}</p>;
   if (terms === null) return showTermsSpinner ? <Loader label="Loading terms…" /> : null;
-  if (terms.length === 0)
-    return <p className="muted">No open or running terms.</p>;
+  if (terms.length === 0) return <p className="muted">No open or running terms.</p>;
 
   if (selectedClass) {
     return (
       <>
-        <button
-          type="button"
-          className="back"
-          onClick={() => setSelectedClass(null)}
-        >
+        <button type="button" className="back" onClick={() => setSelectedClass(null)}>
           ← Back to classes
         </button>
         <ClassStaffing
           klass={selectedClass}
           teachers={teachers}
           onPrimaryChanged={(teacherId) => {
-            const ref = pickRef(teachers, teacherId);
-            setSelectedClass({ ...selectedClass, [C.primary_teacher]: ref });
+            setSelectedClass({ ...selectedClass, primary_teacher_id: teacherId });
             // Keep the list in step, or "Back to classes" shows the teacher
             // that was just changed.
             setClasses((prev) =>
               prev?.map((k) =>
-                k.id === selectedClass.id ? { ...k, [C.primary_teacher]: ref } : k,
+                k.id === selectedClass.id ? { ...k, primary_teacher_id: teacherId } : k,
               ) ?? prev,
             );
           }}
@@ -148,17 +137,19 @@ export function ClassAllocation() {
       </>
     );
   }
-  // return <div>hi</div>;
 
   return (
     <section>
       <div className="toolbar">
         <label>
-          Term{" "}
-          <select value={termId} onChange={(e) => setTermId(e.target.value)}>
+          Term{' '}
+          <select
+            value={termId ?? ''}
+            onChange={(e) => setTermId(Number(e.target.value))}
+          >
             {terms.map((t) => (
               <option key={t.id} value={t.id}>
-                {str(t[T.name], t.id)}
+                {str(t.name, String(t.id))}
               </option>
             ))}
           </select>
@@ -166,67 +157,56 @@ export function ClassAllocation() {
       </div>
 
       <div className="content">
-      {/* Same hairline bar as the timetable: switching term keeps the list in
-          place and dims it, rather than swapping in a spinner. */}
-      {classes !== null && showClassSpinner && (
-        <div className="content-progress" role="status" aria-live="polite" aria-label="Loading classes" />
-      )}
-      {classes === null && showClassSpinner && <Loader label="Loading classes…" />}
-      {classes?.length === 0 && (
-        <p className="muted">No classes in this term.</p>
-      )}
+        {/* Same hairline bar as the timetable: switching term keeps the list in
+            place and dims it, rather than swapping in a spinner. */}
+        {classes !== null && showClassSpinner && (
+          <div className="content-progress" role="status" aria-live="polite" aria-label="Loading classes" />
+        )}
+        {classes === null && showClassSpinner && <Loader label="Loading classes…" />}
 
-      {classes && classes.length > 0 && (
-        <table className={loadingClasses ? 'stale' : undefined}>
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Code</th>
-              <th>Lead teacher</th>
-              <th>Staff</th>
-              <th>Capacity</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {classes.map((k) => {
-              const primary = refName(k[C.primary_teacher]);
-              const staff = staffCount.get(k.id);
-              return (
-                <tr key={k.id}>
-                  <td>{str(k[C.name])}</td>
-                  <td>{str(k[C.class_code], "—")}</td>
-                  <td>
-                    {primary || <span className="pill todo">No lead</span>}
-                  </td>
-                  <td className="muted">
-                    {staff === undefined
-                      ? "…"
-                      : staff === 0
-                        ? "nobody"
-                        : `${staff} allocated`}
-                  </td>
-                  <td>{String(k[C.capacity] ?? "—")}</td>
-                  <td>
-                    <button type="button" onClick={() => setSelectedClass(k)}>
-                      Allocate
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+        {classes?.length === 0 && <p className="muted">No classes in this term.</p>}
+
+        {classes && classes.length > 0 && (
+          <table className={loadingClasses ? 'stale' : undefined}>
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Code</th>
+                <th>Lead teacher</th>
+                <th>Staff</th>
+                <th>Capacity</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {classes.map((k) => {
+                const primary = k.primary_teacher_id
+                  ? teacherNames.get(k.primary_teacher_id) ?? ''
+                  : '';
+                const staff = staffCount.get(k.id);
+                return (
+                  <tr key={k.id}>
+                    <td>{str(k.name)}</td>
+                    <td>{str(k.class_code, '—')}</td>
+                    <td>{primary || <span className="pill todo">No lead</span>}</td>
+                    <td className="muted">
+                      {staff === undefined ? '…' : staff === 0 ? 'nobody' : `${staff} allocated`}
+                    </td>
+                    <td>{String(k.capacity ?? '—')}</td>
+                    <td>
+                      <button type="button" onClick={() => setSelectedClass(k)}>
+                        Allocate
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   );
-}
-
-function pickRef(teachers: RawRecord[], id: string | null) {
-  if (!id) return null;
-  const t = teachers.find((x) => x.id === id);
-  return t ? { id, name: str(t[TE.full_name]) } : null;
 }
 
 function ClassStaffing({
@@ -235,21 +215,25 @@ function ClassStaffing({
   onPrimaryChanged,
   onStaffChanged,
 }: {
-  klass: RawRecord;
-  teachers: RawRecord[];
-  onPrimaryChanged: (teacherId: string | null) => void;
+  klass: Class;
+  teachers: Teacher[];
+  onPrimaryChanged: (teacherId: number | null) => void;
   onStaffChanged: (activeCount: number) => void;
 }) {
-  const [allocations, setAllocations] = useState<RawRecord[] | null>(null);
-  const [teacherId, setTeacherId] = useState("");
-  const [role, setRole] = useState<AllocationRole>("Lead Teacher");
+  const [allocations, setAllocations] = useState<Allocation[] | null>(null);
+  const [teacherId, setTeacherId] = useState<number | null>(null);
+  const [role, setRole] = useState<AllocationRole>('Lead Teacher');
   const [busy, setBusy] = useState(false);
   // Which allocation row is mid-write, so the spinner lands on that row rather
   // than on every End button at once.
-  const [endingId, setEndingId] = useState<string | null>(null);
+  const [endingId, setEndingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const showAllocSpinner = useDelayed(allocations === null);
+  const teacherNames = useMemo(
+    () => new Map(teachers.map((t) => [t.id, str(t.full_name)])),
+    [teachers],
+  );
 
   /**
    * Re-reads this class's allocations and reports the active count upward.
@@ -260,10 +244,10 @@ function ClassStaffing({
    * refreshed from the same fetch.
    */
   const refresh = useMemo(
-    () => async (): Promise<RawRecord[]> => {
+    () => async (): Promise<Allocation[]> => {
       const fresh = await getAllocationsForClass(klass.id);
       setAllocations(fresh);
-      onStaffChanged(fresh.filter((a) => a[AL.status] !== "Ended").length);
+      onStaffChanged(fresh.filter((a) => a.status !== 'Ended').length);
       return fresh;
     },
     [klass.id, onStaffChanged],
@@ -273,14 +257,12 @@ function ClassStaffing({
     refresh().catch((err: unknown) => setError(describeError(err)));
   }, [refresh]);
 
-  const active = allocations?.filter((a) => a[AL.status] !== "Ended") ?? [];
-  const alreadyOn = new Set(
-    active.map((a) => refId(a[AL.teacher])).filter(Boolean) as string[],
-  );
+  const active = allocations?.filter((a) => a.status !== 'Ended') ?? [];
+  const alreadyOn = new Set(active.map((a) => a.teacher_id));
   const available = teachers.filter((t) => !alreadyOn.has(t.id));
 
   async function add() {
-    if (!teacherId) return;
+    if (teacherId === null) return;
     setBusy(true);
     setError(null);
     try {
@@ -288,14 +270,14 @@ function ClassStaffing({
         teacherId,
         classId: klass.id,
         role,
-        classLabel: str(klass[C.class_code], str(klass[C.name], klass.id)),
+        classLabel: str(klass.class_code, str(klass.name, String(klass.id))),
       });
       // The class's headline teacher tracks the lead allocation.
-      if (role === "Lead Teacher") {
+      if (role === 'Lead Teacher') {
         await setPrimaryTeacher(klass.id, teacherId);
         onPrimaryChanged(teacherId);
       }
-      setTeacherId("");
+      setTeacherId(null);
       await refresh();
     } catch (err) {
       setError(describeError(err));
@@ -304,11 +286,12 @@ function ClassStaffing({
     }
   }
 
-  async function end(id: string) {
+  async function end(id: number) {
     setBusy(true);
     setEndingId(id);
     setError(null);
     try {
+      const ended = allocations?.find((a) => a.id === id);
       await endAllocation(id);
       const fresh = await refresh();
 
@@ -316,15 +299,11 @@ function ClassStaffing({
       // has to follow when one ends. Promote another active lead if there is
       // one, otherwise clear the field -- leaving the old name on the class
       // would show a teacher who is no longer assigned to it.
-      const endedTeacher = refId(
-        allocations?.find((a) => a.id === id)?.[AL.teacher],
-      );
-      const currentPrimary = refId(klass[C.primary_teacher]);
-      if (endedTeacher && endedTeacher === currentPrimary) {
+      if (ended && ended.teacher_id === klass.primary_teacher_id) {
         const nextLead = fresh.find(
-          (a) => a[AL.status] !== 'Ended' && str(a[AL.role]) === 'Lead Teacher',
+          (a) => a.status !== 'Ended' && a.role === 'Lead Teacher',
         );
-        const nextId = nextLead ? refId(nextLead[AL.teacher]) : null;
+        const nextId = nextLead ? nextLead.teacher_id : null;
         await setPrimaryTeacher(klass.id, nextId);
         onPrimaryChanged(nextId);
       }
@@ -340,10 +319,9 @@ function ClassStaffing({
     <section>
       <header className="sheet-head">
         <div>
-          <h2>{str(klass[C.name])}</h2>
+          <h2>{str(klass.name)}</h2>
           <p className="muted">
-            {str(klass[C.class_code], "—")} · capacity{" "}
-            {String(klass[C.capacity] ?? "—")}
+            {str(klass.class_code, '—')} · capacity {String(klass.capacity ?? '—')}
           </p>
         </div>
       </header>
@@ -352,22 +330,22 @@ function ClassStaffing({
 
       <div className="toolbar">
         <label>
-          Teacher{" "}
+          Teacher{' '}
           <select
-            value={teacherId}
-            onChange={(e) => setTeacherId(e.target.value)}
+            value={teacherId ?? ''}
+            onChange={(e) => setTeacherId(e.target.value ? Number(e.target.value) : null)}
             disabled={busy}
           >
             <option value="">Select…</option>
             {available.map((t) => (
               <option key={t.id} value={t.id}>
-                {str(t[TE.full_name], t.id)}
+                {str(t.full_name)}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Role{" "}
+          Role{' '}
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as AllocationRole)}
@@ -380,14 +358,12 @@ function ClassStaffing({
             ))}
           </select>
         </label>
-        <button type="button" onClick={add} disabled={busy || !teacherId}>
-          {busy && !endingId ? <ButtonBusy label="Allocating…" /> : "Allocate"}
+        <button type="button" onClick={add} disabled={busy || teacherId === null}>
+          {busy && endingId === null ? <ButtonBusy label="Allocating…" /> : 'Allocate'}
         </button>
       </div>
 
-      {allocations === null && showAllocSpinner && (
-        <Loader label="Loading allocations…" />
-      )}
+      {allocations === null && showAllocSpinner && <Loader label="Loading allocations…" />}
       {allocations?.length === 0 && (
         <p className="muted">Nobody allocated to this class yet.</p>
       )}
@@ -405,24 +381,20 @@ function ClassStaffing({
           </thead>
           <tbody>
             {allocations.map((a) => {
-              const ended = a[AL.status] === "Ended";
+              const ended = a.status === 'Ended';
               return (
-                <tr key={a.id} className={ended ? "ended" : undefined}>
-                  <td>{refName(a[AL.teacher]) || "—"}</td>
-                  <td>{str(a[AL.role], "—")}</td>
+                <tr key={a.id} className={ended ? 'ended' : undefined}>
+                  <td>{teacherNames.get(a.teacher_id) ?? '—'}</td>
+                  <td>{str(a.role, '—')}</td>
                   <td>
-                    <span className={`pill ${ended ? "todo" : "done"}`}>
-                      {str(a[AL.status], "—")}
+                    <span className={`pill ${ended ? 'todo' : 'done'}`}>
+                      {str(a.status, '—')}
                     </span>
                   </td>
-                  <td>{str(a[AL.effective_from], "—")}</td>
+                  <td>{str(a.effective_from, '—')}</td>
                   <td>
                     {!ended && (
-                      <button
-                        type="button"
-                        onClick={() => end(a.id)}
-                        disabled={busy}
-                      >
+                      <button type="button" onClick={() => end(a.id)} disabled={busy}>
                         {endingId === a.id ? <ButtonBusy label="Ending…" /> : 'End'}
                       </button>
                     )}

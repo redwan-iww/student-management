@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ZOHO_MODULES } from '../generated/types';
+
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
 import { GenerateSessions } from '../components/GenerateSessions';
@@ -7,13 +7,12 @@ import {
   describeError,
   getClassesByIds,
   getSessionsForDate,
+  getTermNames,
   isFutureDate,
-  refId,
   orgToday,
-  refName,
   str,
-  type RawRecord,
-} from '../zoho/client';
+  type ClassSession,
+} from '../data/client';
 
 // The school's today, not the browser's -- see ORG_TIME_ZONE in client.ts.
 const today = orgToday;
@@ -54,9 +53,9 @@ const shiftDate = (isoDate: string, days: number) => {
  */
 export function AttendanceManager() {
   const [date, setDate] = useState(today);
-  const [sessions, setSessions] = useState<RawRecord[] | null>(null);
+  const [sessions, setSessions] = useState<ClassSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
   // Bumped to force a refetch of the same date -- setDate(d => d) is a no-op,
   // because React bails out when the next state is identical.
   const [reloadKey, setReloadKey] = useState(0);
@@ -68,10 +67,8 @@ export function AttendanceManager() {
   const [setupOpen, setSetupOpen] = useState(false);
   // Term name per class id. Resolved separately because a session carries no
   // Term of its own -- it reaches one only through its Class.
-  const [termByClass, setTermByClass] = useState<Map<string, string>>(new Map());
-
-  const F = ZOHO_MODULES.class_sessions.fields;
-  const C = ZOHO_MODULES.classes.fields;
+  const [termByClass, setTermByClass] = useState<Map<number, string>>(new Map());
+  const [classNames, setClassNames] = useState<Map<number, string>>(new Map());
 
   // Only surface a spinner once the wait is long enough to notice; a fast
   // fetch would otherwise flash one and read as a glitch.
@@ -91,14 +88,22 @@ export function AttendanceManager() {
         setSessions(recs);
         setLoading(false);
 
-        const classIds = recs.map((r) => refId(r[F.class]) ?? '').filter(Boolean);
+        // A session carries class_id, and the term hangs off the class -- so
+        // the term name is two hops: classes by id, then terms by id.
+        const classIds = recs.map((r) => r.class_id).filter(Boolean);
         if (classIds.length === 0) return;
         const classes = await getClassesByIds(classIds);
         if (cancelled) return;
 
-        const next = new Map<string, string>();
-        for (const [id, klass] of classes) next.set(id, refName(klass[C.term]));
+        const termNames = await getTermNames([...classes.values()].map((c) => c.term_id));
+        if (cancelled) return;
+
+        const next = new Map<number, string>();
+        for (const [id, klass] of classes) {
+          next.set(id, termNames.get(klass.term_id) ?? '');
+        }
         setTermByClass(next);
+        setClassNames(new Map([...classes].map(([id, k]) => [id, str(k.class_code, str(k.name))])));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -107,7 +112,7 @@ export function AttendanceManager() {
       });
 
     return () => { cancelled = true; };
-  }, [date, reloadKey, F.class, C.term]);
+  }, [date, reloadKey]);
 
   if (selected) {
     return (
@@ -230,15 +235,15 @@ export function AttendanceManager() {
           </thead>
           <tbody>
             {sessions.map((s) => {
-              const taken = s[F.attendance_taken] === true;
-              const cancelled = str(s[F.status]) === 'Cancelled';
-              const upcoming = isFutureDate(str(s[F.session_date]));
+              const taken = s.attendance_taken === true;
+              const cancelled = s.status === 'Cancelled';
+              const upcoming = isFutureDate(s.session_date);
               return (
                 <tr key={s.id}>
-                  <td>{str(s[F.start_time], '—')}</td>
-                  <td>{str(s[F.name])}</td>
-                  <td>{refName(s[F.class]) || '—'}</td>
-                  <td className="muted">{termByClass.get(refId(s[F.class]) ?? '') || '…'}</td>
+                  <td>{str(s.start_time, '—')}</td>
+                  <td>{str(s.name)}</td>
+                  <td>{classNames.get(s.class_id) ?? '—'}</td>
+                  <td className="muted">{termByClass.get(s.class_id) || '…'}</td>
                   {/* Flagged in the list too, so a future register is obvious
                       before it is opened. */}
                   <td>

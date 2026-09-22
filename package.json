@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Student-management system: one canonical schema generated into Zoho CRM metadata, Postgres DDL and TypeScript, plus the React web tabs that run inside Zoho CRM.",
   "scripts": {
-    "gen": "npm run gen:sql && npm run gen:zoho && npm run gen:types && npm run gen:docs && npm run gen:sqlite",
+    "gen": "npm run gen:sql && npm run gen:sqlite && npm run gen:db-types && npm run gen:docs",
     "gen:sql": "node generators/gen-sql.mjs",
     "gen:zoho": "node generators/gen-zoho.mjs",
     "gen:docs": "node generators/gen-docs.mjs",
@@ -13,13 +13,15 @@
     "verify:sql": "node generators/verify-sql.mjs",
     "verify:types": "tsc --noEmit --strict --target ES2022 --moduleResolution bundler --module ESNext build/types.ts",
     "sync:types": "node scripts/sync-types.mjs",
-    "dev": "npm run sync:types && vite",
+    "dev": "npm run gen:db-types && npm run sync:types && vite",
     "build": "npm run sync:types && tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "npm run sync:types && tsc -b --force",
     "gen:sqlite": "node generators/gen-sqlite.mjs",
     "server": "node server/index.mjs",
-    "db:reset": "node -e \"require('node:fs').rmSync('data',{recursive:true,force:true})\" && npm run gen:sqlite"
+    "db:reset": "node -e \"require('node:fs').rmSync('data',{recursive:true,force:true})\" && npm run gen:sqlite",
+    "gen:db-types": "node generators/gen-db-types.mjs",
+    "db:seed": "node scripts/seed-db.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
