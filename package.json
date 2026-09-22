@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Student-management system: one canonical schema generated into Zoho CRM metadata, Postgres DDL and TypeScript, plus the React web tabs that run inside Zoho CRM.",
   "scripts": {
-    "gen": "npm run gen:sql && npm run gen:zoho && npm run gen:types && npm run gen:docs",
+    "gen": "npm run gen:sql && npm run gen:zoho && npm run gen:types && npm run gen:docs && npm run gen:sqlite",
     "gen:sql": "node generators/gen-sql.mjs",
     "gen:zoho": "node generators/gen-zoho.mjs",
     "gen:docs": "node generators/gen-docs.mjs",
@@ -16,9 +16,13 @@
     "dev": "npm run sync:types && vite",
     "build": "npm run sync:types && tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "npm run sync:types && tsc -b --force"
+    "typecheck": "npm run sync:types && tsc -b --force",
+    "gen:sqlite": "node generators/gen-sqlite.mjs",
+    "server": "node server/index.mjs",
+    "db:reset": "node -e \"require('node:fs').rmSync('data',{recursive:true,force:true})\" && npm run gen:sqlite"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "yaml": "^2.5.1"

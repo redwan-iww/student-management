@@ -8,3 +8,9 @@ ZET-debug.log
 .env
 .env.*
 !.env.example
+
+# Local SQLite database (recreated from build/sqlite.sql on first run)
+data/
+*.db
+*.db-wal
+*.db-shm

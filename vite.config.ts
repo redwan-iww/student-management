@@ -28,7 +28,19 @@ export default defineConfig(({ mode }) => {
   // Port 3000, not Vite's default 5173. `strictPort` makes a clash fail loudly
   // instead of silently moving to 3001 -- a widget URL registered in Zoho points
   // at one port, so a silent shift would just 404 inside the CRM frame.
-  server: { port: 3000, strictPort: true },
+  server: {
+    port: 3000,
+    strictPort: true,
+    // The local API (npm run server). Same-origin in dev, so the browser
+    // client needs no base URL and no CORS. Swapping to Supabase later means
+    // pointing the client at its URL instead -- the request shape is the same.
+    proxy: {
+      '/api': {
+        target: env.API_URL ?? 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
+  },
   preview: { port: 3000, strictPort: true },
   build: {
     outDir: 'dist',
