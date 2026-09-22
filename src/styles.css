@@ -353,3 +353,33 @@ tr.ended td { opacity: .55; }
   color: #fff;
 }
 .recform-actions button:first-child:disabled { background: #fff; color: var(--muted); border-color: var(--line); }
+
+/* Table-specific extras under the generated form grid. */
+.addon {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.addon p { margin: 6px 0 0; font-size: .82rem; }
+.addon .narrow { width: 6rem; }
+
+/* Sidebar rows carry their record count, and a step whose prerequisites are
+   missing is disabled rather than hidden -- the order stays visible, so you
+   can see what is coming and why it is not available yet. */
+.admin-nav button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.admin-nav button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  background: none;
+}
+.navcount {
+  font-size: .74rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.admin-nav button.active .navcount { color: #dbeafe; }

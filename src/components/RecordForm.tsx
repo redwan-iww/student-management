@@ -8,6 +8,7 @@
 // caller passes in the rows to choose from rather than this fetching them: one
 // page load fetches each lookup table once, not once per form.
 
+import type React from 'react';
 import { useState } from 'react';
 import { ButtonBusy } from './Loader';
 import {
@@ -192,6 +193,7 @@ export function RecordForm({
   refRows,
   busy,
   submitLabel,
+  addon,
   onChange,
   onSubmit,
   onCancel,
@@ -201,6 +203,8 @@ export function RecordForm({
   refRows: RefRows;
   busy: boolean;
   submitLabel: string;
+  /** Table-specific extras, rendered under the generated grid. */
+  addon?: React.ReactNode;
   onChange: (next: Draft) => void;
   onSubmit: () => void;
   onCancel?: () => void;
@@ -227,6 +231,7 @@ export function RecordForm({
           />
         ))}
       </div>
+      {addon}
       <div className="recform-actions">
         <button type="submit" disabled={busy}>
           {busy ? <ButtonBusy label="Saving…" /> : submitLabel}

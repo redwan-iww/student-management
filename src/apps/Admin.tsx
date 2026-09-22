@@ -26,7 +26,7 @@ import {
   type RefRows,
 } from '../components/RecordForm';
 import { describeError } from '../data/client';
-import { insert, remove, select, update } from '../data/api';
+import { counts as fetchCounts, insert, remove, select, update } from '../data/api';
 
 /**
  * Setup order, following the runbook. Terms and programs first because nothing
@@ -44,6 +44,81 @@ const SECTIONS: Array<{ heading: string; tables: TableName[] }> = [
 type Row = Record<string, unknown> & { id: number };
 const asRows = (rows: unknown): Row[] => rows as Row[];
 
+/**
+ * What must exist before a table can take a record, read off the schema.
+ *
+ * A required reference is a hard dependency -- the database will reject the
+ * insert without it -- so those tables are unreachable until their targets have
+ * rows. Optional references are left out: a course with no program is legal,
+ * so blocking Courses on Programs would invent a rule the schema does not have.
+ */
+const PREREQUISITES: Record<TableName, TableName[]> = Object.fromEntries(
+  (Object.keys(FIELDS) as TableName[]).map((table) => [
+    table,
+    [
+      ...new Set(
+        FIELDS[table]
+          .filter((f) => f.type === 'reference' && f.required && f.ref)
+          .map((f) => f.ref as TableName),
+      ),
+    ],
+  ]),
+) as Record<TableName, TableName[]>;
+
+// ---------------------------------------------------------------------------
+// Term length
+//
+// Terms are thought about in days -- "a 70-day term", "a 50-day term" -- but
+// the schema stores two dates, so the form made you do the arithmetic both
+// ways. This shows the length and lets you set it, writing back the end date.
+// Inclusive, so 2026-10-05 + 70 days ends 2026-12-13, not the 14th.
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 86_400_000;
+
+function dayCount(start: unknown, end: unknown): number | null {
+  const a = Date.parse(`${String(start)}T00:00:00Z`);
+  const b = Date.parse(`${String(end)}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+  return Math.round((b - a) / DAY_MS) + 1;
+}
+
+function endFromLength(start: unknown, days: number): string | null {
+  const a = Date.parse(`${String(start)}T00:00:00Z`);
+  if (Number.isNaN(a) || !Number.isFinite(days) || days < 1) return null;
+  return new Date(a + (days - 1) * DAY_MS).toISOString().slice(0, 10);
+}
+
+function TermLength({ draft, onChange }: { draft: Draft; onChange: (d: Draft) => void }) {
+  const days = dayCount(draft.start_date, draft.end_date);
+  const weeks = days === null ? null : (days / 7).toFixed(1);
+
+  return (
+    <div className="addon">
+      <label className="field field-inline" htmlFor="term-length">
+        <span className="field-label">Length</span>
+        <input
+          id="term-length"
+          type="number"
+          min={1}
+          className="narrow"
+          value={days ?? ''}
+          onChange={(e) => {
+            const next = endFromLength(draft.start_date, Number(e.target.value));
+            if (next) onChange({ ...draft, end_date: next });
+          }}
+        />
+        <span>days</span>
+      </label>
+      <p className="muted">
+        {days === null
+          ? 'Set a start date, then a length -- the end date follows.'
+          : `${String(draft.start_date)} → ${String(draft.end_date)} · ${weeks} weeks, inclusive`}
+      </p>
+    </div>
+  );
+}
+
 export function Admin() {
   const [table, setTable] = useState<TableName>('terms');
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -53,6 +128,9 @@ export function Admin() {
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Row count per table. Drives which steps are reachable: a table whose
+  // required references have no rows yet cannot take a record.
+  const [counts, setCounts] = useState<Partial<Record<TableName, number>>>({});
 
   const showSpinner = useDelayed(rows === null);
 
@@ -78,6 +156,7 @@ export function Admin() {
       }));
     });
     setRefRows(next);
+    setCounts(await fetchCounts());
   }, [table, refTables]);
 
   useEffect(() => {
@@ -129,6 +208,12 @@ export function Admin() {
     [table],
   );
 
+  /** Prerequisite tables that are still empty. */
+  const missingFor = useCallback(
+    (t: TableName) => PREREQUISITES[t].filter((dep) => (counts[dep] ?? 0) === 0),
+    [counts],
+  );
+
   const labels = TABLE_LABELS[table];
 
   return (
@@ -137,16 +222,27 @@ export function Admin() {
         {SECTIONS.map((section) => (
           <div key={section.heading}>
             <h3>{section.heading}</h3>
-            {section.tables.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className={t === table ? 'active' : undefined}
-                onClick={() => setTable(t)}
-              >
-                {TABLE_LABELS[t].many}
-              </button>
-            ))}
+            {section.tables.map((t) => {
+              const missing = missingFor(t);
+              const blocked = missing.length > 0;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  className={t === table ? 'active' : undefined}
+                  disabled={blocked}
+                  title={
+                    blocked
+                      ? `Add ${missing.map((d) => TABLE_LABELS[d].many.toLowerCase()).join(' and ')} first`
+                      : undefined
+                  }
+                  onClick={() => setTable(t)}
+                >
+                  <span>{TABLE_LABELS[t].many}</span>
+                  <span className="navcount">{blocked ? '—' : counts[t] ?? ''}</span>
+                </button>
+              );
+            })}
           </div>
         ))}
       </nav>
@@ -159,7 +255,7 @@ export function Admin() {
               {rows === null ? '…' : `${rows.length} record${rows.length === 1 ? '' : 's'}`}
             </p>
           </div>
-          {!formOpen && (
+          {!formOpen && missingFor(table).length === 0 && (
             <button
               type="button"
               onClick={() => {
@@ -173,6 +269,28 @@ export function Admin() {
           )}
         </header>
 
+        {/* Reachable by deep link or by a prerequisite being emptied while
+            you are here, so the state is handled rather than assumed away. */}
+        {missingFor(table).length > 0 && (
+          <div className="notice">
+            <h2>Set something up first</h2>
+            <p>
+              A {labels.one.toLowerCase()} must point at{' '}
+              {missingFor(table)
+                .map((d) => TABLE_LABELS[d].one.toLowerCase())
+                .join(' and a ')}
+              , and there {missingFor(table).length === 1 ? 'is none' : 'are none'} yet.
+            </p>
+            <div className="empty-nav">
+              {missingFor(table).map((d) => (
+                <button key={d} type="button" onClick={() => setTable(d)}>
+                  Go to {TABLE_LABELS[d].many}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {error && <p className="error">{error}</p>}
 
         {formOpen && (
@@ -183,6 +301,7 @@ export function Admin() {
             busy={busy}
             submitLabel={editing === null ? `Create ${labels.one}` : 'Save changes'}
             onChange={setDraft}
+            addon={table === 'terms' ? <TermLength draft={draft} onChange={setDraft} /> : undefined}
             onSubmit={save}
             onCancel={() => {
               setFormOpen(false);
@@ -207,6 +326,8 @@ export function Admin() {
                 <tr>
                   <th>#</th>
                   {columns.map((c) => <th key={c.column}>{c.label}</th>)}
+                  {/* Derived, not stored: terms are compared by length. */}
+                  {table === 'terms' && <th>Days</th>}
                   <th />
                 </tr>
               </thead>
@@ -217,6 +338,9 @@ export function Admin() {
                     {columns.map((c) => (
                       <td key={c.column}>{renderCell(row[c.column], c.ref, refRows)}</td>
                     ))}
+                    {table === 'terms' && (
+                      <td>{dayCount(row.start_date, row.end_date) ?? <span className="muted">—</span>}</td>
+                    )}
                     <td className="rowactions">
                       <button
                         type="button"

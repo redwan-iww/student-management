@@ -165,6 +165,23 @@ export function createApi(db) {
     res.json([...TABLES.keys()].map((t) => ({ table: t, rollups: TABLES.get(t).rollups })));
   });
 
+  /**
+   * Row count per table, in one request.
+   *
+   * The setup page needs to know which tables are still empty so it can tell
+   * you what to fill in first. Asking each table separately would be twelve
+   * round trips to render a sidebar.
+   */
+  router.get('/_counts', (_req, res, next) => {
+    try {
+      const counts = {};
+      for (const [table] of TABLES) {
+        counts[table] = db.prepare(`SELECT count(*) AS n FROM ${q(table)}`).get().n;
+      }
+      res.json(counts);
+    } catch (err) { next(err); }
+  });
+
   router.get('/:table', (req, res, next) => {
     try {
       const table = req.params.table;
