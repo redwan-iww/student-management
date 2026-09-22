@@ -10,7 +10,10 @@ ZET-debug.log
 !.env.example
 
 # Local SQLite database (recreated from build/sqlite.sql on first run)
-data/
+# Leading slash matters: a bare `data/` also matches src/data/, which
+# silently excluded the whole data-access layer from this branch's first
+# commit. Anchored, it means the database directory at the repo root only.
+/data/
 *.db
 *.db-wal
 *.db-shm
