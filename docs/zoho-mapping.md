@@ -271,13 +271,13 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 - **Time-only field** `Class_Sessions`.`End_Time` — stored as `HH:MM` text.
 - **Composite unique** `Enrollments` (student + class) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Ratio rollup** `Enrollments`.`Attendance_Rate` — Zoho rollups cannot divide. Create numerator and denominator count rollups plus a formula field.
-- **Denormalized field** `Enrollments`.`Course` — copied from `class.course`. Keep in step with a workflow field-update on create/edit (Postgres does this with a trigger).
-- **Denormalized field** `Enrollments`.`Term` — copied from `class.term`. Keep in step with a workflow field-update on create/edit (Postgres does this with a trigger).
+- **Denormalized field** `Enrollments`.`Course` — copied from `class.course`. Keep in step with a workflow field-update on create/edit.
+- **Denormalized field** `Enrollments`.`Term` — copied from `class.term`. Keep in step with a workflow field-update on create/edit.
 - **Check** `Allocations`.`allocation_dates_ordered` — `effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from` — implement as a Zoho validation rule.
 - **Composite unique** `Attendance` (enrollment + class_session) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Check** `Attendance`.`attendance_minutes_late_nonneg` — `minutes_late >= 0` — implement as a Zoho validation rule.
-- **Denormalized field** `Attendance`.`Student` — copied from `enrollment.student`. Keep in step with a workflow field-update on create/edit (Postgres does this with a trigger).
-- **Denormalized field** `Attendance`.`Class` — copied from `enrollment.class`. Keep in step with a workflow field-update on create/edit (Postgres does this with a trigger).
+- **Denormalized field** `Attendance`.`Student` — copied from `enrollment.student`. Keep in step with a workflow field-update on create/edit.
+- **Denormalized field** `Attendance`.`Class` — copied from `enrollment.class`. Keep in step with a workflow field-update on create/edit.
 
 ## Build order
 

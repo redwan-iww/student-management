@@ -3,14 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Student-management system: one canonical schema generated into Zoho CRM metadata, Postgres DDL and TypeScript, plus the React web tabs that run inside Zoho CRM.",
+  "description": "Student-management system: one canonical schema generated into Zoho CRM metadata and TypeScript, plus the React web tabs that run inside Zoho CRM.",
   "scripts": {
-    "gen": "npm run gen:sql && npm run gen:zoho && npm run gen:types && npm run gen:docs",
-    "gen:sql": "node generators/gen-sql.mjs",
+    "gen": "npm run gen:zoho && npm run gen:types && npm run gen:docs",
     "gen:zoho": "node generators/gen-zoho.mjs",
     "gen:docs": "node generators/gen-docs.mjs",
     "gen:types": "node generators/gen-types.mjs",
-    "verify:sql": "node generators/verify-sql.mjs",
     "verify:types": "tsc --noEmit --strict --target ES2022 --moduleResolution bundler --module ESNext build/types.ts",
     "sync:types": "node scripts/sync-types.mjs",
     "dev": "npm run sync:types && vite",
@@ -27,7 +25,6 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "pgsql-parser": "^17.0.0",
     "typescript": "^5.9.3",
     "vite": "^5.4.11"
   }

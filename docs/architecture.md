@@ -4,14 +4,18 @@ Hand-written. Everything else in `docs/` is generated from `schema/model.yaml`.
 
 ## Shape of the project
 
-One canonical schema, four generated targets:
+One canonical schema, three generated targets:
 
 ```
-schema/model.yaml  ──┬──>  build/postgres.sql   Postgres DDL (fullstack target)
-schema/enums.yaml  ──┼──>  build/zoho/*.json    Zoho CRM metadata payloads
-                     ├──>  build/types.ts       TypeScript for the React widget
+schema/model.yaml  ──┬──>  build/zoho/*.json    Zoho CRM metadata payloads
+schema/enums.yaml  ──┼──>  build/types.ts       TypeScript for the React widget
                      └──>  docs/*.md            ERD, data dictionary, Zoho map
 ```
+
+There was a fourth, `build/postgres.sql`, generated from the same model as a
+portability hedge. It was removed on 2026-09-23: this branch targets Zoho CRM
+only, and a DDL nothing executes is a file that silently rots. The SQL work
+lives on `with-supabase`, which carries its own generators.
 
 `schema/*.yaml` is the only file anyone edits. `npm run gen` rebuilds the rest.
 If the CRM and the spec ever disagree, the spec wins and the CRM gets corrected.
@@ -57,7 +61,7 @@ Accounts-as-household later is a mapping change, not a remodel.
 `attendance.class` duplicate data reachable through a parent. Zoho COQL cannot
 join two hops, so "every enrollment in Term 1" is unanswerable unless the term
 sits on the enrollment row. Marked `derived_from` in the spec; kept in step by a
-workflow field-update in Zoho and a `BEFORE INSERT OR UPDATE` trigger in Postgres.
+workflow field-update in Zoho.
 
 ### 6. Frontend is a React app delivered as a Zoho CRM widget
 

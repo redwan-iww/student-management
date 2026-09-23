@@ -2,7 +2,7 @@
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadModel, paths, sqlColumn, zohoApiName, storedFields, rollupFields, buildOrder } from './lib/model.mjs';
+import { loadModel, paths, zohoApiName, storedFields, rollupFields, buildOrder } from './lib/model.mjs';
 
 const model = loadModel();
 mkdirSync(paths.docs, { recursive: true });
@@ -62,16 +62,16 @@ const oneLine = (s) => (s ?? '').trim().replace(/\s+/g, ' ');
   L.push('<!-- GENERATED FILE -- do not edit. Source: schema/model.yaml (npm run gen:docs) -->');
   L.push('');
   L.push(`${model.entities.length} entities. Rollup fields are derived — they exist as a Zoho`);
-  L.push('rollup summary and as a column on the Postgres `v_<table>` view, never as stored data.');
+  L.push('rollup summary field, never as stored data.');
   L.push('');
 
   for (const entity of model.entities) {
     L.push(`## ${entity.label} — \`${entity.name}\``);
     L.push('');
     if (entity.description) { L.push(oneLine(entity.description)); L.push(''); }
-    L.push(`SQL table \`${table(entity)}\` · Zoho module \`${entity.zoho.module}\` (${entity.zoho.strategy})`);
+    L.push(`Zoho module \`${entity.zoho.module}\` (${entity.zoho.strategy})`);
     L.push('');
-    L.push('| Field | Type | Req | Unique | SQL column | Notes |');
+    L.push('| Field | Type | Req | Unique | Zoho api_name | Notes |');
     L.push('|---|---|:-:|:-:|---|---|');
     for (const f of entity.fields) {
       let type = f.type;
@@ -80,7 +80,7 @@ const oneLine = (s) => (s ?? '').trim().replace(/\s+/g, ' ');
       if (f.type === 'rollup') type = `rollup(${f.rollup.function} of \`${f.rollup.from}\`)`;
       const notes = [f.note ? oneLine(f.note) : null, f.derived_from ? `derived from \`${f.derived_from}\`` : null,
         f.default !== undefined ? `default \`${f.default}\`` : null].filter(Boolean).join('; ');
-      const col = f.type === 'rollup' ? '_(view)_' : `\`${sqlColumn(f)}\``;
+      const col = f.type === 'rollup' ? '_(rollup)_' : `\`${zohoApiName(f)}\``;
       L.push(`| \`${f.name}\` | ${type} | ${f.required ? '✓' : ''} | ${f.unique ? '✓' : ''} | ${col} | ${notes} |`);
     }
     L.push('');
@@ -174,7 +174,7 @@ const oneLine = (s) => (s ?? '').trim().replace(/\s+/g, ' ');
     }
     for (const f of e.fields) {
       if (f.derived_from) {
-        gaps.push(`- **Denormalized field** \`${e.zoho.module}\`.\`${zohoApiName(f)}\` — copied from \`${f.derived_from}\`. Keep in step with a workflow field-update on create/edit (Postgres does this with a trigger).`);
+        gaps.push(`- **Denormalized field** \`${e.zoho.module}\`.\`${zohoApiName(f)}\` — copied from \`${f.derived_from}\`. Keep in step with a workflow field-update on create/edit.`);
       }
       if (f.type === 'time') {
         gaps.push(`- **Time-only field** \`${e.zoho.module}\`.\`${zohoApiName(f)}\` — stored as \`HH:MM\` text.`);
