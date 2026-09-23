@@ -18,6 +18,7 @@ import {
   BULK_LIMIT,
   describeError,
   createClassSessionBatch,
+  getClosedDates,
   getActiveTerms,
   getClassesForTerm,
   getSessionKeysForClass,
@@ -30,13 +31,21 @@ import {
 type Preview =
   | { kind: 'none' }
   | { kind: 'counting' }
-  | { kind: 'ready'; lessons: number; classes: number; existing: number; firstDate: string; lastDate: string }
+  | {
+      kind: 'ready';
+      lessons: number;
+      classes: number;
+      existing: number;
+      onHoliday: number;
+      firstDate: string;
+      lastDate: string;
+    }
   | { kind: 'failed' };
 
 type Run =
   | { kind: 'idle' }
   | { kind: 'working'; done: number; total: number; label: string }
-  | { kind: 'done'; created: number; skipped: number }
+  | { kind: 'done'; created: number; skipped: number; onHoliday: number }
   | { kind: 'error'; message: string };
 
 export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
@@ -86,12 +95,14 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           .map((klass) => ({ klass, planned: plannedSessions(klass) }))
           .filter((c) => c.planned.length > 0);
 
-        const keySets = await Promise.all(
-          scheduled.map((c) => getSessionKeysForClass(c.klass.id)),
-        );
+        const [keySets, closed] = await Promise.all([
+          Promise.all(scheduled.map((c) => getSessionKeysForClass(c.klass.id))),
+          getClosedDates(termId),
+        ]);
 
         let lessons = 0;
         let existing = 0;
+        let onHoliday = 0;
         const withPattern = scheduled.length;
         const dates: string[] = [];
 
@@ -99,7 +110,11 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           const already = keySets[i]!;
           const startTime = str(c.klass[K.start_time]);
           for (const s of c.planned) {
-            if (already.has(`${s.date}|${startTime}`)) existing += 1;
+            // Closed dates are counted separately and never created. Folding
+            // them into "already exists" would claim a lesson is on the
+            // calendar when it deliberately is not.
+            if (closed.has(s.date)) onHoliday += 1;
+            else if (already.has(`${s.date}|${startTime}`)) existing += 1;
             else { lessons += 1; dates.push(s.date); }
           }
         });
@@ -110,6 +125,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           lessons,
           classes: withPattern,
           existing,
+          onHoliday,
           firstDate: dates[0] ?? '',
           lastDate: dates[dates.length - 1] ?? '',
         });
@@ -134,23 +150,28 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
         .filter((c) => c.planned.length > 0);
 
       // Parallel for the same reason as the preview above: independent reads.
-      const keySets = await Promise.all(
-        scheduled.map((c) => getSessionKeysForClass(c.klass.id)),
-      );
+      const [keySets, closed] = await Promise.all([
+        Promise.all(scheduled.map((c) => getSessionKeysForClass(c.klass.id))),
+        getClosedDates(termId),
+      ]);
 
       const plan: PlannedSession[] = [];
       let skipped = 0;
+      let onHoliday = 0;
       scheduled.forEach((c, i) => {
         const existing = keySets[i]!;
         const startTime = str(c.klass[K.start_time]);
         for (const s of c.planned) {
-          if (existing.has(`${s.date}|${startTime}`)) skipped += 1;
+          // Re-checked here rather than trusting the preview: a holiday added
+          // between previewing and pressing would otherwise still be scheduled.
+          if (closed.has(s.date)) onHoliday += 1;
+          else if (existing.has(`${s.date}|${startTime}`)) skipped += 1;
           else plan.push({ klass: c.klass, date: s.date, sequenceNo: s.sequenceNo });
         }
       });
 
       if (plan.length === 0) {
-        setRun({ kind: 'done', created: 0, skipped });
+        setRun({ kind: 'done', created: 0, skipped, onHoliday });
         return;
       }
 
@@ -170,7 +191,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
       }
       setRun({ kind: 'working', done: written, total: plan.length, label: 'finishing' });
 
-      setRun({ kind: 'done', created: written, skipped });
+      setRun({ kind: 'done', created: written, skipped, onHoliday });
       onGenerated();
     } catch (err) {
       setRun({ kind: 'error', message: describeError(err) });
@@ -212,7 +233,8 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
       <div className="genbox">
         <p>
           Done — created <strong>{run.created}</strong> lesson{run.created === 1 ? '' : 's'}
-          {run.skipped > 0 && <> · {run.skipped} already existed and were left alone</>}.
+          {run.skipped > 0 && <> · {run.skipped} already existed</>}
+          {run.onHoliday > 0 && <> · {run.onHoliday} skipped as holidays or closures</>}.
           {' '}Pick a date inside the term to take a register.
         </p>
         <button type="button" onClick={() => setRun({ kind: 'idle' })}>Set up another term</button>
@@ -290,7 +312,10 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
               Will create <strong>{preview.lessons} lessons</strong> across{' '}
               {preview.classes} class{preview.classes === 1 ? '' : 'es'}, from{' '}
               {preview.firstDate} to {preview.lastDate}
-              {preview.existing > 0 && <> · {preview.existing} already exist and will be skipped</>}.
+              {preview.existing > 0 && <> · {preview.existing} already exist</>}
+              {preview.onHoliday > 0 && (
+                <> · <strong>{preview.onHoliday} skipped</strong> as holidays or closures</>
+              )}.
             </>
           )}
         </p>

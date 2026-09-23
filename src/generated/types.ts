@@ -227,6 +227,23 @@ export const WEEKDAY_VALUES: readonly Weekday[] = [
   'Sunday',
 ] as const;
 
+export type HolidayKind =
+  | 'Public Holiday'
+  | 'Religious Holiday'
+  | 'School Closure'
+  | 'Term Break'
+  | 'Exam Period'
+  | 'Other';
+
+export const HOLIDAY_KIND_VALUES: readonly HolidayKind[] = [
+  'Public Holiday',
+  'Religious Holiday',
+  'School Closure',
+  'Term Break',
+  'Exam Period',
+  'Other',
+] as const;
+
 export type SessionStatus =
   | 'Scheduled'
   | 'Held'
@@ -402,6 +419,20 @@ export interface Term {
   enrollment_opens?: string;
   enrollment_closes?: string;
   status: TermStatus;
+}
+
+/**
+ * A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.
+ * Zoho module: Holidays
+ */
+export interface Holiday {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date?: string;
+  term?: ZohoRef;
+  kind: HolidayKind;
+  notes?: string;
 }
 
 export interface Program {
@@ -666,6 +697,18 @@ export const ZOHO_MODULES = {
       status: 'Status',
     },
   },
+  holidays: {
+    module: 'Holidays',
+    displayField: 'Name',
+    fields: {
+      name: 'Name',
+      start_date: 'Start_Date',
+      end_date: 'End_Date',
+      term: 'Term',
+      kind: 'Kind',
+      notes: 'Holiday_Notes',
+    },
+  },
   programs: {
     module: 'Academic_Programs',
     displayField: 'Name',
@@ -827,6 +870,7 @@ export interface EntityTypes {
   students: Student;
   teachers: Teacher;
   terms: Term;
+  holidays: Holiday;
   programs: Program;
   courses: Course;
   admissions: Admission;

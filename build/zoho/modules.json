@@ -74,6 +74,39 @@
       }
     },
     {
+      "_entity": "holidays",
+      "singular_label": "Holiday",
+      "plural_label": "Holidays",
+      "api_name": "Holidays",
+      "access_type": "team_based",
+      "profiles": [
+        {
+          "id": "4731441000031826001",
+          "_name": "Admins"
+        },
+        {
+          "id": "4731441000031826002",
+          "_name": "Managers"
+        },
+        {
+          "id": "4731441000031826003",
+          "_name": "Members"
+        },
+        {
+          "id": "4731441000031826004",
+          "_name": "Participants"
+        },
+        {
+          "id": "4731441000031826005",
+          "_name": "Requesters"
+        }
+      ],
+      "_team_space": "(unconfirmed)",
+      "private_profile": {
+        "name": "Admins"
+      }
+    },
+    {
       "_entity": "programs",
       "singular_label": "Academic Program",
       "plural_label": "Academic Programs",

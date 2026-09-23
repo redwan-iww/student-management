@@ -112,6 +112,15 @@ CREATE TYPE "guardian_relationship" AS ENUM (
   'Other'
 );
 
+CREATE TYPE "holiday_kind" AS ENUM (
+  'Public Holiday',
+  'Religious Holiday',
+  'School Closure',
+  'Term Break',
+  'Exam Period',
+  'Other'
+);
+
 CREATE TYPE "payment_status" AS ENUM (
   'Unpaid',
   'Partially Paid',
@@ -257,6 +266,19 @@ CREATE TABLE "terms" (
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "term_dates_ordered" CHECK (end_date >= start_date)
+);
+
+CREATE TABLE "holidays" (
+  "id" bigserial PRIMARY KEY,
+  "name" varchar(120) NOT NULL,
+  "start_date" date NOT NULL,
+  "end_date" date,
+  "term_id" bigint,
+  "kind" "holiday_kind" NOT NULL DEFAULT 'Public Holiday'::"holiday_kind",
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "holiday_dates_ordered" CHECK (end_date IS NULL OR end_date >= start_date)
 );
 
 CREATE TABLE "programs" (
@@ -416,6 +438,7 @@ CREATE TABLE "attendance" (
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE "students" ADD CONSTRAINT "fk_students_household_id" FOREIGN KEY ("household_id") REFERENCES "households" ("id") ON DELETE RESTRICT;
+ALTER TABLE "holidays" ADD CONSTRAINT "fk_holidays_term_id" FOREIGN KEY ("term_id") REFERENCES "terms" ("id") ON DELETE CASCADE;
 ALTER TABLE "courses" ADD CONSTRAINT "fk_courses_program_id" FOREIGN KEY ("program_id") REFERENCES "programs" ("id") ON DELETE SET NULL;
 ALTER TABLE "admissions" ADD CONSTRAINT "fk_admissions_household_id" FOREIGN KEY ("household_id") REFERENCES "households" ("id") ON DELETE SET NULL;
 ALTER TABLE "admissions" ADD CONSTRAINT "fk_admissions_student_id" FOREIGN KEY ("student_id") REFERENCES "students" ("id") ON DELETE SET NULL;
@@ -444,6 +467,7 @@ ALTER TABLE "attendance" ADD CONSTRAINT "fk_attendance_marked_by_id" FOREIGN KEY
 -- ---------------------------------------------------------------------------
 
 CREATE INDEX "idx_students_household_id" ON "students" ("household_id");
+CREATE INDEX "idx_holidays_term_id" ON "holidays" ("term_id");
 CREATE INDEX "idx_courses_program_id" ON "courses" ("program_id");
 CREATE INDEX "idx_admissions_household_id" ON "admissions" ("household_id");
 CREATE INDEX "idx_admissions_student_id" ON "admissions" ("student_id");
@@ -490,6 +514,7 @@ CREATE TRIGGER "trg_households_updated_at" BEFORE UPDATE ON "households" FOR EAC
 CREATE TRIGGER "trg_students_updated_at" BEFORE UPDATE ON "students" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
 CREATE TRIGGER "trg_teachers_updated_at" BEFORE UPDATE ON "teachers" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
 CREATE TRIGGER "trg_terms_updated_at" BEFORE UPDATE ON "terms" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
+CREATE TRIGGER "trg_holidays_updated_at" BEFORE UPDATE ON "holidays" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
 CREATE TRIGGER "trg_programs_updated_at" BEFORE UPDATE ON "programs" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
 CREATE TRIGGER "trg_courses_updated_at" BEFORE UPDATE ON "courses" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
 CREATE TRIGGER "trg_admissions_updated_at" BEFORE UPDATE ON "admissions" FOR EACH ROW EXECUTE FUNCTION "set_updated_at"();
@@ -579,6 +604,11 @@ COMMENT ON COLUMN "terms"."name" IS 'e.g. ''2026 Term 1''';
 COMMENT ON COLUMN "terms"."term_code" IS 'e.g. ''2026T1''';
 COMMENT ON COLUMN "terms"."sequence_no" IS 'Order within the academic year: 1, 2, 3...';
 COMMENT ON TABLE "terms" IS 'An academic term/session. Classes and enrollments are scoped to one.';
+COMMENT ON COLUMN "holidays"."name" IS 'e.g. ''Eid ul-Fitr'', ''Victory Day''';
+COMMENT ON COLUMN "holidays"."end_date" IS 'Leave blank for a single day. Inclusive when set.';
+COMMENT ON COLUMN "holidays"."term_id" IS 'Blank applies it to every term, which is right for a public holiday.';
+COMMENT ON COLUMN "holidays"."notes" IS 'api_name is not ''Notes'' -- Zoho reserves that keyword.';
+COMMENT ON TABLE "holidays" IS 'A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.';
 COMMENT ON TABLE "courses" IS 'What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).';
 COMMENT ON COLUMN "admissions"."name" IS 'Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from application_no.';
 COMMENT ON COLUMN "admissions"."household_id" IS 'Linked once an existing family is matched, or created on acceptance.';

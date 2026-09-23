@@ -181,6 +181,46 @@ entities:
       - { type: check, name: term_dates_ordered, expr: "end_date >= start_date" }
 
   # =========================================================================
+  # holidays -- dates on which no lesson is held
+  #
+  # A closure is a property of the calendar, not of any one class, so it sits
+  # beside terms rather than hanging off classes. Timetable generation consults
+  # this before creating a lesson; without it the weekly expansion is purely
+  # mechanical and will schedule teaching on Eid.
+  #
+  # Stored as a range rather than one row per day: Eid runs several days, and
+  # re-entering it per day invites the drift that makes a calendar wrong. A
+  # single-day closure simply leaves end_date null.
+  # =========================================================================
+  - name: holidays
+    label: Holiday
+    plural_label: Holidays
+    description: >
+      A date or date range on which no lesson is held. Scoped to a term when it
+      is a term-specific closure, or left unscoped to apply across the whole
+      calendar -- which is what a public holiday needs.
+    zoho:
+      module: Holidays
+      access_type: team_based
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Holiday Name, type: text, length: 120, required: true,
+          zoho: { api_name: Name, stock: true }, note: "e.g. 'Eid ul-Fitr', 'Victory Day'" }
+      - { name: start_date, label: Date, type: date, required: true }
+      - { name: end_date, label: Last Day, type: date,
+          note: "Leave blank for a single day. Inclusive when set." }
+      - { name: term, label: Term, type: reference, ref: terms, required: false, on_delete: cascade,
+          note: "Blank applies it to every term, which is right for a public holiday." }
+      - { name: kind, label: Kind, type: enum, enum: holiday_kind, required: true, default: Public Holiday }
+      - { name: notes, label: Holiday Notes, type: textarea,
+          zoho: { api_name: Holiday_Notes },
+          note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+    constraints:
+      - { type: check, name: holiday_dates_ordered,
+          expr: "end_date IS NULL OR end_date >= start_date" }
+
+  # =========================================================================
   # programs -- grouping above courses (a diploma, a stream)
   # =========================================================================
   - name: programs

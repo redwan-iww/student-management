@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE -- do not edit. Source: schema/model.yaml (npm run gen:docs) -->
 
-12 entities. Rollup fields are derived — they exist as a Zoho
+13 entities. Rollup fields are derived — they exist as a Zoho
 rollup summary and as a column on the Postgres `v_<table>` view, never as stored data.
 
 ## Household — `households`
@@ -99,6 +99,25 @@ SQL table `terms` · Zoho module `Terms` (create)
 **Constraints**
 
 - `term_dates_ordered` — check `end_date >= start_date`
+
+## Holiday — `holidays`
+
+A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.
+
+SQL table `holidays` · Zoho module `Holidays` (create)
+
+| Field | Type | Req | Unique | SQL column | Notes |
+|---|---|:-:|:-:|---|---|
+| `name` | text | ✓ |  | `name` | e.g. 'Eid ul-Fitr', 'Victory Day' |
+| `start_date` | date | ✓ |  | `start_date` |  |
+| `end_date` | date |  |  | `end_date` | Leave blank for a single day. Inclusive when set. |
+| `term` | reference → `terms` |  |  | `term_id` | Blank applies it to every term, which is right for a public holiday. |
+| `kind` | enum `holiday_kind` | ✓ |  | `kind` | default `Public Holiday` |
+| `notes` | textarea |  |  | `notes` | api_name is not 'Notes' -- Zoho reserves that keyword. |
+
+**Constraints**
+
+- `holiday_dates_ordered` — check `end_date IS NULL OR end_date >= start_date`
 
 ## Program — `programs`
 
@@ -311,6 +330,7 @@ SQL table `attendance` · Zoho module `Attendance` (create)
 - `admission_source` — `Walk In`, `Website`, `Referral`, `Social Media`, `Agent`, `Event`, `Other`
 - `class_status` — `Draft`, `Scheduled`, `Running`, `Completed`, `Cancelled`
 - `weekday` — `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `Sunday`
+- `holiday_kind` — `Public Holiday`, `Religious Holiday`, `School Closure`, `Term Break`, `Exam Period`, `Other`
 - `session_status` — `Scheduled`, `Held`, `Cancelled`, `Rescheduled`, `Makeup`
 - `enrollment_status` — `Pending`, `Active`, `Completed`, `Dropped`, `Transferred`
 - `payment_status` — `Unpaid`, `Partially Paid`, `Paid`, `Waived`, `Refunded`

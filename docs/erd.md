@@ -67,6 +67,14 @@ erDiagram
         date enrollment_closes
         enum status "required"
     }
+    HOLIDAYS {
+        text name "required"
+        date start_date "required"
+        date end_date
+        FK_terms term
+        enum kind "required"
+        textarea notes
+    }
     PROGRAMS {
         text name "required"
         text program_code "required,unique"
@@ -182,6 +190,7 @@ erDiagram
     }
 
     HOUSEHOLDS ||--o{ STUDENTS : "household"
+    TERMS |o--o{ HOLIDAYS : "term"
     PROGRAMS |o--o{ COURSES : "program"
     HOUSEHOLDS |o--o{ ADMISSIONS : "household"
     STUDENTS |o--o{ ADMISSIONS : "student"
@@ -212,6 +221,7 @@ erDiagram
 - **Student** (`students`) — The learner. Always belongs to exactly one household.
 - **Teacher** (`teachers`) — Teaching staff. A separate module rather than CRM users because the org holds only 2 user licences; crm_user links the minority who do have one.
 - **Term** (`terms`) — An academic term/session. Classes and enrollments are scoped to one.
+- **Holiday** (`holidays`) — A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.
 - **Course** (`courses`) — What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
 - **Admission** (`admissions`) — An application. Applicant details are held inline because no student row exists until the application is accepted; `student` is back-filled then.
 - **Class** (`classes`) — A section/batch: course x term x weekly timetable. NOT a dated lesson -- that is `class_sessions`. Attendance never attaches here.

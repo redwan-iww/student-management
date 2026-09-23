@@ -1,0 +1,97 @@
+{
+  "_entity": "holidays",
+  "module": "Holidays",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Date",
+      "api_name": "Start_Date",
+      "data_type": "date",
+      "system_mandatory": true,
+      "_entity_field": "start_date"
+    },
+    {
+      "field_label": "Last Day",
+      "api_name": "End_Date",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Leave blank for a single day. Inclusive when set."
+      },
+      "data_type": "date",
+      "_entity_field": "end_date"
+    },
+    {
+      "field_label": "Kind",
+      "api_name": "Kind",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Public Holiday",
+          "actual_value": "Public Holiday",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Religious Holiday",
+          "actual_value": "Religious Holiday",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "School Closure",
+          "actual_value": "School Closure",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Term Break",
+          "actual_value": "Term Break",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Exam Period",
+          "actual_value": "Exam Period",
+          "sequence_number": 5
+        },
+        {
+          "display_value": "Other",
+          "actual_value": "Other",
+          "sequence_number": 6
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Public Holiday",
+      "_entity_field": "kind"
+    },
+    {
+      "field_label": "Holiday Notes",
+      "api_name": "Holiday_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "api_name is not 'Notes' -- Zoho reserves that keyword."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [
+    {
+      "field_label": "Term",
+      "api_name": "Term",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Blank applies it to every term, which is right for a public holiday."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Terms"
+        },
+        "display_label": "Holidays"
+      },
+      "_entity_field": "term"
+    }
+  ],
+  "relabel_stock_fields": []
+}

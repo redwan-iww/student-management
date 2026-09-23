@@ -9,6 +9,13 @@
       "enforcement": "Zoho validation rule on the listed expression."
     },
     {
+      "_entity": "holidays",
+      "module": "Holidays",
+      "name": "holiday_dates_ordered",
+      "expression": "end_date IS NULL OR end_date >= start_date",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
       "_entity": "classes",
       "module": "Classes",
       "name": "class_dates_ordered",

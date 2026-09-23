@@ -14,6 +14,7 @@ drift check.
 | `students` | `Students` | extend_custom | CustomModule45 (id 4731441000029976123) in demo3: status visible, custom, api-supported, stock system fields only. Re-verified 2026-09-19. |
 | `teachers` | `Teachers` | create |  |
 | `terms` | `Terms` | create |  |
+| `holidays` | `Holidays` | create |  |
 | `programs` | `Academic_Programs` | create | Zoho rejects "Program"/"Programs" as a module name -- "You cannot have a module name that matches a system keyword" (hit 2026-09-19 creating this module in demo3). Both the labels and the api_name have to change, unlike Course_Catalog where only the api_name did. The canonical entity stays `programs` and SQL/TypeScript are unaffected. |
 | `courses` | `Course_Catalog` | create | api_name is Course_Catalog, not Courses: CustomModule2 already holds the Courses api_name. Audited 2026-09-14 and re-verified 2026-09-19 against demo3 (id 4731441000000553422) -- that module is status user_hidden and COQL returns NO_PERMISSION, so it can be neither read nor safely reused. User-facing labels stay Course / Courses. |
 | `admissions` | `Admissions` | create |  |
@@ -102,6 +103,17 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `enrollment_opens` | `Enrollment_Opens` | date |  |
 | `enrollment_closes` | `Enrollment_Closes` | date |  |
 | `status` | `Status` | picklist |  |
+
+### Holidays — `holidays`
+
+| Field | Zoho api_name | Zoho data_type | Stock? |
+|---|---|---|:-:|
+| `name` | `Name` | text | ✓ |
+| `start_date` | `Start_Date` | date |  |
+| `end_date` | `End_Date` | date |  |
+| `term` | `Term` | lookup → `Terms` |  |
+| `kind` | `Kind` | picklist |  |
+| `notes` | `Holiday_Notes` | textarea |  |
 
 ### Academic_Programs — `programs`
 
@@ -249,6 +261,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 ## Things Zoho cannot express natively
 
 - **Check** `Terms`.`term_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
+- **Check** `Holidays`.`holiday_dates_ordered` — `end_date IS NULL OR end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Classes`.`class_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Classes`.`class_capacity_positive` — `capacity > 0` — implement as a Zoho validation rule.
 - **Time-only field** `Classes`.`Start_Time` — stored as `HH:MM` text.
@@ -275,6 +288,7 @@ Contacts
   -> Students
   -> Teachers
   -> Terms
+  -> Holidays
   -> Academic_Programs
   -> Course_Catalog
   -> Admissions

@@ -427,6 +427,49 @@ export async function getSessionKeysForClass(classId: string): Promise<Set<strin
   return new Set(recs.map((r) => `${str(r[fields.session_date])}|${str(r[fields.start_time])}`));
 }
 
+/**
+ * Every closed date in the calendar, mapped to the reason it is closed.
+ *
+ * A holiday is stored as a range, because Eid runs several days. Timetable
+ * generation asks "is this one date closed?", so the ranges are flattened once
+ * into yyyy-MM-dd keys rather than compared per candidate lesson.
+ *
+ * A holiday with no Term applies to every term -- that is what makes it a
+ * public holiday. A term-scoped closure only suppresses lessons in its own
+ * term, so both are filtered here rather than at the call site.
+ */
+export async function getClosedDates(termId: string): Promise<Map<string, string>> {
+  const { module, fields } = ZOHO_MODULES.holidays;
+  // Every holiday, not a filtered subset. A search needs criteria and there is
+  // no criterion meaning "all"; the table is small -- a year of closures is a
+  // couple of dozen rows.
+  const recs = rows(await zoho().CRM.API.getAllRecords({ Entity: module, per_page: 200 }));
+
+  const closed = new Map<string, string>();
+  for (const rec of recs) {
+    const scope = refId(rec[fields.term]);
+    if (scope && scope !== termId) continue;
+
+    const start = str(rec[fields.start_date]);
+    if (!start) continue;
+    const last = str(rec[fields.end_date], start);
+
+    const cursor = new Date(`${start}T00:00:00Z`);
+    const end = new Date(`${last}T00:00:00Z`);
+    if (Number.isNaN(cursor.getTime()) || Number.isNaN(end.getTime())) continue;
+
+    // A closure longer than a year is a data error, not something to expand --
+    // and an unbounded loop here would hang the page.
+    let guard = 0;
+    while (cursor <= end && guard < 400) {
+      closed.set(cursor.toISOString().slice(0, 10), str(rec[fields.name], 'Closed'));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      guard += 1;
+    }
+  }
+  return closed;
+}
+
 /** Zoho's per-call ceiling for a bulk create. */
 export const BULK_LIMIT = 100;
 

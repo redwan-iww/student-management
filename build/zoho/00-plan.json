@@ -10,6 +10,7 @@
     "team_based": [
       "Teachers",
       "Terms",
+      "Holidays",
       "Academic_Programs",
       "Admissions",
       "Classes",
@@ -35,7 +36,7 @@
       "step": 2,
       "action": "createModules",
       "file": "modules.json",
-      "count": 10
+      "count": 11
     },
     {
       "step": 3,
@@ -45,6 +46,7 @@
         "fields/Students.json",
         "fields/Teachers.json",
         "fields/Terms.json",
+        "fields/Holidays.json",
         "fields/Academic_Programs.json",
         "fields/Course_Catalog.json",
         "fields/Admissions.json",
@@ -61,6 +63,7 @@
       "files": [
         "fields/Students.json",
         "fields/Teachers.json",
+        "fields/Holidays.json",
         "fields/Course_Catalog.json",
         "fields/Admissions.json",
         "fields/Classes.json",
@@ -80,13 +83,13 @@
       "step": 6,
       "action": "validation rules / custom functions",
       "file": "validations.json",
-      "count": 8
+      "count": 9
     },
     {
       "step": 7,
       "action": "mandatory flags (layout API)",
-      "count": 43,
-      "detail": "getLayouts per module, then updateLayout marking required the 43 fields flagged system_mandatory in fields/*.json. createFields silently ignores the flag and getFields does not report it reliably, so this step is not optional."
+      "count": 45,
+      "detail": "getLayouts per module, then updateLayout marking required the 45 fields flagged system_mandatory in fields/*.json. createFields silently ignores the flag and getFields does not report it reliably, so this step is not optional."
     },
     {
       "step": 8,
@@ -119,6 +122,11 @@
     {
       "entity": "terms",
       "module": "Terms",
+      "strategy": "create"
+    },
+    {
+      "entity": "holidays",
+      "module": "Holidays",
       "strategy": "create"
     },
     {

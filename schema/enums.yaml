@@ -84,6 +84,10 @@ enums:
     label: Day
     values: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
 
+  holiday_kind:
+    label: Holiday Kind
+    values: [Public Holiday, Religious Holiday, School Closure, Term Break, Exam Period, Other]
+
   session_status:
     label: Session Status
     values: [Scheduled, Held, Cancelled, Rescheduled, Makeup]
