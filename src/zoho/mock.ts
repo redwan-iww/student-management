@@ -149,6 +149,29 @@ export function installMockZoho(): void {
       return { data: [] };
     },
 
+    /**
+     * Children through the relationship, the read client.ts prefers.
+     *
+     * Only the four real (parent, related list) pairs answer; anything else
+     * rejects the way the CRM does for an unknown related-list name, so the
+     * candidate-then-fallback path is exercised here and not only in a widget.
+     */
+    async getRelatedRecords({ Entity, RecordID, RelatedList }: { Entity: string; RecordID: string; RelatedList: string }) {
+      const children = (rows: Rec[], field: string) => ({
+        data: rows.filter((r) => lookupIs(r, field, RecordID)),
+      });
+      if (Entity === M.classes.module) {
+        if (RelatedList === M.class_sessions.module) return children(sessions, S.class);
+        // Unfiltered, like the real related list -- client.ts applies Active itself.
+        if (RelatedList === M.enrollments.module) return children(enrollments, E.class);
+        if (RelatedList === M.allocations.module) return children(allocations, AL.class);
+      }
+      if (Entity === M.class_sessions.module && RelatedList === M.attendance.module) {
+        return children(attendance, A.class_session);
+      }
+      throw new Error(`INVALID_MODULE: ${Entity} has no related list '${RelatedList}'`);
+    },
+
     async insertRecord({ Entity, APIData }: { Entity: string; APIData: Record<string, unknown> | Array<Record<string, unknown>> }) {
       // Mirrors the real SDK: a single record or a bulk array, answered with one
       // status row per record. Without this the generator's 100-row batch would

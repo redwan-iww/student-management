@@ -90,6 +90,22 @@ const api = {
     return call(`/${Entity}/search?${q}`);
   },
 
+  /**
+   * Children of one record, read through the relationship.
+   *
+   * Without this the dev adapter has no getRelatedRecords at all, the call
+   * throws TypeError, and relatedRecords() in client.ts quietly falls back to
+   * the search index -- so the very lag the related read exists to avoid is
+   * what dev mode would go on testing. A wrong related-list name 400s and
+   * `call` throws, which is exactly the signal the candidate loop wants.
+   */
+  async getRelatedRecords({
+    Entity, RecordID, RelatedList, per_page = 200, page = 1,
+  }: { Entity: string; RecordID: string; RelatedList: string; per_page?: number; page?: number }) {
+    const q = new URLSearchParams({ per_page: String(per_page), page: String(page) });
+    return call(`/${Entity}/${RecordID}/${RelatedList}?${q}`);
+  },
+
   async insertRecord({
     Entity, APIData, Trigger,
   }: { Entity: string; APIData: Json | Json[]; Trigger?: string[] }) {
