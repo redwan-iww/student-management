@@ -96,6 +96,49 @@ export function str(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+/**
+ * Children of one parent record, read through the relationship.
+ *
+ * `searchRecord` is backed by a search index, and a record written through the
+ * API does not appear in it for up to a minute or two. That matters far more
+ * than it sounds: none of this model's composite-unique constraints are
+ * natively enforced by Zoho (`build/zoho/validations.json` specifies a custom
+ * function for each, and none is deployed), so the client-side dedupe read is
+ * the *only* thing preventing duplicates. A dedupe read that cannot see rows
+ * it just wrote will cheerfully write them again -- a second attendance mark
+ * for the same student and lesson, or a second copy of a whole timetable.
+ *
+ * `getRelatedRecords` walks the actual relationship and is not index-backed,
+ * so it has no such lag.
+ *
+ * The related-list api_name is not derivable from the schema, so the likely
+ * candidates are tried in order. Returns null when none of them work, and
+ * every caller falls back to `search` -- so in the worst case behaviour is
+ * exactly what it was before, never worse.
+ */
+async function relatedRecords(
+  parentModule: string,
+  parentId: string,
+  candidates: string[],
+): Promise<RawRecord[] | null> {
+  for (const RelatedList of candidates) {
+    try {
+      const res = await zoho().CRM.API.getRelatedRecords({
+        Entity: parentModule,
+        RecordID: parentId,
+        RelatedList,
+        per_page: 200,
+      });
+      // A parent with no children answers 204/empty rather than failing, which
+      // is a valid empty result -- not a reason to try the next candidate.
+      return rows(res);
+    } catch {
+      // Wrong related-list name for this org; try the next spelling.
+    }
+  }
+  return null;
+}
+
 async function search(entity: string, query: string, perPage = 200): Promise<RawRecord[]> {
   const res = await zoho().CRM.API.searchRecord({
     Entity: entity,
@@ -206,7 +249,12 @@ export async function getTeachers(): Promise<RawRecord[]> {
 
 export async function getAllocationsForClass(classId: string): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.allocations;
-  return search(module, `(${fields.class}:equals:${classId})`);
+  // Read-after-write: the staffing screen re-reads this immediately after
+  // adding or ending an allocation.
+  return (
+    (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
+    (await search(module, `(${fields.class}:equals:${classId})`))
+  );
 }
 
 export interface NewAllocation {
@@ -294,13 +342,27 @@ export async function getClassSession(sessionId: string): Promise<RawRecord | nu
 /** Active enrollments for a class -- the roster the attendance sheet renders. */
 export async function getEnrollmentsForClass(classId: string): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.enrollments;
+  const related = await relatedRecords(ZOHO_MODULES.classes.module, classId, [
+    module,
+    fields.class,
+  ]);
+  // The related list carries every enrollment, so the Active filter that the
+  // search criteria applied server-side is applied here instead.
+  if (related) return related.filter((r) => str(r[fields.status]) === 'Active');
+
   return search(module, `((${fields.class}:equals:${classId})and(${fields.status}:equals:Active))`);
 }
 
 /** Attendance already recorded for a session, keyed by enrollment id. */
 export async function getAttendanceForSession(sessionId: string): Promise<Map<string, RawRecord>> {
   const { module, fields } = ZOHO_MODULES.attendance;
-  const recs = await search(module, `(${fields.class_session}:equals:${sessionId})`);
+  // Read-after-write: saveMark upserts against this map, so a stale read
+  // creates a duplicate mark instead of updating the existing one.
+  const recs =
+    (await relatedRecords(ZOHO_MODULES.class_sessions.module, sessionId, [
+      module,
+      fields.class_session,
+    ])) ?? (await search(module, `(${fields.class_session}:equals:${sessionId})`));
   const byEnrollment = new Map<string, RawRecord>();
   for (const rec of recs) {
     const enrollmentId = refId(rec[fields.enrollment]);
@@ -423,7 +485,11 @@ const WEEKDAY_INDEX = {
 /** Sessions already recorded for a class, as a set of "date|start_time" keys. */
 export async function getSessionKeysForClass(classId: string): Promise<Set<string>> {
   const { module, fields } = ZOHO_MODULES.class_sessions;
-  const recs = await search(module, `(${fields.class}:equals:${classId})`);
+  // Read-after-write: this set is the only guard against generating a second
+  // copy of a timetable, so it must not miss rows written moments ago.
+  const recs =
+    (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
+    (await search(module, `(${fields.class}:equals:${classId})`));
   return new Set(recs.map((r) => `${str(r[fields.session_date])}|${str(r[fields.start_time])}`));
 }
 

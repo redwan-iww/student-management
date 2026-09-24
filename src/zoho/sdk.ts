@@ -31,6 +31,17 @@ interface ZohoCrmApi {
   getAllRecords(o: { Entity: string; sort_by?: string; sort_order?: string; per_page?: number; page?: number }): Promise<ZohoApiResponse>;
   searchRecord(o: { Entity: string; Type: 'criteria' | 'email' | 'phone' | 'word'; Query: string; per_page?: number; page?: number }): Promise<ZohoApiResponse>;
   /**
+   * Children of one record, read through the relationship rather than the
+   * search index -- so unlike searchRecord it has no indexing lag.
+   */
+  getRelatedRecords(o: {
+    Entity: string;
+    RecordID: string;
+    RelatedList: string;
+    page?: number;
+    per_page?: number;
+  }): Promise<ZohoApiResponse>;
+  /**
    * APIData takes a single record or an array of up to 100 -- Zoho's bulk
    * create. One call for 100 rows instead of 100 calls.
    */

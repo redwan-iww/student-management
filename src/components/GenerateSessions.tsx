@@ -11,7 +11,7 @@
 // first and skipped, matching the uq_session_per_class_date constraint, so a
 // half-finished run can simply be repeated.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { Loader, useDelayed } from './Loader';
 import {
@@ -55,6 +55,11 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
   // What clicking would actually do, worked out up front: 'what does this mean'
   // is answered far better by a concrete count than by any wording.
   const [preview, setPreview] = useState<Preview>({ kind: 'none' });
+
+  // Every (class|date|time) this component has written. A ref, not state:
+  // it must survive a re-render without causing one, and it is read inside an
+  // async run rather than during render.
+  const createdKeys = useRef<Set<string>>(new Set());
 
   // One flag for both fetch phases, so they cannot chain two separate spinners.
   const preparingSlow = useDelayed(terms === null || preview.kind === 'counting');
@@ -162,9 +167,16 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
         const existing = keySets[i]!;
         const startTime = str(c.klass[K.start_time]);
         for (const s of c.planned) {
+          const key = `${c.klass.id}|${s.date}|${startTime}`;
+          // Belt and braces against a second run duplicating the timetable.
+          // The read above is the primary guard, but Zoho does not enforce
+          // uq_session_per_class_date natively, so anything this component has
+          // already written in this page's lifetime is remembered rather than
+          // trusted to come back from a read.
+          if (createdKeys.current.has(key)) skipped += 1;
           // Re-checked here rather than trusting the preview: a holiday added
           // between previewing and pressing would otherwise still be scheduled.
-          if (closed.has(s.date)) onHoliday += 1;
+          else if (closed.has(s.date)) onHoliday += 1;
           else if (existing.has(`${s.date}|${startTime}`)) skipped += 1;
           else plan.push({ klass: c.klass, date: s.date, sequenceNo: s.sequenceNo });
         }
@@ -188,6 +200,11 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           label: `batch of ${batch.length}`,
         });
         written += await createClassSessionBatch(batch);
+        // Recorded only after the write returns, so a failed batch is not
+        // mistaken for one already on the calendar.
+        for (const item of batch) {
+          createdKeys.current.add(`${item.klass.id}|${item.date}|${str(item.klass[K.start_time])}`);
+        }
       }
       setRun({ kind: 'working', done: written, total: plan.length, label: 'finishing' });
 
