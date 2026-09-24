@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"\"zoho-crm-module-customization\"": {
+			"type": "http",
+			"url": "https://zoho-crm-module-customisation-913614185.zohomcp.com/mcp/c69c731ee6391872ed6d687109fd87b0/message"
+		}
+	},
+	"inputs": []
+}

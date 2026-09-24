@@ -2,15 +2,15 @@
   "mcpServers": {
     "zoho-crm-data-operations": {
       "type": "http",
-      "url": "https://zoho-crm-data-operations-60065097786.zohomcp.in/mcp/fe46ddbc48fec3713c8754cea8ec9ac5/message"
+      "url": "https://zoho-crm-data-operations-913614185.zohomcp.com/mcp/6e7f1c034c117d7436e53fe86acf7a1e/message"
     },
     "zoho-crm-data-insights": {
       "type": "http",
-      "url": "https://zoho-crm-data-insights-60065097786.zohomcp.in/mcp/d17dfe13292e0414a929516bb8f8e797/message"
+      "url": "https://zoho-crm-data-insights-913614185.zohomcp.com/mcp/345f78535407222eab81d0b0acff1de0/message"
     },
     "zoho-crm-module-customization": {
       "type": "http",
-      "url": "https://zoho-crm-module-customization-60065097786.zohomcp.in/mcp/8057776f5d548a33b892c533d4278d17/message"
+      "url": "https://zoho-crm-module-customisation-913614185.zohomcp.com/mcp/c69c731ee6391872ed6d687109fd87b0/message"
     }
   }
 }
