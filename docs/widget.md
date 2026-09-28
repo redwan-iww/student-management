@@ -87,11 +87,13 @@ from `PageLoad` (a web tab has no record context), so each picks its own subject
 
 ### Seeing them before packaging
 
-`npm run dev` serves both entries and installs a mock `ZOHO` global (see
-`src/zoho/mock.ts`), so the real component tree and the real `client.ts` call path
-run against in-memory fixtures — a yellow banner says as much. That proves the UI
-and the generated field mappings, but **not** the SDK handshake. For that, use
-`zet run` and register its local URL as the widget URL.
+`npm run dev` serves both entries and, when `.env` holds OAuth credentials,
+installs a live `ZOHO` global (see `src/zoho/live.ts`), so the real component
+tree and the real `client.ts` call path run against real demo3 records over REST
+— a yellow banner says as much. Without credentials the tabs render a notice
+instead; there are no fixtures. That proves the UI and the generated field
+mappings, but **not** the SDK handshake. For that, use `zet run` and register
+its local URL as the widget URL.
 
 ## What is built
 

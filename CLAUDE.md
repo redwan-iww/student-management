@@ -82,9 +82,10 @@ file that touches the CRM · `src/apps/` and `src/components/` are the UI.
 
 `ZOHO.embeddedApp.init()` resolves through a postMessage handshake with the parent CRM page, so
 opening a built page directly cannot work. Outside a frame, `TabShell` falls back to
-`src/zoho/mock.ts` (in-memory fixtures, red banner) or, if `.env` holds OAuth credentials, to
-`src/zoho/live.ts` (real CRM over REST via the `vite-zoho-proxy.ts` dev-server proxy). Both are
-dev-only and tree-shaken from production builds.
+`src/zoho/live.ts` (real CRM over REST via the `vite-zoho-proxy.ts` dev-server proxy) if `.env`
+holds OAuth credentials, and otherwise renders a "live mode is off" notice. There are **no
+fixtures** — the mock was removed. The live adapter is dev-only and tree-shaken from production
+builds.
 
 A **web tab has no record context**, so `PageLoad` may never fire. `initTab()` therefore resolves
 on *either* `PageLoad` or `init()` — waiting only on `PageLoad` made a perfectly connected tab
@@ -123,10 +124,17 @@ status row **per record** — check them all, not just `data[0]`.
 call using another org's IDs fails with `Invalid profile id`. Step 0 of `build/zoho/00-plan.json`
 asserts `getOrganization` returns that zgid before anything is written — run it first.
 
-The available Zoho CRM connector has `createFields` but **not** `createModules`, so new modules
-must be created by hand in Setup → Developer Space using the generated payload in
-`build/zoho/fields/`. This currently blocks the `Holidays` module, which the schema and the
-timetable generator both already expect.
+Access is three MCP servers on account 913614185, all `*.zohomcp.com`: `zoho-crm-data-operations`,
+`zoho-crm-data-insights` (COQL) and `zoho-crm-module-customization`. The last one **does** have
+`createModules` — the earlier connector did not, which is what used to force module creation by
+hand in Setup → Developer Space.
+
+**None of the three exposes `getOrganization`**, so step 0 cannot be run literally against them.
+Assert the org another way before writing: every id in demo3 begins `4731441000…` (its org record
+is `4731441000000020005`), and that prefix is org-unique. A `638310255` id looks nothing like it.
+
+`Holidays` was created this way on 2026-09-24 (module `4731441000031948145`, five fields plus the
+`Term` lookup), so the schema and the timetable generator now have the module they always expected.
 
 ## Not implemented, despite the docs
 

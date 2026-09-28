@@ -8,6 +8,10 @@
 #     getProfiles(type = "normal_profile")
 # and copy each id/name. Then: npm run gen:zoho
 #
+# None of the three MCP servers currently configured exposes getProfiles, so
+# this list cannot be refreshed from here -- read it from Setup -> Users and
+# Control -> Security Control -> Profiles in demo3.
+#
 # Leave `profiles` empty and build/zoho/modules.json carries a loud warning
 # instead of unusable IDs.
 
@@ -18,8 +22,11 @@ org:
   note: >-
     "Demo Id" / demo3 -- BD, BDT, Zoho One Enterprise (25-profile,
     200-custom-module caps; 2 user licences). Contacts is the parent module;
-    every other entity is a custom module. Reachable via the claude.ai Zoho CRM
-    connector -- assert zgid 731242989 with getOrganization before any write.
+    every other entity is a custom module. Reached through three MCP servers on
+    account 913614185, all *.zohomcp.com: data-operations, data-insights (COQL)
+    and module-customization (createModules + createFields). None of them
+    exposes getOrganization, so assert the org by id prefix instead -- every id
+    in demo3 begins 4731441000 and that prefix is org-unique.
 
 # Verified against demo3 on 2026-09-19 (Contacts layout profiles array).
 # demo3 also holds a custom profile `Nasir` (4731441000001754228); it is
@@ -36,6 +43,12 @@ profiles:
 team_space:
   # UNCONFIRMED: no connected API exposes the team space name. Read it from
   # Setup -> Team Spaces in demo3 and correct this line.
+  #
+  # Not a blocker for creating modules, though: createModules with
+  # access_type: team_based and NO profiles key (the API rejects the key for
+  # team modules) puts the module in the same space as its siblings. Verified
+  # when Holidays was created on 2026-09-24 -- it came back carrying exactly
+  # the five profiles below.
   name: "(unconfirmed)"
   profiles:
     - { id: "4731441000031826001", name: Admins }

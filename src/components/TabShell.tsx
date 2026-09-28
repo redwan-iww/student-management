@@ -8,8 +8,9 @@ type State =
   | { kind: 'outside'; reason: HandshakeFailure; waitedMs: number }
   | { kind: 'failed'; message: string }
   | { kind: 'ready' }
-  // Handshake never came, but dev fixtures were installed so the UI still runs.
-  | { kind: 'ready-mock'; reason: HandshakeFailure }
+  // Handshake never came and the dev proxy has no credentials, so there is no
+  // transport at all. Dev-only: in production this is `outside` instead.
+  | { kind: 'needs-credentials'; reason: HandshakeFailure }
   // Handshake never came, but the live dev proxy is configured -- so this is
   // real demo3 data reached over REST rather than through the SDK.
   | { kind: 'ready-live'; reason: HandshakeFailure };
@@ -55,27 +56,25 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       .catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof NotInsideCrmError) {
-          // In dev, an unanswered handshake should not be a dead end: install a
-          // transport and render, so the tab can be worked on inside the CRM
-          // frame before the widget is registered. Prefer the live adapter when
-          // the dev proxy has credentials -- that is real demo3 data, just
-          // reached over REST instead of through the SDK -- and fall back to
-          // fixtures otherwise. Never in a production build: there, fake data
-          // masquerading as CRM data would be worse than an error.
+          // In dev, an unanswered handshake should not be a dead end: install
+          // the live adapter and render, so the tab can be worked on before the
+          // widget is registered. That is real demo3 data, just reached over
+          // REST instead of through the SDK. It is the only dev transport --
+          // there are no fixtures to fall back on -- so without credentials
+          // the tab says so rather than inventing data. Never in a production
+          // build: there, a dev transport masquerading as the SDK path would be
+          // worse than an error.
           if (import.meta.env.DEV) {
             void import('virtual:zoho-mode').then(async ({ LIVE }) => {
               if (cancelled) return;
-              if (LIVE) {
-                const { installLiveZoho } = await import('../zoho/live');
-                if (cancelled) return;
-                installLiveZoho();
-                setState({ kind: 'ready-live', reason: err.reason });
-              } else {
-                const { installMockZoho } = await import('../zoho/mock');
-                if (cancelled) return;
-                installMockZoho();
-                setState({ kind: 'ready-mock', reason: err.reason });
+              if (!LIVE) {
+                setState({ kind: 'needs-credentials', reason: err.reason });
+                return;
               }
+              const { installLiveZoho } = await import('../zoho/live');
+              if (cancelled) return;
+              installLiveZoho();
+              setState({ kind: 'ready-live', reason: err.reason });
             });
             return;
           }
@@ -89,13 +88,8 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
   // The handshake is usually quick; only mention the wait if it is not.
   const showConnecting = useDelayed(state.kind === 'init');
 
-  const isDevPreview = import.meta.env.DEV && window.self === window.top;
-
   return (
     <>
-      {isDevPreview && (
-        <p className="devbar">Development preview — in-memory fixtures, not live CRM data.</p>
-      )}
       <header className="tabhead">
         <h1>{title}</h1>
       </header>
@@ -115,15 +109,26 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
         </div>
       )}
 
-      {state.kind === 'ready-mock' && (
-        <p className="devbar warnbar">
-          <strong>Sample data — nothing you save here is kept.</strong>{' '}
-          Running on in-memory fixtures ({state.reason}): edits survive until you
-          reload, then reset. Inside CRM this should normally reach demo3 through
-          the SDK with no credentials at all — if you are seeing this there, the
-          handshake did not complete. The dev proxy (<code>.env</code>,{' '}
-          <code>docs/live-dev.md</code>) is the fallback route.
-        </p>
+      {/* Dev-only, and gated on DEV here as well as at the setState that
+          produces it -- otherwise the markup (and the credential *names* in
+          it) ships in the production bundle to a branch that can never run. */}
+      {import.meta.env.DEV && state.kind === 'needs-credentials' && (
+        <div className="notice">
+          <h2>Live mode is off — add OAuth credentials</h2>
+          <p>
+            No CRM handshake (<code>{state.reason}</code>), and the dev proxy has
+            no credentials, so there is nothing to read from. Copy{' '}
+            <code>.env.example</code> to <code>.env</code>, fill in{' '}
+            <code>ZOHO_CLIENT_ID</code>, <code>ZOHO_CLIENT_SECRET</code> and{' '}
+            <code>ZOHO_REFRESH_TOKEN</code>, then restart the dev server —
+            credentials are read at startup, not per request.
+          </p>
+          <p className="muted">
+            See <code>docs/live-dev.md</code>. Inside CRM this tab reaches demo3
+            through the SDK with no credentials at all; if you are seeing this
+            there, the handshake did not complete.
+          </p>
+        </div>
       )}
 
       {state.kind === 'ready-live' && (
@@ -134,7 +139,7 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       )}
 
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
-      {(state.kind === 'ready' || state.kind === 'ready-mock' || state.kind === 'ready-live') && children}
+      {(state.kind === 'ready' || state.kind === 'ready-live') && children}
     </>
   );
 }

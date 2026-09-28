@@ -1,13 +1,12 @@
 # Running the widgets against real CRM data
 
-Hand-written. How to develop the two web tabs against the actual demo3 org
-instead of the in-memory mock.
+Hand-written. How to develop the two web tabs against the actual demo3 org.
+There are no fixtures: real CRM data is the only way to run them.
 
-## The three ways to run
+## The two ways to run
 
 | | Transport | Data | Handshake | Needs |
 |---|---|---|---|---|
-| **Mock** (default) | in-memory arrays | fixtures | faked | nothing |
 | **Live** | Zoho REST v8 via dev proxy | **real demo3** | faked | OAuth credentials |
 | **`zet run`** | real SDK inside CRM | **real demo3** | **real** | widget registered in Zoho + a licence seat |
 
@@ -16,16 +15,17 @@ handshake. Live mode is the day-to-day development path: real reads and real
 writes, in an ordinary browser tab, with no licence seat consumed.
 
 Mode is chosen automatically. Set the three credentials and the dev server
-starts in live mode; leave any of them blank and it falls back to the mock. The
-startup banner says which:
+starts in live mode; leave any of them blank and live mode stays off, and the
+tabs render a notice telling you to set them rather than any data. The startup
+banner says which:
 
 ```
-[zoho-proxy] live mode ON -> https://www.zohoapis.in
+[zoho-proxy] live mode ON -> https://www.zohoapis.com
 ```
 
 ```
 [zoho-proxy] ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not set.
-[zoho-proxy] Live mode is OFF -- the widgets will use the in-memory mock.
+[zoho-proxy] Live mode is OFF -- the widgets have no data source and will say so.
 ```
 
 ## Setting up live mode
@@ -54,8 +54,14 @@ ZOHO_DC=in
 `.env` is gitignored. Only `.env.example` is committed.
 
 **3. Get the data centre right.** `ZOHO_DC` must match the org, or the token
-refresh fails with `invalid_client`. demo3 is very likely `in` — its MCP
-endpoints are `*.zohomcp.in`. Valid values: `com`, `in`, `eu`, `au`, `jp`, `ca`.
+refresh fails with `invalid_client`. demo3 is `com`. Valid values: `com`, `in`,
+`eu`, `au`, `jp`, `ca`.
+
+This page previously said `in`, reasoning from MCP endpoints ending `.zohomcp.in`.
+Those endpoints belonged to a **different account** (60065097786) that was
+mistakenly configured here; demo3's own servers are `*.zohomcp.com`. Do not
+re-derive the DC from whatever endpoint happens to be configured — confirm the
+account first.
 
 **4. Restart the dev server.** Credentials are read at startup, not per request.
 
@@ -68,7 +74,7 @@ Browser                        Vite dev server                    Zoho
 ```
 
 - **[src/zoho/live.ts](../src/zoho/live.ts)** installs a `ZOHO` global with the
-  same shape as the mock, so `client.ts`, both tab apps and the generated
+  same shape as the real SDK, so `client.ts`, both tab apps and the generated
   `ZOHO_MODULES` map run completely unchanged. Only the transport differs.
 - **[vite-zoho-proxy.ts](../vite-zoho-proxy.ts)** forwards `/zoho/*` to Zoho and
   attaches the OAuth header, refreshing the access token on demand (hourly,
@@ -81,10 +87,10 @@ Requests never go to `zohoapis.com` from the browser, for two reasons:
 - **Secrecy.** The refresh token and client secret stay in the Node process.
   Only a single boolean (`virtual:zoho-mode`'s `LIVE`) crosses into the bundle.
 
-Both adapters sit behind `import.meta.env.DEV` **and** an unframed check, so
-neither ships to production and neither can shadow the real SDK inside CRM.
+The live adapter sits behind `import.meta.env.DEV` **and** an unframed check,
+so it never ships to production and cannot shadow the real SDK inside CRM.
 Verified: `npm run build` emits no reference to `installLiveZoho`,
-`installMockZoho`, `zoho-oauthtoken` or any credential.
+`zoho-oauthtoken` or any credential.
 
 ## Seeding data
 
@@ -108,9 +114,9 @@ Zoho caps a create call at 100 records.
 ## Gotchas
 
 **Writes are real.** In live mode the Attendance Manager writes actual
-`Attendance` records to demo3. There is no undo. The mock exists precisely so
-that experimenting costs nothing — prefer it unless you specifically need real
-data.
+`Attendance` records to demo3. There is no undo, and there is no longer a
+fixture mode to experiment in — every run you do locally touches the real org,
+so pick your test records deliberately.
 
 **`204 No Content` is not an error.** Zoho answers "no matches" with 204 and an
 empty body rather than `{"data":[]}`. `live.ts` converts it; a naive

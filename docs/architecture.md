@@ -139,17 +139,31 @@ data model changed in the move — see the audit findings below.
 
 ### Connectors
 
-| Connector | Organisation | zgid | Creates modules |
+Superseded on 2026-09-24. The project now reaches demo3 through three MCP
+servers on account 913614185, all on `*.zohomcp.com`:
+
+| Server | Organisation | zgid | Creates modules |
 |---|---|---|---|
-| `claude.ai Zoho CRM` | **demo3 ← the target** | `731242989` | **not yet** — has `createFields`, no `createModules` |
+| `zoho-crm-module-customization` | **demo3 ← the target** | `731242989` | **yes** — `createModules` and `createFields` |
+| `zoho-crm-data-operations` | demo3 | `731242989` | no — records only |
+| `zoho-crm-data-insights` | demo3 | `731242989` | no — COQL reads |
 | `claude.ai instawebworks` | Insta Web Works (production, AU) | `638310255` | yes — but wrong org |
 | — | demo 4 (abandoned) | `735208498` | no connector |
 
-So step 2 of the runbook (`createModules`, 10 modules) has no usable connector
-yet. The fix is to authorise a Zoho CRM connector against demo3 carrying
-`ZohoCRM.settings.modules.ALL`, `.fields.ALL`, `.layouts.ALL` and
-`.profiles.ALL` — the last two are what runbook steps 7 and 8 need. That is an
-interactive OAuth flow, done in claude.ai connector settings.
+The servers were briefly misconfigured with URLs copied from Zoho's own
+documentation, which point at account 60065097786 on `*.zohomcp.in` — a
+different account in a different data centre. That is the same class of mistake
+as the demo3/demo4 mix-up, and it is worth knowing about because a stale
+inference from those `.in` endpoints also reached `.env.example`.
+
+So step 2 of the runbook is no longer blocked: `Holidays`, the last missing
+module, was created through `createModules` on 2026-09-24.
+
+**None of the three servers exposes `getOrganization`**, so step 0 of
+`00-plan.json` cannot be executed literally against them. The substitute is the
+id prefix: every record, module and field id in demo3 begins `4731441000…`
+(the org record itself is `4731441000000020005`) and Zoho id prefixes are
+org-unique, so a response carrying that prefix is demo3 and nothing else.
 
 **Profile IDs are org-specific.** Copying them between orgs fails with
 `Invalid profile id`; that error is how the three-org situation was found in the

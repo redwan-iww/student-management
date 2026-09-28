@@ -102,7 +102,7 @@ export function zohoProxy(opts: ZohoProxyOptions): Plugin {
       if (!configured) {
         console.warn(
           '\n[zoho-proxy] ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not set.' +
-            '\n[zoho-proxy] Live mode is OFF -- the widgets will use the in-memory mock.' +
+            '\n[zoho-proxy] Live mode is OFF -- the widgets have no data source and will say so.' +
             '\n[zoho-proxy] See docs/live-dev.md to switch to real CRM data.\n',
         );
         return;

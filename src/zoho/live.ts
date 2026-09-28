@@ -1,10 +1,12 @@
-// A real ZOHO global for local development -- same shape as the mock, but every
-// call reaches the actual CRM.
+// A real ZOHO global for local development -- same shape as the SDK's, and
+// every call reaches the actual CRM.
 //
-// Mirrors mock.ts exactly: it installs at the SDK boundary, so client.ts, both
-// tab apps and the generated ZOHO_MODULES map run completely unchanged. Only
-// the transport differs -- here it is Zoho's REST v8 API instead of an
-// in-memory array.
+// It installs at the SDK boundary, so client.ts, both tab apps and the
+// generated ZOHO_MODULES map run completely unchanged. Only the transport
+// differs -- here it is Zoho's REST v8 API rather than the embedded SDK.
+//
+// This is the only dev transport. There are no fixtures: without credentials
+// nothing is installed and TabShell renders a notice saying so.
 //
 // Requests go to `/zoho/...` on the Vite dev server, never to zohoapis.com
 // directly. The dev-server proxy (see vite.config.ts) attaches the OAuth
@@ -15,15 +17,17 @@
 //   - Secrecy. The refresh token and client secret stay in the Node process.
 //     Nothing sensitive is ever shipped to the browser bundle.
 //
-// Dev-only, exactly like the mock: installed behind `import.meta.env.DEV`, so
-// it is tree-shaken out of production builds. In production the real SDK
-// script supplies the ZOHO global and this file is absent.
+// Dev-only: installed behind `import.meta.env.DEV`, so it is tree-shaken out
+// of production builds. In production the real SDK script supplies the ZOHO
+// global and this file is absent.
 //
 // What is still NOT real: the embeddedApp handshake. Outside a CRM frame there
 // is no parent to answer it, so `init()` resolves immediately and PageLoad
 // fires with `{}`. That matches what a web tab actually receives (a web tab has
 // no record context), but it does not exercise the postMessage handshake. For
 // that, use `zet run` and register its URL as the widget URL.
+
+import type { PageLoadData, ZohoApiResponse } from './sdk';
 
 const BASE = '/zoho/crm/v8';
 
@@ -33,7 +37,7 @@ type Json = Record<string, unknown>;
  * Zoho answers "no matches" with `204 No Content` and an empty body, not with
  * `{"data":[]}`. Parsing that as JSON throws, so it is handled before the read.
  */
-async function call(path: string, init?: RequestInit): Promise<Json> {
+async function call(path: string, init?: RequestInit): Promise<ZohoApiResponse> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
@@ -58,7 +62,7 @@ async function call(path: string, init?: RequestInit): Promise<Json> {
     const message = typeof body.message === 'string' ? body.message : res.statusText;
     throw new Error(`${code}: ${message}`);
   }
-  return body;
+  return body as ZohoApiResponse;
 }
 
 const api = {
@@ -134,11 +138,16 @@ const api = {
 };
 
 export function installLiveZoho(): void {
-  let onPageLoad: ((d: unknown) => void) | null = null;
+  let onPageLoad: ((data: PageLoadData) => void) | null = null;
 
-  (globalThis as Record<string, unknown>).ZOHO = {
+  // Assigned through the typed global declared in sdk.ts, not through a
+  // `Record<string, unknown>` cast. The cast is what let this adapter go
+  // without getRelatedRecords while `npm run typecheck` stayed green: every
+  // call to it threw TypeError at runtime and client.ts quietly fell back to
+  // the search index. Typed, the next missing method fails the build instead.
+  globalThis.ZOHO = {
     embeddedApp: {
-      on(_event: 'PageLoad', handler: (d: unknown) => void) { onPageLoad = handler; },
+      on(_event: 'PageLoad', handler: (data: PageLoadData) => void) { onPageLoad = handler; },
       async init() {
         // No CRM parent outside a frame, so answer the handshake ourselves.
         // A web tab's PageLoad carries no record context -- mirror that exactly.

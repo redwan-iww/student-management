@@ -4,7 +4,7 @@
     "name": "demo3",
     "domain": "org731242989",
     "zgid": "731242989",
-    "note": "\"Demo Id\" / demo3 -- BD, BDT, Zoho One Enterprise (25-profile, 200-custom-module caps; 2 user licences). Contacts is the parent module; every other entity is a custom module. Reachable via the claude.ai Zoho CRM connector -- assert zgid 731242989 with getOrganization before any write."
+    "note": "\"Demo Id\" / demo3 -- BD, BDT, Zoho One Enterprise (25-profile, 200-custom-module caps; 2 user licences). Contacts is the parent module; every other entity is a custom module. Reached through three MCP servers on account 913614185, all *.zohomcp.com: data-operations, data-insights (COQL) and module-customization (createModules + createFields). None of them exposes getOrganization, so assert the org by id prefix instead -- every id in demo3 begins 4731441000 and that prefix is org-unique."
   },
   "modules": [
     {
