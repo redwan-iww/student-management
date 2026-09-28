@@ -1043,3 +1043,49 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
 }
+
+/* ==========================================================================
+   Board at scale
+   ========================================================================== */
+
+/* How many there are, beside the heading -- a thousand-long list should say so
+   before you start scrolling it. */
+.count {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.board-search { width: 100%; box-sizing: border-box; }
+.board-count { margin: 0; font-size: .8rem; }
+.board-none { margin: var(--s3) 0; }
+
+/* The windowed list. The outer box scrolls and is the height the rows would
+   occupy, so the scrollbar matches the real list; only the visible rows are in
+   the DOM, positioned into it. Geometry comes from ROW_H in the component --
+   nothing here may set a row height or the two would drift apart. */
+.board-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the scrollbar without it sitting on top of the cards. */
+  padding-right: var(--s1);
+  margin-right: calc(var(--s1) * -1);
+}
+.board-list-inner { position: relative; }
+.board-row { position: absolute; left: 0; right: 0; padding-bottom: var(--s2); }
+.board-row .pick-card { height: 60px; }
+
+/* A name too long for the card truncates rather than wrapping: a wrapped row
+   would be taller than the pitch the windowing assumes. */
+.pick-card .cell-title,
+.pick-card .cell-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

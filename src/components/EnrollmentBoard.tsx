@@ -55,6 +55,11 @@ export function EnrollmentBoard({
   classes: RawRecord[];
 }) {
   const [source, setSource] = useState<Source>('admitted');
+  // Scrolling is not a way to find one student among a thousand, and there is
+  // no server-side search to lean on -- the whole term is already in memory by
+  // the time the board renders, so the filter is applied here.
+  const [studentQuery, setStudentQuery] = useState('');
+  const [classQuery, setClassQuery] = useState('');
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [enrollments, setEnrollments] = useState<RawRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +146,22 @@ export function EnrollmentBoard({
     }
     return { classesOf, countOf };
   }, [enrollments]);
+
+  const shownClasses = useMemo(() => {
+    const q = classQuery.trim().toLowerCase();
+    if (!q) return classes;
+    return classes.filter((k) =>
+      `${str(k[C.name])} ${str(k[C.class_code])} ${str(k[C.room])}`.toLowerCase().includes(q),
+    );
+  }, [classes, classQuery]);
+
+  const shownPeople = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    if (!q) return candidates ?? [];
+    return (candidates ?? []).filter((c) =>
+      `${c.name} ${c.detail}`.toLowerCase().includes(q),
+    );
+  }, [candidates, studentQuery]);
 
   const enroll = useCallback(
     async (klass: RawRecord, who: Candidate) => {
@@ -237,11 +258,24 @@ export function EnrollmentBoard({
 
       <div className="board-col">
         <div className="board-head">
-          <h2>Classes in {termLabel}</h2>
+          <h2>
+            Classes in {termLabel} <span className="count">{classes.length}</span>
+          </h2>
           <span className="muted">
             {picked ? `Choose a class for ${picked.name}` : 'Drag a student onto a class'}
           </span>
         </div>
+
+        {classes.length > 8 && (
+          <input
+            type="text"
+            className="board-search"
+            value={classQuery}
+            placeholder="Filter classes by name, code or room…"
+            aria-label="Filter classes"
+            onChange={(e) => setClassQuery(e.target.value)}
+          />
+        )}
 
         {error && <Banner tone="error">{error}</Banner>}
         {loading && showSpinner && <Loader label="Loading the board…" />}
@@ -254,7 +288,11 @@ export function EnrollmentBoard({
           />
         )}
 
-        {!loading && classes.map((k) => (
+        {!loading && classes.length > 0 && shownClasses.length === 0 && (
+          <p className="muted board-none">No class matches “{classQuery}”.</p>
+        )}
+
+        {!loading && shownClasses.map((k) => (
           <ClassDrop
             key={k.id}
             klass={k}
@@ -272,7 +310,10 @@ export function EnrollmentBoard({
 
       <div className="board-col">
         <div className="board-head">
-          <h2>Students</h2>
+          <h2>
+            Students{' '}
+            <span className="count">{candidates?.length ?? 0}</span>
+          </h2>
           <div className="seg">
             <Button
               className={source === 'admitted' ? 'is-on' : undefined}
@@ -291,6 +332,17 @@ export function EnrollmentBoard({
           </div>
         </div>
 
+        {(candidates?.length ?? 0) > 8 && (
+          <input
+            type="text"
+            className="board-search"
+            value={studentQuery}
+            placeholder="Find a student by name or code…"
+            aria-label="Find a student"
+            onChange={(e) => setStudentQuery(e.target.value)}
+          />
+        )}
+
         {loading && showSpinner && <Loader label="Loading students…" />}
 
         {!loading && candidates?.length === 0 && (
@@ -305,21 +357,31 @@ export function EnrollmentBoard({
           />
         )}
 
-        {!loading && (candidates ?? []).map((c) => (
-          <PersonCard
-            key={c.studentId}
-            person={c}
-            classCount={classesOf.get(c.studentId)?.size ?? 0}
-            picked={picked?.studentId === c.studentId}
-            disabled={busyClass !== null}
-            onPick={(next) => {
-              setPicked(next);
-              // Whatever went wrong last time was about the last attempt.
-              setError(null);
-              setAnnouncement(next ? `${next.name} picked up. Choose a class.` : 'Cancelled.');
-            }}
-          />
-        ))}
+        {!loading && (candidates?.length ?? 0) > 0 && shownPeople.length === 0 && (
+          <p className="muted board-none">No student matches “{studentQuery}”.</p>
+        )}
+
+        {!loading && shownPeople.length > 0 && (
+          <>
+            {studentQuery.trim() !== '' && (
+              <p className="muted board-count">
+                {shownPeople.length} of {candidates?.length ?? 0}
+              </p>
+            )}
+            <StudentList
+              people={shownPeople}
+              classesOf={classesOf}
+              pickedId={picked?.studentId ?? null}
+              disabled={busyClass !== null}
+              onPick={(next) => {
+                setPicked(next);
+                // Whatever went wrong last time was about the last attempt.
+                setError(null);
+                setAnnouncement(next ? `${next.name} picked up. Choose a class.` : 'Cancelled.');
+              }}
+            />
+          </>
+        )}
       </div>
     </div>
   );
@@ -422,6 +484,73 @@ function ClassDrop({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Row pitch in the student list: the card plus the gap under it.
+ *
+ * Geometry lives here rather than in CSS because the windowing maths below
+ * depends on it exactly -- a value that drifted from the stylesheet would put
+ * rows slightly out of place and get worse the further you scrolled. The
+ * stylesheet is told the height; it does not decide it.
+ */
+const ROW_H = 68;
+
+/** How tall the list gets before it scrolls instead of growing the page. */
+const LIST_MAX = 560;
+
+/** Rows above and below the viewport, so a fast scroll does not show gaps. */
+const OVERSCAN = 4;
+
+/**
+ * Renders only the rows you can see.
+ *
+ * A term of a thousand students is ~68,000px of column and a thousand card
+ * subtrees, each with its own drag handlers. The list is a fixed pitch, so the
+ * visible slice is arithmetic rather than measurement: an outer box of the
+ * real total height keeps the scrollbar honest, and the handful of rows in
+ * view are positioned into it.
+ */
+function StudentList({
+  people,
+  classesOf,
+  pickedId,
+  disabled,
+  onPick,
+}: {
+  people: Candidate[];
+  classesOf: Map<string, Set<string>>;
+  pickedId: string | null;
+  disabled: boolean;
+  onPick: (next: Candidate | null) => void;
+}) {
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const height = Math.min(people.length * ROW_H, LIST_MAX);
+  const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const last = Math.min(people.length, first + Math.ceil(height / ROW_H) + OVERSCAN * 2);
+
+  return (
+    <div
+      className="board-list"
+      style={{ height }}
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+    >
+      <div className="board-list-inner" style={{ height: people.length * ROW_H }}>
+        {people.slice(first, last).map((c, i) => (
+          <div key={c.studentId} className="board-row" style={{ top: (first + i) * ROW_H }}>
+            <PersonCard
+              person={c}
+              classCount={classesOf.get(c.studentId)?.size ?? 0}
+              picked={pickedId === c.studentId}
+              disabled={disabled}
+              onPick={onPick}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
