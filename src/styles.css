@@ -1,108 +1,602 @@
+/* ==========================================================================
+   Design tokens
+   --------------------------------------------------------------------------
+   Every colour, radius and step of the spacing scale lives here. Nothing below
+   this block hardcodes a hex value: the previous stylesheet leaked nine of
+   them, so a palette change meant a grep rather than an edit. In particular
+   #fff8c5 was doing three unrelated jobs -- pending pill, dev strip, and the
+   unsaved-row highlight -- which made all three impossible to move separately.
+   ========================================================================== */
+
 :root {
-  --fg: #1f2328;
-  --muted: #656d76;
-  --line: #d8dee4;
-  --accent: #0969da;
-  --danger: #cf222e;
-  --dirty: #fff8c5;
+  /* surfaces, lightest to darkest */
+  --bg: #f4f5f1;            /* the page itself: warm off-white, not grey */
+  --surface: #ffffff;       /* cards float on it */
+  --surface-2: #fafaf8;     /* table head, row hover -- a half-step, not a tint */
+  --surface-3: #f1f1ee;     /* inset wells: segmented controls, chips */
+  --line: #e9eae5;          /* hairline between rows */
+  --line-strong: #dcded6;   /* the edge of something you can click */
+
+  /* text */
+  --fg: #1a1c1a;
+  --muted: #6b7280;
+  --faint: #9ca3af;         /* column headings, decorative marks */
+
+  /* Accent and intent. Each is a text/background/border triple, so a badge or
+     banner in any tone is three token lookups and never an eyeballed shade. */
+  --accent: #16a34a;
+  --accent-soft: #dcfce7;
+  --accent-line: #a7e9bf;
+  --accent-dark: #15803d;   /* hover on an accent-filled surface */
+
+  --ink: #17181a;           /* filled primary button -- near-black, per the design */
+  --ink-hover: #2c2e31;
+
+  --warn: #b45309;
+  --warn-soft: #fef3c7;
+  --warn-line: #f3d99b;
+
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --danger-line: #f6bcbc;
+
+  --neutral: #6b7280;
+  --neutral-soft: #f1f1ee;
+  --neutral-line: #e0e1db;
+
+  /* Deliberately NOT --warn-soft. A dirty row and a pending badge mean
+     different things and used to share one yellow. */
+  --dirty: #fffaf0;
+  --dirty-line: #f2e3c9;
+
+  /* shape and depth */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .06);
+  --shadow-pop: 0 2px 6px rgba(16, 24, 40, .06), 0 12px 32px rgba(16, 24, 40, .10);
+  --ring: 0 0 0 3px rgba(22, 163, 74, .26);
+
+  /* Spacing scale, 4px steps. Ad-hoc pixel gaps are what let the old
+     stylesheet drift between 4, 6, 7, 8, 10 and 12. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
   color: var(--fg);
+  -webkit-font-smoothing: antialiased;
 }
 
-body { margin: 0; padding: 16px; }
-h1 { font-size: 1.15rem; margin: 0 0 2px; }
+/* ==========================================================================
+   Page frame
+   ========================================================================== */
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+}
+
+/* The widget is iframed by CRM at whatever width the tab gives it. Cap the
+   measure so a wide monitor does not stretch a six-column table across 2000px,
+   but stay fluid below that. */
+.page {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: var(--s5) var(--s4) var(--s6);
+}
+
+h1 { font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; margin: 0; }
+h2 { font-size: 1.05rem; font-weight: 620; letter-spacing: -.005em; margin: 0 0 var(--s1); }
+
 .muted { color: var(--muted); }
+.faint { color: var(--faint); }
 .error { color: var(--danger); }
 
-.notice { max-width: 46rem; }
-.notice p { line-height: 1.5; }
-
-.sheet-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: flex-start;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
-  margin-bottom: 12px;
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .86em;
+  background: var(--surface-3);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
 }
-.bulk { display: flex; flex-wrap: wrap; gap: 6px; }
 
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
-th { font-weight: 600; color: var(--muted); font-size: .85rem; }
-tr.dirty { background: var(--dirty); }
-
-.choices { display: flex; flex-wrap: wrap; gap: 10px; }
-.choices label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-
-button {
-  font: inherit;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  cursor: pointer;
-}
-button:disabled { opacity: .5; cursor: default; }
-
-.sheet-foot {
+/* Tab header: a title on the page background rather than a bar with a rule
+   under it. The cards below supply the structure the rule used to. */
+.tabhead {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.sheet-foot button { background: var(--accent); border-color: var(--accent); color: #fff; }
-.sheet-foot button:disabled { background: #fff; color: var(--muted); border-color: var(--line); }
-
-.devbar {
-  margin: -16px -16px 16px;
-  padding: 6px 16px;
-  background: #fff8c5;
-  border-bottom: 1px solid #d4a72c;
-  font-size: .8rem;
-  color: #7d4e00;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-bottom: var(--s5);
 }
 
-.tabhead { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 14px; }
-.tabhead h1 { font-size: 1.05rem; }
-h2 { font-size: 1rem; margin: 0 0 2px; }
+/* ==========================================================================
+   Card -- the one surface everything sits on
+   ========================================================================== */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  /* so a table's first and last rows are clipped to the radius instead of
+     squaring off the corners */
+  overflow: hidden;
+}
+
+.card + .card { margin-top: var(--s4); }
+
+.card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--s4) var(--s4) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.card-head-text { min-width: 0; }
+.card-head p { margin: 0; }
+.card-body { padding: var(--s4); }
+.card-body > :first-child { margin-top: 0; }
+.card-body > :last-child { margin-bottom: 0; }
+
+/* A card whose only job is to hold prose (the handshake notices, the
+   generator's explainer). Narrower measure -- long lines are hard to read. */
+.card-prose { max-width: 46rem; }
+.card-prose p { line-height: 1.6; margin: 0 0 var(--s3); }
+.card-prose p:last-child { margin-bottom: 0; }
+
+/* ==========================================================================
+   Tables
+   --------------------------------------------------------------------------
+   Always inside a .card, so they carry no outer border of their own and the
+   last row's hairline is removed -- the card edge is already there.
+   ========================================================================== */
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--surface-2);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+td {
+  text-align: left;
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+tbody tr { transition: background .12s ease; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* The action column: right-aligned, and no wider than its button. */
+td.actions, th.actions { text-align: right; width: 1%; white-space: nowrap; }
+
+/* An unsaved row. Tinted plus a left marker, because a wash this pale does not
+   survive being seen next to the hover tint on its own. */
+tr.dirty, tr.dirty:hover { background: var(--dirty); }
+tr.dirty td:first-child { box-shadow: inset 3px 0 0 var(--dirty-line); }
+
+/* An ended allocation is history: still readable, clearly past. */
+tr.ended td { opacity: .55; }
+
+/* Two lines in one cell: a title and its subtitle, without a nested table. */
+.cell-stack { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.cell-lines { min-width: 0; }
+.cell-title { font-weight: 550; }
+.cell-sub { font-size: .8rem; color: var(--muted); }
+
+/* A value that reads as data rather than prose -- a time, a code. */
+.cell-mono {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cell-mono svg { color: var(--faint); flex: none; }
+
+/* ==========================================================================
+   Avatar
+   ========================================================================== */
+
+.avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .74rem;
+  font-weight: 650;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  user-select: none;
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px rgba(0, 0, 0, .05);
+}
+.avatar-sm { width: 26px; height: 26px; font-size: .66rem; }
+
+/* ==========================================================================
+   Badge
+   --------------------------------------------------------------------------
+   Four tones, one per meaning. The old `.pill` modifiers are kept as aliases
+   so a missed call site degrades to the right colour rather than to unstyled
+   text.
+   ========================================================================== */
+
+.badge, .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: .76rem;
+  font-weight: 550;
+  line-height: 1.5;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  flex: none;
+}
+
+.badge-positive, .pill.done {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-color: var(--accent-line);
+}
+.badge-pending, .pill.todo {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn-line);
+}
+.badge-neutral, .pill.off {
+  background: var(--neutral-soft);
+  color: var(--neutral);
+  border-color: var(--neutral-line);
+}
+.badge-critical {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-line);
+}
+
+/* A count, not a status: no colour, just a quiet enclosure. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: .78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Buttons
+   --------------------------------------------------------------------------
+   Variants are classes. Previously "primary" was the descendant selector
+   `.sheet-foot button`, so the Save button was filled only because of where it
+   sat -- moving it would have silently demoted it.
+   ========================================================================== */
+
+.btn {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: 7px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 520;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--muted); }
+.btn:active:not(:disabled) { background: var(--surface-3); }
+.btn:disabled { opacity: .5; cursor: default; }
+
+.btn-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: var(--ink-hover); border-color: var(--ink-hover); }
+.btn-primary:disabled {
+  background: var(--surface-3);
+  border-color: var(--line);
+  color: var(--faint);
+  opacity: 1;
+}
+
+.btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-accent:hover:not(:disabled) { background: var(--accent-dark); border-color: var(--accent-dark); }
+
+/* No border until you point at it: for the per-row action, where twenty
+   outlined buttons down a column would out-shout the data. */
+.btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+  color: var(--fg);
+}
+.btn-ghost svg { color: var(--faint); }
+.btn-ghost:hover:not(:disabled) svg { color: var(--fg); }
+
+/* A secondary, opt-in action that should not compete with the buttons above
+   it -- reads as a link, behaves as a button. */
+.btn-link {
+  border: none;
+  background: none;
+  padding: var(--s1) 2px;
+  color: var(--accent-dark);
+  font: inherit;
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.btn-link:hover { text-decoration: none; }
+
+.btn-sm { padding: 4px 9px; font-size: .82rem; }
+.btn-icon { padding: 7px; }
+
+/* One visible focus treatment for everything focusable. The old stylesheet
+   defined none at all and leaned on the UA ring, which is close to invisible
+   against --surface-2. */
+.btn:focus-visible,
+.btn-link:focus-visible,
+select:focus-visible,
+input:focus-visible,
+.seg-choices input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: var(--ring);
+}
+
+/* ==========================================================================
+   Form controls
+   ========================================================================== */
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--s3);
   align-items: center;
-  margin-bottom: 14px;
 }
-.toolbar label { display: inline-flex; align-items: center; gap: 6px; }
-select, input[type="date"] {
+.toolbar-page { margin-bottom: var(--s4); }
+.toolbar label { display: inline-flex; align-items: center; gap: var(--s2); }
+
+/* Label above the control rather than beside it, for the form row in the
+   staffing card where several controls sit side by side. */
+.field { display: inline-flex; flex-direction: column; gap: 5px; }
+.field > span {
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint);
+}
+
+select,
+input[type="date"],
+input[type="text"] {
   font: inherit;
-  padding: 5px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+select:hover, input:hover { border-color: var(--muted); }
+
+/* ==========================================================================
+   Segmented controls
+   --------------------------------------------------------------------------
+   Two users: the day stepper (real buttons) and the attendance choices (real
+   radios). Both read as one joined pill sitting in a well.
+   ========================================================================== */
+
+.seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-3);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: var(--r-pill);
 }
 
-.back { margin-bottom: 12px; }
+.seg .btn {
+  border-color: transparent;
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 4px 10px;
+  color: var(--muted);
+}
+.seg .btn:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: transparent;
+}
 
-.pill {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: .78rem;
+/* The radio flavour. The input stays in the DOM and in the accessibility tree
+   -- clipped, not `display: none`, which would remove it from both and take
+   the arrow-key navigation of the radio group with it. */
+.seg-choices { display: flex; flex-wrap: wrap; gap: 2px; }
+
+.seg-choices input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The label is the hit area; the span beside the input is the pill. Keying
+   the checked state off `input:checked + span` rather than `label:has(:checked)`
+   means the one state a register cannot do without does not depend on :has(). */
+.seg-choices label {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+}
+.seg-choices label > span {
+  padding: 5px 11px;
+  border-radius: var(--r-pill);
+  font-size: .83rem;
+  font-weight: 520;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: background .12s ease, color .12s ease;
+}
+.seg-choices label:not(.unavailable):hover > span { background: var(--surface); color: var(--fg); }
+.seg-choices input:checked + span { background: var(--ink); color: #fff; font-weight: 560; }
+
+/* A choice that exists but cannot be picked here -- an observation status on a
+   lesson that has not happened yet. This rule was referenced in the markup for
+   a long time without ever being written, so those options looked ordinary. */
+.seg-choices label.unavailable { cursor: not-allowed; }
+.seg-choices label.unavailable > span {
+  color: var(--faint);
+  opacity: .55;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.seg-choices input:disabled + span { cursor: default; }
+
+/* ==========================================================================
+   Banners and notices
+   ========================================================================== */
+
+.banner {
+  display: flex;
+  gap: var(--s3);
+  align-items: flex-start;
+  padding: var(--s3) var(--s4);
   border: 1px solid transparent;
+  border-radius: var(--r-md);
+  line-height: 1.55;
+  margin: 0 0 var(--s4);
 }
-.pill.done { background: #dafbe1; color: #1a7f37; border-color: #aceebb; }
-.pill.todo { background: #fff8c5; color: #7d4e00; border-color: #d4a72c; }
+.banner svg { flex: none; margin-top: 2px; }
+.banner p { margin: 0; }
+.banner-warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
+.banner-info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-dark); }
+.banner-error { background: var(--danger-soft); border-color: var(--danger-line); color: var(--danger); }
 
-tr.ended td { opacity: .55; }
+/* The dev-proxy marker. Previously a full-bleed yellow strip that doubled as a
+   general warning banner; now a chip in the header, so the two can differ. */
+.devchip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 4px 10px 4px 8px;
+  border-radius: var(--r-pill);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn);
+  font-size: .76rem;
+  line-height: 1.4;
+}
+.devchip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  flex: none;
+}
 
-/* ---- busy indicators ---------------------------------------------------- */
+/* ==========================================================================
+   Register: sheet header and footer
+   ========================================================================== */
+
+.sheet-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.bulk { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.bulk-label {
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint);
+  margin-right: var(--s1);
+}
+
+/* Sticks to the bottom of the viewport so Save stays reachable on a long
+   roster without scrolling back down to find it. */
+.sheet-foot {
+  position: sticky;
+  bottom: var(--s4);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+}
+.sheet-foot .spacer { flex: 1; }
+
+.saved-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--accent-dark);
+  font-size: .84rem;
+}
+
+.back { margin-bottom: var(--s3); }
+
+/* ==========================================================================
+   Busy indicators
+   ========================================================================== */
 
 /* A ring drawn from a border so it inherits currentColor: the same element
    reads correctly on the page background and inside the filled primary
@@ -124,107 +618,24 @@ tr.ended td { opacity: .55; }
   .spinner { animation-duration: 2.4s; }
 }
 
-.loader { display: flex; align-items: center; gap: 8px; }
+.loader { display: flex; align-items: center; gap: var(--s2); margin: 0; }
 .btn-busy { display: inline-flex; align-items: center; gap: 7px; }
+
+/* A loader standing in for absent content gets real vertical space and is
+   centred, so it reads as the page working rather than as a stray line
+   wedged under whatever is above it. */
+.loader-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: var(--s4);
+}
 
 /* Fetching a *replacement* for a list already on screen (changing term or
    date): dim it and block clicks rather than yanking it away, so the layout
    does not jump between loads. */
 .stale { opacity: .45; pointer-events: none; transition: opacity .12s ease; }
-
-.genbox {
-  margin-top: 16px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  max-width: 44rem;
-}
-.genbox .toolbar { margin-bottom: 0; }
-.genbox p { margin-top: 0; }
-
-.progress {
-  height: 6px;
-  background: var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  margin: 10px 0 6px;
-}
-.progress span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width .15s ease;
-}
-
-.genbox h2 { margin-bottom: 8px; }
-.genbox p { line-height: 1.55; max-width: 40rem; }
-.genbox .preview { margin-bottom: 0; }
-
-.pill.off { background: #eaeef2; color: var(--muted); border-color: var(--line); }
-
-/* Finished-state note: the setup box collapses to this once a term's lessons
-   all exist, so an ordinary empty day does not look like a missing step. */
-.generated { margin-top: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.generated select { font-size: .9rem; padding: 3px 6px; }
-
-/* ---- empty day ---------------------------------------------------------- */
-
-/* Centred block rather than a stray sentence under the toolbar: an empty day is
-   a state, not an error, and it reads better as a deliberate panel. */
-.empty {
-  max-width: 34rem;
-  margin: 40px auto;
-  text-align: center;
-}
-.empty-mark { color: var(--line); margin-bottom: 4px; }
-.empty h2 { font-size: 1.1rem; margin: 0 0 2px; }
-.empty > .muted { margin: 0 0 18px; }
-
-.empty-nav {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* The generator sits inside the centred block, so pull its own text back to
-   the left where prose belongs. */
-.empty .genbox { text-align: left; margin-top: 26px; }
-.empty .genbox p { max-width: none; }
-.empty .generated { justify-content: center; margin-top: 22px; }
-
-
-/* A button that reads as a link: a secondary, opt-in action that should not
-   compete with the day-stepping buttons above it. */
-.linklike {
-  border: none;
-  background: none;
-  padding: 4px;
-  color: var(--accent);
-  text-decoration: underline;
-  font: inherit;
-  cursor: pointer;
-}
-.linklike:hover { text-decoration: none; }
-.empty .linklike { margin-top: 20px; }
-
-/* Day stepper: two buttons joined into one control beside the date field. */
-.daynav { display: inline-flex; }
-.daynav button {
-  padding: 5px 11px;
-  font-size: 1rem;
-  line-height: 1.2;
-}
-.daynav button:first-child {
-  border-radius: 6px 0 0 6px;
-  border-right-width: 0;
-}
-.daynav button:last-child { border-radius: 0 6px 6px 0; }
-.daynav button:hover:not(:disabled) { background: #f6f8fa; }
-
-/* Which weekday you are looking at, without re-reading the date field. */
-.daylabel { margin-left: 2px; }
-
 
 /* Reload indicator: a hairline sweep at the top of the content area.
    Stepping a day is a single query -- a labelled spinner is too much ceremony
@@ -239,6 +650,8 @@ tr.ended td { opacity: .55; }
   height: 2px;
   overflow: hidden;
   pointer-events: none;
+  z-index: 1;
+  border-radius: var(--r-pill);
 }
 .content-progress::after {
   content: '';
@@ -261,15 +674,372 @@ tr.ended td { opacity: .55; }
    by something very similar, so it only needs to read as "settling". */
 .content .stale { opacity: .55; }
 
-.empty .loader { justify-content: center; }
+.progress {
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  margin: var(--s3) 0 var(--s2);
+}
+.progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  transition: width .15s ease;
+}
 
-/* A loader standing in for absent content gets real vertical space and is
-   centred, so it reads as the page working rather than as a stray line
-   wedged under whatever is above it. */
-.loader-pane {
-  display: flex;
+/* ==========================================================================
+   Empty states
+   --------------------------------------------------------------------------
+   A centred block rather than a stray sentence under the toolbar: an empty day
+   is a state, not an error, and it reads better as a deliberate panel.
+   ========================================================================== */
+
+.empty {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: var(--s6) var(--s4);
+  text-align: center;
+}
+
+.empty-mark {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 200px;
-  padding: 16px;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--faint);
+  margin-bottom: var(--s3);
+}
+
+.empty h2 { font-size: 1.1rem; margin: 0 0 var(--s1); }
+.empty > .muted { margin: 0 0 var(--s5); line-height: 1.6; }
+
+.empty-nav {
+  display: flex;
+  justify-content: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+/* The generator sits inside the centred block, so pull its own text back to
+   the left where prose belongs. */
+.empty .card { text-align: left; margin-top: var(--s5); }
+.empty .card-prose { max-width: none; }
+.empty .generated { justify-content: center; margin-top: var(--s5); }
+.empty .btn-link { margin-top: var(--s5); }
+.empty .loader { justify-content: center; }
+
+/* ==========================================================================
+   Lesson generator
+   ========================================================================== */
+
+/* Finished-state note: the setup box collapses to this once a term's lessons
+   all exist, so an ordinary empty day does not look like a missing step. */
+.generated {
+  margin-top: var(--s4);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+.generated select { font-size: .88rem; padding: 4px 8px; }
+
+.preview { margin: var(--s3) 0 0; }
+
+/* ==========================================================================
+   Day stepper
+   ========================================================================== */
+
+/* Which weekday you are looking at, without re-reading the date field. */
+.daylabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: .86rem;
+}
+
+/* A toolbar of stacked label+control pairs (the staffing form). The controls
+   are what should line up, not the tops of the labels. */
+.toolbar-fields { align-items: flex-end; }
+
+/* ==========================================================================
+   Occupancy meter
+   --------------------------------------------------------------------------
+   Enrolled against capacity. A bare "4" next to a separate "25" made the
+   reader do the division; the point of the column is how full the class is,
+   so the bar carries that and the figures stay for the exact answer.
+   ========================================================================== */
+
+.meter { display: flex; flex-direction: column; gap: 5px; min-width: 76px; }
+.meter-figures { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter-figures .of { color: var(--faint); }
+.meter-track {
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  transition: width .15s ease;
+}
+/* At or over capacity: still legible, but no longer reading as headroom. */
+.meter-fill.full { background: var(--warn); }
+.meter-fill.over { background: var(--danger); }
+
+/* ==========================================================================
+   Schedule cell
+   ========================================================================== */
+
+.schedule { display: flex; flex-direction: column; gap: 2px; }
+.schedule-days { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
+.schedule-time { font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   Wider allocation form
+   --------------------------------------------------------------------------
+   Five controls rather than two, so they wrap into rows instead of trailing
+   off the edge of the card.
+   ========================================================================== */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--s3);
+  align-items: end;
+}
+.form-grid .field { min-width: 0; }
+.form-grid select,
+.form-grid input,
+.form-grid textarea { width: 100%; box-sizing: border-box; }
+/* The submit sits on the control baseline, not the label's. */
+.form-actions { display: flex; align-items: end; gap: var(--s2); }
+
+textarea {
+  font: inherit;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  resize: vertical;
+  min-height: 2.4rem;
+}
+textarea:hover { border-color: var(--muted); }
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: var(--ring);
+}
+
+/* A field that spans the grid rather than sharing a row -- the notes box. */
+.field-wide { grid-column: 1 / -1; }
+
+/* Marks an allocation that covers one dated lesson instead of the whole
+   class. Rare enough that it should be visibly different, not a column. */
+.cover-mark { display: inline-flex; align-items: center; gap: var(--s1); font-size: .78rem; }
+
+/* When and where the class meets, under the staffing card's title. Separated
+   from the form below it, since it is context rather than input. */
+.head-meta {
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   Enrollment board
+   --------------------------------------------------------------------------
+   Classes on the left, students on the right, a student dropped onto a class.
+   Two columns on a wide tab, stacked when there is not room -- CRM gives the
+   widget whatever width the browser has left.
+   ========================================================================== */
+
+.board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+@media (max-width: 62rem) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+}
+
+.board-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+
+.board-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 38px;
+  margin-bottom: var(--s1);
+}
+.board-head h2 { margin: 0; }
+
+/* Visible only to a screen reader: the live region that says what a drop did.
+   Not `display: none`, which would stop it being announced at all. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The two columns are read across, so their rows keep step: one shared row
+   height, and the headers above them share one too. A class card grows past
+   this only while a student is held, when it gains an action row. */
+.drop-card,
+.pick-card { min-height: 60px; }
+
+/* A class, as somewhere a student can land. */
+.drop-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s3);
+  align-items: center;
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+}
+.drop-card-main { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.drop-card-side { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; justify-content: flex-end; }
+.drop-card-action {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px dashed var(--line);
+}
+
+/* Dragged over, and the drop would be accepted. A dashed edge rather than a
+   fill, so the card underneath stays readable while it is being aimed at. */
+.drop-card.drop-over {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: var(--accent-soft);
+  box-shadow: var(--ring);
+}
+/* Holding a student this class already has: shown, not hidden, because the
+   answer to "why will it not drop here" should be on screen. */
+.drop-card.drop-blocked { opacity: .6; border-style: dashed; }
+
+/* A student, waiting to be placed. */
+.pick-card {
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  cursor: grab;
+  transition: border-color .12s ease, background .12s ease, transform .12s ease;
+}
+.pick-card:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
+.pick-card:active:not(:disabled) { cursor: grabbing; }
+.pick-card:disabled { opacity: .55; cursor: default; }
+.pick-card .cell-lines { flex: 1; min-width: 0; }
+.pick-card .cell-title,
+.pick-card .cell-sub { display: block; }
+
+/* Picked up -- by click, by keyboard, or mid-drag. */
+.pick-card.is-picked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--ring);
+}
+.pick-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: var(--ring);
+}
+
+/* The selected half of a two-button segmented switch. */
+.seg .btn.is-on {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 580;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .08);
+}
+
+/* ==========================================================================
+   Toast
+   --------------------------------------------------------------------------
+   Fixed to the bottom-left so it does not move the page, and dark so it reads
+   as chrome rather than as another card in the list.
+   ========================================================================== */
+
+.toast {
+  position: fixed;
+  left: var(--s4);
+  bottom: var(--s4);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: min(30rem, calc(100vw - 2 * var(--s4)));
+  padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  border-radius: var(--r-md);
+  background: var(--ink);
+  color: #fff;
+  box-shadow: var(--shadow-pop);
+  animation: toast-in .18s ease-out;
+}
+.toast-text { flex: 1; line-height: 1.45; }
+.toast svg { flex: none; }
+.toast-positive svg { color: #6ee7a0; }
+.toast-warn svg { color: #fcd34d; }
+.toast-critical svg { color: #fca5a5; }
+
+.toast-close {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: rgba(255, 255, 255, .7);
+  cursor: pointer;
+  flex: none;
+}
+.toast-close:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+.toast-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  box-shadow: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }

@@ -17,6 +17,55 @@ export type RawRecord = Record<string, unknown> & { id: string };
 const rows = (res: ZohoApiResponse): RawRecord[] =>
   (res.data ?? []).filter((r): r is RawRecord => typeof (r as RawRecord).id === 'string');
 
+/**
+ * Zoho's ceiling for one read. Asking for more is rejected, not truncated.
+ */
+const PAGE_SIZE = 200;
+
+/**
+ * How far `page`-based paging reaches: 10 x 200 = 2,000 records.
+ *
+ * Not an arbitrary safety valve -- it is Zoho's own boundary. Past 2,000 the
+ * `page` parameter stops working and the read has to follow `next_page_token`
+ * instead, which the embedded SDK's typed surface does not expose. So 2,000 is
+ * the honest reach of this implementation.
+ *
+ * Every read in this file used to stop at the *first* page, silently. A term
+ * with 1,000 admitted students returned 200 of them with nothing to say the
+ * other 800 existed, and an empty-looking list is indistinguishable from a
+ * wrong answer. Paging fixes that for every realistic size in this domain.
+ *
+ * Past the boundary it throws. Returning the first 2,000 rows and calling them
+ * the answer would be the same lie in a larger font -- and a module that holds
+ * more than 2,000 rows for one term is asking a question this screen is the
+ * wrong shape for anyway.
+ */
+const MAX_PAGES = 10;
+
+/**
+ * Walks every page of a read.
+ *
+ * Sequential on purpose: `more_records` on page N is the only thing that says
+ * whether page N+1 exists, so the pages cannot be fetched in parallel without
+ * guessing how many there are.
+ */
+async function pageThrough(
+  what: string,
+  fetchPage: (page: number) => Promise<ZohoApiResponse>,
+): Promise<RawRecord[]> {
+  const all: RawRecord[] = [];
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
+    const res = await fetchPage(page);
+    all.push(...rows(res));
+    if (!res.info?.more_records) return all;
+  }
+  throw new Error(
+    `${what}: more than ${MAX_PAGES * PAGE_SIZE} records, which is as far as page-based ` +
+      `paging reaches. Reading beyond it needs next_page_token. Refusing to ` +
+      `return a partial list as though it were complete.`,
+  );
+}
+
 /** Zoho returns a lookup as { id, name } -- pull the pieces out. */
 export function refId(value: unknown): string | null {
   if (value && typeof value === 'object' && 'id' in value) {
@@ -97,6 +146,33 @@ export function str(value: unknown, fallback = ''): string {
 }
 
 /**
+ * A whole number out of a Zoho field, or null.
+ *
+ * Rollup fields (`Enrolled_Count`, `Sessions_Count`) come back as *strings* --
+ * "4", not 4 -- and as `null` on a record whose rollup has never been computed.
+ * Both have to be told apart from a real zero, so this returns null rather than
+ * defaulting: "no figure yet" and "nobody enrolled" are different answers.
+ */
+export function int(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/**
+ * The weekly pattern as stored: a multiselect picklist, so an array of names.
+ *
+ * Returns [] for a class that has never been given meeting days -- which is
+ * exactly the class the timetable generator cannot produce lessons for.
+ */
+export function strList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+/**
  * Children of one parent record, read through the relationship.
  *
  * `searchRecord` is backed by a search index, and a record written through the
@@ -122,31 +198,48 @@ async function relatedRecords(
   candidates: string[],
 ): Promise<RawRecord[] | null> {
   for (const RelatedList of candidates) {
-    try {
-      const res = await zoho().CRM.API.getRelatedRecords({
+    const read = (page: number) =>
+      zoho().CRM.API.getRelatedRecords({
         Entity: parentModule,
         RecordID: parentId,
         RelatedList,
-        per_page: 200,
+        per_page: PAGE_SIZE,
+        page,
       });
-      // A parent with no children answers 204/empty rather than failing, which
-      // is a valid empty result -- not a reason to try the next candidate.
-      return rows(res);
+
+    let first: ZohoApiResponse;
+    try {
+      first = await read(1);
     } catch {
       // Wrong related-list name for this org; try the next spelling.
+      continue;
     }
+
+    // Page 1 answered, so the name is right and this is the candidate. Any
+    // failure from here is a real one and must not fall through to the next
+    // spelling -- that would re-read page 1 under another name and return the
+    // same children twice.
+    // A parent with no children answers 204/empty rather than failing, which
+    // is a valid empty result, not a reason to keep looking.
+    const all = rows(first);
+    if (!first.info?.more_records) return all;
+
+    const rest = await pageThrough(`${parentModule}/${RelatedList}`, (page) => read(page + 1));
+    return [...all, ...rest];
   }
   return null;
 }
 
-async function search(entity: string, query: string, perPage = 200): Promise<RawRecord[]> {
-  const res = await zoho().CRM.API.searchRecord({
-    Entity: entity,
-    Type: 'criteria',
-    Query: query,
-    per_page: perPage,
-  });
-  return rows(res);
+async function search(entity: string, query: string): Promise<RawRecord[]> {
+  return pageThrough(`search ${entity}`, (page) =>
+    zoho().CRM.API.searchRecord({
+      Entity: entity,
+      Type: 'criteria',
+      Query: query,
+      per_page: PAGE_SIZE,
+      page,
+    }),
+  );
 }
 
 /**
@@ -265,6 +358,17 @@ export interface NewAllocation {
   classLabel: string;
   effectiveFrom?: string;
   effectiveTo?: string;
+  /**
+   * One dated lesson instead of the whole class.
+   *
+   * The model is explicit about this: class_session NULL means the allocation
+   * covers the whole term, and set means a single-session substitution on that
+   * date. Leave it undefined for ordinary staffing.
+   */
+  classSessionId?: string;
+  /** Session name or date, folded into Name so cover rows are tellable apart. */
+  sessionLabel?: string;
+  notes?: string;
 }
 
 export async function createAllocation(a: NewAllocation): Promise<string> {
@@ -273,7 +377,9 @@ export async function createAllocation(a: NewAllocation): Promise<string> {
     // Name is system-mandatory on every custom module in this model, including
     // the join-like ones where there is no natural title. Omitting it fails
     // with MANDATORY_NOT_FOUND.
-    [fields.name]: `${a.role} - ${a.classLabel}`,
+    [fields.name]: a.sessionLabel
+      ? `${a.role} - ${a.classLabel} - ${a.sessionLabel}`
+      : `${a.role} - ${a.classLabel}`,
     [fields.teacher]: { id: a.teacherId },
     [fields.class]: { id: a.classId },
     [fields.role]: a.role,
@@ -284,9 +390,32 @@ export async function createAllocation(a: NewAllocation): Promise<string> {
   // and the schema's date-order check has nothing to compare to.
   payload[fields.effective_from] = a.effectiveFrom ?? orgToday();
   if (a.effectiveTo) payload[fields.effective_to] = a.effectiveTo;
+  // Only sent when present: writing the lookup as null on every ordinary
+  // allocation would be a pointless field update on the common path.
+  if (a.classSessionId) payload[fields.class_session] = { id: a.classSessionId };
+  if (a.notes) payload[fields.notes] = a.notes;
 
   const res = await zoho().CRM.API.insertRecord({ Entity: module, APIData: payload, Trigger: [] });
   return assertWrote(res, 'allocation');
+}
+
+/**
+ * Every dated lesson of one class, earliest first.
+ *
+ * Only needed by the one-lesson substitution path, so it is a separate call
+ * rather than something the staffing screen fetches up front: a term's class
+ * can carry thirty-odd sessions and the common allocation covers all of them.
+ */
+export async function getSessionsForClass(classId: string): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.class_sessions;
+  const recs =
+    (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
+    (await search(module, `(${fields.class}:equals:${classId})`));
+  return recs.sort((a, b) =>
+    `${str(a[fields.session_date])}${str(a[fields.start_time])}`.localeCompare(
+      `${str(b[fields.session_date])}${str(b[fields.start_time])}`,
+    ),
+  );
 }
 
 export async function endAllocation(allocationId: string): Promise<void> {
@@ -340,7 +469,16 @@ export async function getClassSession(sessionId: string): Promise<RawRecord | nu
 }
 
 /** Active enrollments for a class -- the roster the attendance sheet renders. */
-export async function getEnrollmentsForClass(classId: string): Promise<RawRecord[]> {
+export async function getEnrollmentsForClass(
+  classId: string,
+  /**
+   * The register wants only the students it should be marking, so this
+   * defaults to Active. The duplicate guard wants every row, because a
+   * Dropped enrollment still occupies the (student, class) pair that
+   * uq_enrollment_student_class is supposed to keep unique.
+   */
+  activeOnly = true,
+): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.enrollments;
   const related = await relatedRecords(ZOHO_MODULES.classes.module, classId, [
     module,
@@ -348,9 +486,11 @@ export async function getEnrollmentsForClass(classId: string): Promise<RawRecord
   ]);
   // The related list carries every enrollment, so the Active filter that the
   // search criteria applied server-side is applied here instead.
-  if (related) return related.filter((r) => str(r[fields.status]) === 'Active');
+  if (related) return activeOnly ? related.filter((r) => str(r[fields.status]) === 'Active') : related;
 
-  return search(module, `((${fields.class}:equals:${classId})and(${fields.status}:equals:Active))`);
+  return activeOnly
+    ? search(module, `((${fields.class}:equals:${classId})and(${fields.status}:equals:Active))`)
+    : search(module, `(${fields.class}:equals:${classId})`);
 }
 
 /** Attendance already recorded for a session, keyed by enrollment id. */
@@ -509,7 +649,9 @@ export async function getClosedDates(termId: string): Promise<Map<string, string
   // Every holiday, not a filtered subset. A search needs criteria and there is
   // no criterion meaning "all"; the table is small -- a year of closures is a
   // couple of dozen rows.
-  const recs = rows(await zoho().CRM.API.getAllRecords({ Entity: module, per_page: 200 }));
+  const recs = await pageThrough(`all ${module}`, (page) =>
+    zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
+  );
 
   const closed = new Map<string, string>();
   for (const rec of recs) {
@@ -534,6 +676,124 @@ export async function getClosedDates(termId: string): Promise<Map<string, string
     }
   }
   return closed;
+}
+
+// ---------------------------------------------------------------------------
+// Enrollment board -- placing admitted students into this term's classes
+// ---------------------------------------------------------------------------
+
+/**
+ * Applications for one term that have a student record behind them.
+ *
+ * An application only back-fills `student` once it is accepted, so anything
+ * still earlier in the pipeline has nobody to place. Rejected and Withdrawn
+ * are dropped for the obvious reason. Everything else -- Offered, Accepted,
+ * Enrolled -- is someone the office may still be assigning to classes, since
+ * "Enrolled" means admitted to the school, not placed in a section.
+ */
+export async function getAdmissionsForTerm(termId: string): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.admissions;
+  const recs = await search(module, `(${fields.term}:equals:${termId})`);
+  const out = recs.filter((r) => {
+    const stage = str(r[fields.stage]);
+    return stage !== 'Rejected' && stage !== 'Withdrawn' && Boolean(refId(r[fields.student]));
+  });
+  return out.sort((a, b) =>
+    refName(a[fields.student]).localeCompare(refName(b[fields.student])),
+  );
+}
+
+/**
+ * Every active student, for the terms that predate the admissions pipeline.
+ *
+ * Not every student in this org arrived through an application -- older terms
+ * were seeded directly -- so a board that only ever offered admitted
+ * applicants would be empty on exactly those terms.
+ */
+export async function getActiveStudents(): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.students;
+  const recs = await search(module, `(${fields.status}:equals:Active)`);
+  return recs.sort((a, b) => str(a[fields.full_name]).localeCompare(str(b[fields.full_name])));
+}
+
+/**
+ * Every enrollment across a set of classes.
+ *
+ * One query per class, through the relationship -- deliberately, and at the
+ * cost of N calls instead of the single term-wide search that
+ * `enrollments.term` was denormalized to make possible.
+ *
+ * That search is backed by an index which does not yet contain a row written
+ * moments ago. The enrollment board both writes rows and derives its seat
+ * counts from this read, so a lagging index there shows a drop that visibly
+ * did nothing -- while the duplicate guard, which does read through the
+ * relationship, refuses the retry. The N calls buy consistency between the
+ * two, and the staffing view already fans out this way for its staff counts.
+ */
+export async function getEnrollmentsForClasses(classIds: string[]): Promise<RawRecord[]> {
+  const lists = await Promise.all(classIds.map((id) => getEnrollmentsForClass(id, false)));
+  return lists.flat();
+}
+
+export interface NewEnrollment {
+  studentId: string;
+  classId: string;
+  /** Student name and class code, used to compose the mandatory Name field. */
+  studentLabel: string;
+  classLabel: string;
+  /** Copied off the class so the two-hop queries work -- see below. */
+  courseId?: string;
+  termId?: string;
+}
+
+/**
+ * Puts one student in one class.
+ *
+ * Two things here are not obvious.
+ *
+ * `course` and `term` are written explicitly even though the schema marks them
+ * `derived_from: class.course` / `class.term` and says a Zoho workflow keeps
+ * them in step. That workflow is not something this client can verify exists,
+ * and every COQL question worth asking -- "who is in this term", "who is on
+ * this course" -- reads those two fields. Writing them costs nothing and a
+ * missing workflow would otherwise produce rows that no query can find.
+ *
+ * Status is `Active`, not the schema default of `Pending`. Enrolling from the
+ * board is a deliberate placement, and the register reads Active only
+ * (getEnrollmentsForClass) -- a Pending row would leave the student invisible
+ * to the teacher who has to mark them present.
+ */
+export async function createEnrollment(e: NewEnrollment): Promise<string> {
+  const { module, fields } = ZOHO_MODULES.enrollments;
+  const payload: Record<string, unknown> = {
+    // Mandatory on every custom module in this model, join-like ones included.
+    [fields.name]: `${e.studentLabel} - ${e.classLabel}`,
+    [fields.student]: { id: e.studentId },
+    [fields.class]: { id: e.classId },
+    [fields.status]: 'Active',
+    [fields.enrolled_on]: orgToday(),
+  };
+  if (e.courseId) payload[fields.course] = { id: e.courseId };
+  if (e.termId) payload[fields.term] = { id: e.termId };
+
+  const res = await zoho().CRM.API.insertRecord({ Entity: module, APIData: payload, Trigger: [] });
+  return assertWrote(res, 'enrollment');
+}
+
+/**
+ * Is this student already in this class?
+ *
+ * `uq_enrollment_student_class` is in build/zoho/validations.json as a custom
+ * function and is *not deployed* -- Zoho has no composite unique field -- so
+ * nothing server-side stops a duplicate. This read is the only guard, and it
+ * goes through the relationship rather than search for the reason spelled out
+ * on relatedRecords: a row written seconds ago is not in the search index yet,
+ * and a dedupe check that cannot see it will cheerfully write it twice.
+ */
+export async function isAlreadyEnrolled(classId: string, studentId: string): Promise<boolean> {
+  const { fields } = ZOHO_MODULES.enrollments;
+  const existing = await getEnrollmentsForClass(classId, false);
+  return existing.some((r) => refId(r[fields.student]) === studentId);
 }
 
 /** Zoho's per-call ceiling for a bulk create. */

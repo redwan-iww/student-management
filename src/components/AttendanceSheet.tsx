@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader, ButtonBusy, useDelayed } from './Loader';
+import { Avatar, Banner, Button, Card, EmptyState, Icon } from './ui';
 import {
   ZOHO_MODULES,
   ATTENDANCE_STATUS_VALUES,
@@ -164,7 +165,7 @@ export function AttendanceSheet({ sessionId }: { sessionId: string }) {
   }
 
   if (phase.kind === 'loading') return showRosterSpinner ? <Loader label="Loading roster…" /> : null;
-  if (phase.kind === 'error') return <p className="error">{phase.message}</p>;
+  if (phase.kind === 'error') return <Banner tone="error">{phase.message}</Banner>;
 
   const sessionName = String(session?.[sessionFields.name] ?? 'Session');
   const sessionDate = String(session?.[sessionFields.session_date] ?? '');
@@ -179,94 +180,111 @@ export function AttendanceSheet({ sessionId }: { sessionId: string }) {
 
   return (
     <section>
-      <header className="sheet-head">
-        <div>
-          <h2>{sessionName}</h2>
-          <p className="muted">{sessionDate}</p>
-        </div>
-        {/* Bulk actions apply to every row, so they are meaningless with no
-            rows -- and "All Excused" beside "No active enrollments" invites a
-            click that cannot do anything. */}
-        {rows.length > 0 && !cancelled && (
-          <div className="bulk">
-            {ATTENDANCE_STATUS_VALUES.filter(allowed).map((s) => (
-              <button key={s} type="button" onClick={() => setAll(s)} disabled={saving}>
-                All {s}
-              </button>
-            ))}
+      <Card
+        title={
+          <span className="cell-stack">
+            <Avatar name={sessionName} />
+            {sessionName}
+          </span>
+        }
+        subtitle={sessionDate}
+        action={
+          /* Bulk actions apply to every row, so they are meaningless with no
+             rows -- and "All Excused" beside "No active enrollments" invites a
+             click that cannot do anything. */
+          rows.length > 0 && !cancelled ? (
+            <div className="bulk">
+              <span className="bulk-label">Mark all</span>
+              {ATTENDANCE_STATUS_VALUES.filter(allowed).map((s) => (
+                <Button key={s} small onClick={() => setAll(s)} disabled={saving}>
+                  {s}
+                </Button>
+              ))}
+            </div>
+          ) : undefined
+        }
+      >
+        {cancelled && (
+          <EmptyState
+            icon="slash"
+            title="This lesson was cancelled"
+            detail="A cancelled lesson has no register. Set its status back to Scheduled in the Class Sessions module if it is going ahead after all."
+          />
+        )}
+
+        {!cancelled && future && (
+          <div className="card-body">
+            <Banner tone="warn">
+              <strong>This lesson has not happened yet ({sessionDate}).</strong>{' '}
+              Present, Absent, Late and Left Early record what was observed, so they
+              are unavailable. Excused can be set in advance for a known absence.
+            </Banner>
           </div>
         )}
-      </header>
 
-      {cancelled && (
-        <div className="notice">
-          <h2>This lesson was cancelled</h2>
-          <p className="muted">
-            A cancelled lesson has no register. Set its status back to Scheduled
-            in the Class Sessions module if it is going ahead after all.
-          </p>
-        </div>
-      )}
-
-      {!cancelled && future && (
-        <p className="devbar">
-          <strong>This lesson has not happened yet ({sessionDate}).</strong>{' '}
-          Present, Absent, Late and Left Early record what was observed, so they
-          are unavailable. Excused can be set in advance for a known absence.
-        </p>
-      )}
-
-      {cancelled ? null : rows.length === 0 ? (
-        <div className="empty">
-          <h2>No students enrolled</h2>
-          <p className="muted">
-            Nobody has an active enrollment in this class, so there is no
-            register to take. Add enrollments in the Enrollments module first.
-          </p>
-        </div>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Attendance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.enrollmentId} className={row.dirty ? 'dirty' : undefined}>
-                <td>{row.studentName}</td>
-                <td>
-                  <div className="choices">
-                    {ATTENDANCE_STATUS_VALUES.map((s) => (
-                      <label key={s} className={allowed(s) ? undefined : 'unavailable'}>
-                        <input
-                          type="radio"
-                          name={`att-${row.enrollmentId}`}
-                          checked={row.status === s}
-                          onChange={() => setStatus(row.enrollmentId, s)}
-                          disabled={saving || cancelled || !allowed(s)}
-                        />
-                        {s}
-                      </label>
-                    ))}
-                  </div>
-                </td>
+        {cancelled ? null : rows.length === 0 ? (
+          <EmptyState
+            icon="users"
+            title="No students enrolled"
+            detail="Nobody has an active enrollment in this class, so there is no register to take. Add enrollments in the Enrollments module first."
+          />
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Attendance</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.enrollmentId} className={row.dirty ? 'dirty' : undefined}>
+                  <td>
+                    <div className="cell-stack">
+                      <Avatar name={row.studentName} small />
+                      <span className="cell-title">{row.studentName}</span>
+                    </div>
+                  </td>
+                  <td>
+                    {/* A segmented control, but still five real radios sharing
+                        one name: the inputs are clipped rather than hidden, so
+                        the group keeps its semantics and its arrow-key
+                        navigation. */}
+                    <div className="seg-choices">
+                      {ATTENDANCE_STATUS_VALUES.map((s) => (
+                        <label key={s} className={allowed(s) ? undefined : 'unavailable'}>
+                          <input
+                            type="radio"
+                            name={`att-${row.enrollmentId}`}
+                            checked={row.status === s}
+                            onChange={() => setStatus(row.enrollmentId, s)}
+                            disabled={saving || cancelled || !allowed(s)}
+                          />
+                          <span>{s}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
 
       {!cancelled && rows.length > 0 && (
       <footer className="sheet-foot">
-        <button type="button" onClick={save} disabled={saving || dirtyCount === 0}>
+        <Button variant="primary" onClick={save} disabled={saving || dirtyCount === 0}>
           {progress
             ? <ButtonBusy label={`Saving ${progress.done} of ${progress.total}…`} />
             : `Save ${dirtyCount} change${dirtyCount === 1 ? '' : 's'}`}
-        </button>
+        </Button>
+        <span className="spacer" />
         {savedAt && !saving && dirtyCount === 0 && (
-          <span className="muted">Saved {savedAt.toLocaleTimeString()}</span>
+          <span className="saved-note">
+            <Icon name="check-circle" size={15} />
+            Saved {savedAt.toLocaleTimeString()}
+          </span>
         )}
       </footer>
       )}

@@ -3,6 +3,8 @@ import { ZOHO_MODULES } from '../generated/types';
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
 import { GenerateSessions } from '../components/GenerateSessions';
+import { Avatar, Badge, Banner, Button, Card, EmptyState, Icon } from '../components/ui';
+import { sessionTone } from '../components/status';
 import {
   describeError,
   getClassesByIds,
@@ -112,9 +114,10 @@ export function AttendanceManager() {
   if (selected) {
     return (
       <>
-        <button type="button" className="back" onClick={() => setSelected(null)}>
-          ← Back to {date}
-        </button>
+        <Button variant="ghost" className="back" onClick={() => setSelected(null)}>
+          <Icon name="arrow-left" />
+          Back to {date}
+        </Button>
         <AttendanceSheet sessionId={selected} />
       </>
     );
@@ -122,9 +125,9 @@ export function AttendanceManager() {
 
   return (
     <section>
-      <div className="toolbar">
+      <div className="toolbar toolbar-page">
         <label>
-          Date{' '}
+          <span className="bulk-label">Date</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
 
@@ -132,33 +135,34 @@ export function AttendanceManager() {
             lesson -- so it belongs next to the field rather than only in the
             empty state. Labelled with the weekday they land on, since an
             unadorned arrow says nothing about where it goes. */}
-        <div className="daynav">
-          <button
-            type="button"
+        <div className="seg">
+          <Button
             onClick={() => setDate(shiftDate(date, -1))}
             title={`Previous day — ${weekdayOf(shiftDate(date, -1))}`}
             aria-label={`Previous day, ${weekdayOf(shiftDate(date, -1))}`}
           >
-            ‹
-          </button>
-          <button
-            type="button"
+            <Icon name="chevron-left" />
+          </Button>
+          <Button
             onClick={() => setDate(shiftDate(date, 1))}
             title={`Next day — ${weekdayOf(shiftDate(date, 1))}`}
             aria-label={`Next day, ${weekdayOf(shiftDate(date, 1))}`}
           >
-            ›
-          </button>
+            <Icon name="chevron-right" />
+          </Button>
         </div>
 
-        <button type="button" onClick={() => setDate(today())} disabled={date === today()}>
+        <Button onClick={() => setDate(today())} disabled={date === today()}>
           Today
-        </button>
+        </Button>
 
-        <span className="muted daylabel">{weekdayOf(date)}</span>
+        <span className="muted daylabel">
+          <Icon name="calendar" size={15} />
+          {weekdayOf(date)}
+        </span>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <Banner tone="error">{error}</Banner>}
 
       {/* First load only: there is genuinely nothing to keep on screen. */}
       {!error && sessions === null && showSpinner && (
@@ -175,30 +179,26 @@ export function AttendanceManager() {
       )}
 
       {sessions?.length === 0 && (
-        <div className={`empty${loading ? ' stale' : ''}`}>
-          {/* Decorative: the heading below carries the meaning. */}
-          <div className="empty-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="5" width="18" height="16" rx="2" />
-              <path d="M3 10h18M8 3v4M16 3v4" />
-            </svg>
-          </div>
-
-          <h2>No lessons on {weekdayOf(date)}</h2>
-          <p className="muted">{longDateOf(date)}</p>
-
+        <EmptyState
+          icon="calendar"
+          title={`No lessons on ${weekdayOf(date)}`}
+          detail={longDateOf(date)}
+          className={loading ? 'stale' : undefined}
+        >
           {/* Stepping a day at a time is the common move from an empty day, and
               it beats reopening the date picker for each try. */}
           <div className="empty-nav">
-            <button type="button" onClick={() => setDate(shiftDate(date, -1))}>
-              ← {weekdayOf(shiftDate(date, -1))}
-            </button>
-            <button type="button" onClick={() => setDate(today())} disabled={date === today()}>
+            <Button onClick={() => setDate(shiftDate(date, -1))}>
+              <Icon name="arrow-left" />
+              {weekdayOf(shiftDate(date, -1))}
+            </Button>
+            <Button onClick={() => setDate(today())} disabled={date === today()}>
               Today
-            </button>
-            <button type="button" onClick={() => setDate(shiftDate(date, 1))}>
-              {weekdayOf(shiftDate(date, 1))} →
-            </button>
+            </Button>
+            <Button onClick={() => setDate(shiftDate(date, 1))}>
+              {weekdayOf(shiftDate(date, 1))}
+              <Icon name="arrow-right" />
+            </Button>
           </div>
 
           {/* Behind a disclosure on purpose. Mounting the generator costs a
@@ -209,14 +209,15 @@ export function AttendanceManager() {
           {setupOpen ? (
             <GenerateSessions onGenerated={() => setReloadKey((k) => k + 1)} />
           ) : (
-            <button type="button" className="linklike" onClick={() => setSetupOpen(true)}>
+            <Button variant="link" onClick={() => setSetupOpen(true)}>
               Set up a term's lessons…
-            </button>
+            </Button>
           )}
-        </div>
+        </EmptyState>
       )}
 
       {sessions && sessions.length > 0 && (
+        <Card>
         <table className={loading ? 'stale' : undefined}>
           <thead>
             <tr>
@@ -225,7 +226,7 @@ export function AttendanceManager() {
               <th>Class</th>
               <th>Term</th>
               <th>Status</th>
-              <th />
+              <th className="actions" />
             </tr>
           </thead>
           <tbody>
@@ -233,35 +234,40 @@ export function AttendanceManager() {
               const taken = s[F.attendance_taken] === true;
               const cancelled = str(s[F.status]) === 'Cancelled';
               const upcoming = isFutureDate(str(s[F.session_date]));
+              // Flagged in the list too, so a future register is obvious
+              // before it is opened.
+              const status = sessionTone(cancelled, taken, upcoming);
               return (
                 <tr key={s.id}>
-                  <td>{str(s[F.start_time], '—')}</td>
-                  <td>{str(s[F.name])}</td>
-                  <td>{refName(s[F.class]) || '—'}</td>
-                  <td className="muted">{termByClass.get(refId(s[F.class]) ?? '') || '…'}</td>
-                  {/* Flagged in the list too, so a future register is obvious
-                      before it is opened. */}
                   <td>
-                    {cancelled ? (
-                      <span className="pill off">Cancelled</span>
-                    ) : taken ? (
-                      <span className="pill done">Attendance taken</span>
-                    ) : upcoming ? (
-                      <span className="pill todo">Upcoming</span>
-                    ) : (
-                      <span className="pill todo">Not taken</span>
-                    )}
+                    <span className="cell-mono">
+                      <Icon name="clock" size={14} />
+                      {str(s[F.start_time], '—')}
+                    </span>
                   </td>
                   <td>
-                    <button type="button" onClick={() => setSelected(s.id)}>
+                    <div className="cell-stack">
+                      <Avatar name={str(s[F.name])} />
+                      <span className="cell-title">{str(s[F.name])}</span>
+                    </div>
+                  </td>
+                  <td>{refName(s[F.class]) || '—'}</td>
+                  <td className="muted">{termByClass.get(refId(s[F.class]) ?? '') || '…'}</td>
+                  <td>
+                    <Badge tone={status.tone} dot>{status.label}</Badge>
+                  </td>
+                  <td className="actions">
+                    <Button variant="ghost" onClick={() => setSelected(s.id)}>
                       {cancelled || taken ? 'Review' : upcoming ? 'Open' : 'Take attendance'}
-                    </button>
+                      <Icon name="chevron-right" />
+                    </Button>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </Card>
       )}
       </div>
     </section>

@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { Loader, useDelayed } from './Loader';
+import { Banner, Button, Card } from './ui';
 import {
   BULK_LIMIT,
   describeError,
@@ -215,7 +216,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
     }
   }
 
-  if (run.kind === 'error') return <p className="error">{run.message}</p>;
+  if (run.kind === 'error') return <Banner tone="error">{run.message}</Banner>;
 
   // Two sequential fetches -- terms, then the per-term count -- used to show a
   // loader each, so arriving on an empty day flashed one after the other.
@@ -232,7 +233,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
   if (run.kind === 'working') {
     const pct = run.total ? Math.round((run.done / run.total) * 100) : 0;
     return (
-      <div className="genbox">
+      <Card body prose>
         <Loader
           inline
           label={run.total ? `Creating lessons — ${run.done} of ${run.total} written (${run.label})` : run.label}
@@ -241,21 +242,21 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           <span style={{ width: `${pct}%` }} />
         </div>
         <p className="muted">Leave this tab open until it finishes.</p>
-      </div>
+      </Card>
     );
   }
 
   if (run.kind === 'done') {
     return (
-      <div className="genbox">
+      <Card body prose>
         <p>
           Done — created <strong>{run.created}</strong> lesson{run.created === 1 ? '' : 's'}
           {run.skipped > 0 && <> · {run.skipped} already existed</>}
           {run.onHoliday > 0 && <> · {run.onHoliday} skipped as holidays or closures</>}.
           {' '}Pick a date inside the term to take a register.
         </p>
-        <button type="button" onClick={() => setRun({ kind: 'idle' })}>Set up another term</button>
-      </div>
+        <Button onClick={() => setRun({ kind: 'idle' })}>Set up another term</Button>
+      </Card>
     );
   }
 
@@ -280,7 +281,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
   }
 
   return (
-    <div className="genbox">
+    <Card body prose>
       <h2>Set up this term's lessons</h2>
       <p>
         Each class knows <em>when it meets</em> — for example “Mondays and
@@ -292,7 +293,7 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
 
       <div className="toolbar">
         <label>
-          Term{' '}
+          <span className="bulk-label">Term</span>
           <select value={termId} onChange={(e) => setTermId(e.target.value)}>
             {terms.map((t) => (
               <option key={t.id} value={t.id}>
@@ -301,19 +302,19 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
             ))}
           </select>
         </label>
-        <button
-          type="button"
+        <Button
+          variant="primary"
           onClick={generate}
           disabled={!termId || preview.kind !== 'ready' || preview.lessons === 0}
         >
           {preview.kind === 'ready' && preview.lessons > 0
             ? `Create ${preview.lessons} lesson${preview.lessons === 1 ? '' : 's'}`
             : 'Create lessons'}
-        </button>
+        </Button>
       </div>
 
       {preview.kind === 'failed' && (
-        <p className="error">Could not read this term's classes.</p>
+        <Banner tone="error">Could not read this term's classes.</Banner>
       )}
       {preview.kind === 'ready' && (
         <p className="muted preview">
@@ -337,6 +338,6 @@ export function GenerateSessions({ onGenerated }: { onGenerated: () => void }) {
           )}
         </p>
       )}
-    </div>
+    </Card>
   );
 }

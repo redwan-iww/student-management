@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Loader, useDelayed } from './Loader';
+import { Card } from './ui';
 import { describeError } from '../zoho/client';
 import { initTab, NotInsideCrmError, type HandshakeFailure } from '../zoho/sdk';
 
@@ -89,9 +90,22 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
   const showConnecting = useDelayed(state.kind === 'init');
 
   return (
-    <>
+    <main className="page">
       <header className="tabhead">
         <h1>{title}</h1>
+        {/* The dev-proxy marker rides in the header rather than sitting as a
+            full-bleed strip above it: it qualifies where the data is coming
+            from, which is a caption on the title, not a warning about the
+            content below. */}
+        {state.kind === 'ready-live' && (
+          <span className="devchip">
+            <i className="dot" aria-hidden="true" />
+            <span>
+              No CRM handshake ({state.reason}) — reading and writing{' '}
+              <strong>real demo3 records</strong> over the dev proxy.
+            </span>
+          </span>
+        )}
       </header>
 
       {state.kind === 'init' && showConnecting && (
@@ -99,22 +113,20 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       )}
 
       {state.kind === 'outside' && (
-        <div className="notice">
-          <h2>{REMEDY[state.reason].headline}</h2>
+        <Card title={REMEDY[state.reason].headline} body prose>
           <p>{REMEDY[state.reason].detail}</p>
           <p className="muted">
             diagnosis: <code>{state.reason}</code>
             {state.waitedMs > 0 && <> after {(state.waitedMs / 1000).toFixed(1)}s</>}
           </p>
-        </div>
+        </Card>
       )}
 
       {/* Dev-only, and gated on DEV here as well as at the setState that
           produces it -- otherwise the markup (and the credential *names* in
           it) ships in the production bundle to a branch that can never run. */}
       {import.meta.env.DEV && state.kind === 'needs-credentials' && (
-        <div className="notice">
-          <h2>Live mode is off — add OAuth credentials</h2>
+        <Card title="Live mode is off — add OAuth credentials" body prose>
           <p>
             No CRM handshake (<code>{state.reason}</code>), and the dev proxy has
             no credentials, so there is nothing to read from. Copy{' '}
@@ -128,18 +140,11 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
             through the SDK with no credentials at all; if you are seeing this
             there, the handshake did not complete.
           </p>
-        </div>
-      )}
-
-      {state.kind === 'ready-live' && (
-        <p className="devbar">
-          No CRM handshake ({state.reason}) — but reading and writing <strong>real demo3
-          records</strong> over the dev proxy. Register this as a widget to use the SDK path.
-        </p>
+        </Card>
       )}
 
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
       {(state.kind === 'ready' || state.kind === 'ready-live') && children}
-    </>
+    </main>
   );
 }

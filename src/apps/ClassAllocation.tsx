@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader, ButtonBusy, useDelayed } from '../components/Loader';
+import { Avatar, Badge, Banner, Button, Card, Chip, EmptyState, Icon } from '../components/ui';
+import { allocationTone, classTone, shortDays } from '../components/status';
+import { EnrollmentBoard } from '../components/EnrollmentBoard';
 import {
   ZOHO_MODULES,
   ALLOCATION_ROLE_VALUES,
@@ -12,11 +15,15 @@ import {
   getActiveTerms,
   getAllocationsForClass,
   getClassesForTerm,
+  getSessionsForClass,
   getTeachers,
+  int,
+  orgToday,
   refId,
   refName,
   setPrimaryTeacher,
   str,
+  strList,
   type RawRecord,
 } from "../zoho/client";
 
@@ -24,6 +31,25 @@ const C = ZOHO_MODULES.classes.fields;
 const T = ZOHO_MODULES.terms.fields;
 const TE = ZOHO_MODULES.teachers.fields;
 const AL = ZOHO_MODULES.allocations.fields;
+const S = ZOHO_MODULES.class_sessions.fields;
+
+/**
+ * What one allocation covers.
+ *
+ * The schema has carried this distinction since the beginning -- an allocation
+ * with class_session NULL covers the whole class, and one with it set is a
+ * substitution on that single date -- but nothing could set it until now.
+ */
+type AllocationScope = 'class' | 'session';
+
+/**
+ * Which half of staffing the tab is showing.
+ *
+ * Teachers and students are the two sides of the same question -- who is in
+ * this class -- and they share the term picker and the class list, so they
+ * share a tab rather than being a second widget to register.
+ */
+type View = 'staffing' | 'enrollment';
 
 /** Web-tab entry point for staffing: term → class → who teaches it. */
 export function ClassAllocation() {
@@ -97,6 +123,8 @@ export function ClassAllocation() {
   const showClassSpinner = useDelayed(loadingClasses);
   const showTermsSpinner = useDelayed(terms === null);
 
+  const [view, setView] = useState<View>('staffing');
+
   const selectedId = selectedClass?.id ?? null;
   // Stable identity, and a no-op when the count has not moved. ClassStaffing's
   // refresh() depends on this callback and an effect depends on refresh, so an
@@ -114,21 +142,28 @@ export function ClassAllocation() {
     [selectedId],
   );
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <Banner tone="error">{error}</Banner>;
   if (terms === null) return showTermsSpinner ? <Loader label="Loading terms…" /> : null;
   if (terms.length === 0)
-    return <p className="muted">No open or running terms.</p>;
+    return (
+      <EmptyState
+        icon="calendar"
+        title="No open or running terms"
+        detail="Staffing is organised by term, so there is nothing to allocate until one is open. Open a term in the Terms module."
+      />
+    );
 
   if (selectedClass) {
     return (
       <>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
           className="back"
           onClick={() => setSelectedClass(null)}
         >
-          ← Back to classes
-        </button>
+          <Icon name="arrow-left" />
+          Back to classes
+        </Button>
         <ClassStaffing
           klass={selectedClass}
           teachers={teachers}
@@ -148,13 +183,12 @@ export function ClassAllocation() {
       </>
     );
   }
-  // return <div>hi</div>;
 
   return (
     <section>
-      <div className="toolbar">
+      <div className="toolbar toolbar-page">
         <label>
-          Term{" "}
+          <span className="bulk-label">Term</span>
           <select value={termId} onChange={(e) => setTermId(e.target.value)}>
             {terms.map((t) => (
               <option key={t.id} value={t.id}>
@@ -163,8 +197,44 @@ export function ClassAllocation() {
             ))}
           </select>
         </label>
+
+        <div className="seg">
+          <Button
+            className={view === 'staffing' ? 'is-on' : undefined}
+            aria-pressed={view === 'staffing'}
+            onClick={() => setView('staffing')}
+          >
+            <Icon name="user" size={14} />
+            Teachers
+          </Button>
+          <Button
+            className={view === 'enrollment' ? 'is-on' : undefined}
+            aria-pressed={view === 'enrollment'}
+            onClick={() => setView('enrollment')}
+          >
+            <Icon name="users" size={14} />
+            Students
+          </Button>
+        </div>
       </div>
 
+      {/* The board is given the class list rather than fetching its own, so it
+          waits for the same load the staffing table does -- handing it an
+          empty array early would render "no classes" over a term that has
+          plenty. */}
+      {view === 'enrollment' && (
+        classes === null ? (
+          showClassSpinner ? <Loader label="Loading classes…" /> : null
+        ) : (
+          <EnrollmentBoard
+            termId={termId}
+            termLabel={str(terms.find((t) => t.id === termId)?.[T.name], 'this term')}
+            classes={classes}
+          />
+        )
+      )}
+
+      {view === 'staffing' && (
       <div className="content">
       {/* Same hairline bar as the timetable: switching term keeps the list in
           place and dims it, rather than swapping in a spinner. */}
@@ -173,53 +243,158 @@ export function ClassAllocation() {
       )}
       {classes === null && showClassSpinner && <Loader label="Loading classes…" />}
       {classes?.length === 0 && (
-        <p className="muted">No classes in this term.</p>
+        <EmptyState
+          icon="book"
+          title="No classes in this term"
+          detail="Nothing is scheduled to teach here yet. Add classes in the Classes module, then come back to staff them."
+          className={loadingClasses ? 'stale' : undefined}
+        />
       )}
 
       {classes && classes.length > 0 && (
+        <Card>
         <table className={loadingClasses ? 'stale' : undefined}>
           <thead>
             <tr>
               <th>Class</th>
-              <th>Code</th>
+              <th>Schedule</th>
               <th>Lead teacher</th>
               <th>Staff</th>
-              <th>Capacity</th>
-              <th />
+              <th>Enrolled</th>
+              <th>Status</th>
+              <th className="actions" />
             </tr>
           </thead>
           <tbody>
             {classes.map((k) => {
               const primary = refName(k[C.primary_teacher]);
               const staff = staffCount.get(k.id);
+              const status = classTone(str(k[C.status]));
               return (
                 <tr key={k.id}>
-                  <td>{str(k[C.name])}</td>
-                  <td>{str(k[C.class_code], "—")}</td>
                   <td>
-                    {primary || <span className="pill todo">No lead</span>}
+                    <div className="cell-stack">
+                      <Avatar name={str(k[C.name])} />
+                      <div className="cell-lines">
+                        <div className="cell-title">{str(k[C.name])}</div>
+                        <div className="cell-sub">
+                          {str(k[C.class_code], "—")}
+                          {str(k[C.section_label]) && <> · Section {str(k[C.section_label])}</>}
+                        </div>
+                      </div>
+                    </div>
                   </td>
-                  <td className="muted">
-                    {staff === undefined
-                      ? "…"
-                      : staff === 0
-                        ? "nobody"
-                        : `${staff} allocated`}
-                  </td>
-                  <td>{String(k[C.capacity] ?? "—")}</td>
                   <td>
-                    <button type="button" onClick={() => setSelectedClass(k)}>
+                    <Schedule klass={k} />
+                  </td>
+                  <td>
+                    {primary ? (
+                      <div className="cell-stack">
+                        <Avatar name={primary} small />
+                        <span>{primary}</span>
+                      </div>
+                    ) : (
+                      <Badge tone="pending" dot>No lead</Badge>
+                    )}
+                  </td>
+                  <td>
+                    <Chip>
+                      <Icon name="users" size={13} />
+                      {staff === undefined
+                        ? "…"
+                        : staff === 0
+                          ? "nobody"
+                          : `${staff} allocated`}
+                    </Chip>
+                  </td>
+                  <td>
+                    <Occupancy
+                      enrolled={int(k[C.enrolled_count])}
+                      capacity={int(k[C.capacity])}
+                    />
+                  </td>
+                  <td>
+                    <Badge tone={status.tone} dot>{status.label}</Badge>
+                  </td>
+                  <td className="actions">
+                    <Button variant="ghost" onClick={() => setSelectedClass(k)}>
                       Allocate
-                    </button>
+                      <Icon name="chevron-right" />
+                    </Button>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </Card>
       )}
       </div>
+      )}
     </section>
+  );
+}
+
+/**
+ * When a class meets: the weekly pattern, its time, and the room.
+ *
+ * Staffing a class without this was guesswork -- "who teaches it" cannot be
+ * answered without "when is it". The three belong together and are narrow
+ * enough to share one column.
+ */
+function Schedule({ klass }: { klass: RawRecord }) {
+  const days = strList(klass[C.meeting_days]);
+  const from = str(klass[C.start_time]);
+  const to = str(klass[C.end_time]);
+  const room = str(klass[C.room]);
+
+  const time = from ? (to ? `${from}–${to}` : from) : "";
+  const detail = [time, room].filter(Boolean).join(" · ");
+
+  return (
+    <div className="schedule">
+      <span className="schedule-days">
+        <Icon name="calendar" size={13} />
+        {/* A class with no meeting days is the one the generator cannot make
+            lessons for, so it is worth saying rather than leaving blank. */}
+        {days.length > 0 ? shortDays(days) : <span className="faint">No days set</span>}
+      </span>
+      <span className="cell-sub schedule-time">{detail || "—"}</span>
+    </div>
+  );
+}
+
+/**
+ * Enrolled against capacity.
+ *
+ * `enrolled` is a Zoho rollup, so it is null until the rollup has been
+ * computed for that record -- which is not the same as nobody being enrolled,
+ * and is shown as an unknown rather than as a zero.
+ */
+function Occupancy({ enrolled, capacity }: { enrolled: number | null; capacity: number | null }) {
+  if (capacity === null) return <span className="muted">—</span>;
+
+  const pct = enrolled === null || capacity === 0
+    ? 0
+    : Math.min(100, Math.round((enrolled / capacity) * 100));
+  const fill =
+    enrolled !== null && enrolled > capacity
+      ? "meter-fill over"
+      : enrolled !== null && enrolled === capacity
+        ? "meter-fill full"
+        : "meter-fill";
+
+  return (
+    <div className="meter">
+      <span className="meter-figures">
+        {enrolled ?? "—"}
+        <span className="of"> / {capacity}</span>
+      </span>
+      {/* Decorative: the figures above already state it. */}
+      <span className="meter-track" aria-hidden="true">
+        <span className={fill} style={{ width: `${pct}%` }} />
+      </span>
+    </div>
   );
 }
 
@@ -243,6 +418,16 @@ function ClassStaffing({
   const [allocations, setAllocations] = useState<RawRecord[] | null>(null);
   const [teacherId, setTeacherId] = useState("");
   const [role, setRole] = useState<AllocationRole>("Lead Teacher");
+  // Defaulted rather than left blank: createAllocation falls back to today
+  // anyway, and showing the date it will write beats writing one silently.
+  const [effectiveFrom, setEffectiveFrom] = useState(() => orgToday());
+  const [effectiveTo, setEffectiveTo] = useState("");
+  const [notes, setNotes] = useState("");
+  // Whole class, or cover for one dated lesson -- the model's class_session
+  // lookup, which nothing has been able to set until now.
+  const [scope, setScope] = useState<AllocationScope>("class");
+  const [sessionId, setSessionId] = useState("");
+  const [sessions, setSessions] = useState<RawRecord[] | null>(null);
   const [busy, setBusy] = useState(false);
   // Which allocation row is mid-write, so the spinner lands on that row rather
   // than on every End button at once.
@@ -250,6 +435,7 @@ function ClassStaffing({
   const [error, setError] = useState<string | null>(null);
 
   const showAllocSpinner = useDelayed(allocations === null);
+  const showSessionSpinner = useDelayed(scope === "session" && sessions === null);
 
   /**
    * Re-reads this class's allocations and reports the active count upward.
@@ -273,14 +459,33 @@ function ClassStaffing({
     refresh().catch((err: unknown) => setError(describeError(err)));
   }, [refresh]);
 
+  // Fetched only when cover is actually chosen. A term's class carries thirty
+  // or so sessions, and the ordinary allocation covers all of them -- so this
+  // would be a wasted query on every visit to the screen.
+  useEffect(() => {
+    if (scope !== "session" || sessions !== null) return;
+    let cancelled = false;
+    getSessionsForClass(klass.id)
+      .then((recs) => { if (!cancelled) setSessions(recs); })
+      .catch((err: unknown) => { if (!cancelled) setError(describeError(err)); });
+    return () => { cancelled = true; };
+  }, [scope, sessions, klass.id]);
+
   const active = allocations?.filter((a) => a[AL.status] !== "Ended") ?? [];
   const alreadyOn = new Set(
     active.map((a) => refId(a[AL.teacher])).filter(Boolean) as string[],
   );
-  const available = teachers.filter((t) => !alreadyOn.has(t.id));
+  // Excluded from whole-class staffing because allocating the same teacher to
+  // the same class twice is a mistake. Cover is the opposite case: an
+  // assistant standing in as lead for one lesson is exactly the point, so the
+  // full list stays available there.
+  const available = scope === "session" ? teachers : teachers.filter((t) => !alreadyOn.has(t.id));
+
+  const coverSession = sessions?.find((s) => s.id === sessionId) ?? null;
+  const canSubmit = Boolean(teacherId) && (scope === "class" || Boolean(sessionId));
 
   async function add() {
-    if (!teacherId) return;
+    if (!canSubmit) return;
     setBusy(true);
     setError(null);
     try {
@@ -289,13 +494,23 @@ function ClassStaffing({
         classId: klass.id,
         role,
         classLabel: str(klass[C.class_code], str(klass[C.name], klass.id)),
+        effectiveFrom: effectiveFrom || undefined,
+        effectiveTo: effectiveTo || undefined,
+        notes: notes.trim() || undefined,
+        classSessionId: scope === "session" ? sessionId : undefined,
+        sessionLabel: scope === "session" && coverSession ? sessionLabel(coverSession) : undefined,
       });
-      // The class's headline teacher tracks the lead allocation.
-      if (role === "Lead Teacher") {
+      // The class's headline teacher tracks the lead allocation -- but only a
+      // whole-class one. Someone covering a single lesson is not the class's
+      // teacher, and promoting them would rewrite what everyone else reads.
+      if (role === "Lead Teacher" && scope === "class") {
         await setPrimaryTeacher(klass.id, teacherId);
         onPrimaryChanged(teacherId);
       }
       setTeacherId("");
+      setEffectiveTo("");
+      setNotes("");
+      setSessionId("");
       await refresh();
     } catch (err) {
       setError(describeError(err));
@@ -322,7 +537,12 @@ function ClassStaffing({
       const currentPrimary = refId(klass[C.primary_teacher]);
       if (endedTeacher && endedTeacher === currentPrimary) {
         const nextLead = fresh.find(
-          (a) => a[AL.status] !== 'Ended' && str(a[AL.role]) === 'Lead Teacher',
+          (a) =>
+            a[AL.status] !== 'Ended' &&
+            str(a[AL.role]) === 'Lead Teacher' &&
+            // Single-lesson cover is not a candidate for the class's headline
+            // teacher, for the same reason it never set it.
+            !refId(a[AL.class_session]),
         );
         const nextId = nextLead ? refId(nextLead[AL.teacher]) : null;
         await setPrimaryTeacher(klass.id, nextId);
@@ -336,95 +556,246 @@ function ClassStaffing({
     }
   }
 
+  const status = classTone(str(klass[C.status]));
+  const classCode = str(klass[C.class_code]);
+
   return (
     <section>
-      <header className="sheet-head">
-        <div>
-          <h2>{str(klass[C.name])}</h2>
-          <p className="muted">
-            {str(klass[C.class_code], "—")} · capacity{" "}
-            {String(klass[C.capacity] ?? "—")}
-          </p>
+      <Card
+        title={str(klass[C.name])}
+        subtitle={
+          <>
+            {str(klass[C.class_code], "—")}
+            {str(klass[C.section_label]) && <> · Section {str(klass[C.section_label])}</>}
+            {str(klass[C.room]) && <> · {str(klass[C.room])}</>}
+          </>
+        }
+        action={
+          <div className="bulk">
+            <Occupancy
+              enrolled={int(klass[C.enrolled_count])}
+              capacity={int(klass[C.capacity])}
+            />
+            <Badge tone={status.tone} dot>{status.label}</Badge>
+          </div>
+        }
+        body
+      >
+        <div className="head-meta">
+          <Schedule klass={klass} />
         </div>
-      </header>
 
-      {error && <p className="error">{error}</p>}
+        {error && <Banner tone="error">{error}</Banner>}
 
-      <div className="toolbar">
-        <label>
-          Teacher{" "}
-          <select
-            value={teacherId}
-            onChange={(e) => setTeacherId(e.target.value)}
-            disabled={busy}
-          >
-            <option value="">Select…</option>
-            {available.map((t) => (
-              <option key={t.id} value={t.id}>
-                {str(t[TE.full_name], t.id)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Role{" "}
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as AllocationRole)}
-            disabled={busy}
-          >
-            {ALLOCATION_ROLE_VALUES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" onClick={add} disabled={busy || !teacherId}>
-          {busy && !endingId ? <ButtonBusy label="Allocating…" /> : "Allocate"}
-        </button>
-      </div>
+        <div className="form-grid">
+          <label className="field">
+            <span>Teacher</span>
+            <select
+              value={teacherId}
+              onChange={(e) => setTeacherId(e.target.value)}
+              disabled={busy}
+            >
+              <option value="">Select…</option>
+              {available.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {teacherLabel(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Role</span>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as AllocationRole)}
+              disabled={busy}
+            >
+              {ALLOCATION_ROLE_VALUES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Covers</span>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value as AllocationScope)}
+              disabled={busy}
+            >
+              <option value="class">The whole class</option>
+              <option value="session">One lesson (cover)</option>
+            </select>
+          </label>
+
+          {scope === "session" && (
+            <label className="field">
+              <span>Lesson</span>
+              <select
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+                disabled={busy || sessions === null}
+              >
+                <option value="">
+                  {sessions === null
+                    ? showSessionSpinner ? "Loading lessons…" : "…"
+                    : sessions.length === 0
+                      ? "No lessons generated yet"
+                      : "Select…"}
+                </option>
+                {(sessions ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {sessionLabel(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="field">
+            <span>From</span>
+            <input
+              type="date"
+              value={effectiveFrom}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+
+          <label className="field">
+            {/* Optional on purpose: an open-ended allocation is the normal
+                case, and "End" on the row below closes one when the time
+                comes. This is for cover that is known to be fixed-term. */}
+            <span>To (optional)</span>
+            <input
+              type="date"
+              value={effectiveTo}
+              min={effectiveFrom || undefined}
+              onChange={(e) => setEffectiveTo(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+
+          <label className="field field-wide">
+            <span>Notes (optional)</span>
+            <textarea
+              rows={2}
+              value={notes}
+              placeholder="Why this allocation exists — covering leave, shared teaching, trial period…"
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+
+          <div className="form-actions field-wide">
+            <Button variant="primary" onClick={add} disabled={busy || !canSubmit}>
+              {busy && !endingId ? (
+                <ButtonBusy label="Allocating…" />
+              ) : (
+                <>
+                  <Icon name="plus" />
+                  Allocate
+                </>
+              )}
+            </Button>
+            {scope === "session" && (
+              <span className="muted cover-mark">
+                <Icon name="calendar" size={13} />
+                Cover does not change the lead teacher on the class.
+              </span>
+            )}
+          </div>
+        </div>
+      </Card>
 
       {allocations === null && showAllocSpinner && (
         <Loader label="Loading allocations…" />
       )}
       {allocations?.length === 0 && (
-        <p className="muted">Nobody allocated to this class yet.</p>
+        <EmptyState
+          icon="users"
+          title="Nobody allocated yet"
+          detail="Pick a teacher and a role above to put someone in front of this class."
+        />
       )}
 
       {allocations && allocations.length > 0 && (
+        <Card>
         <table>
           <thead>
             <tr>
               <th>Teacher</th>
               <th>Role</th>
+              <th>Covers</th>
               <th>Status</th>
               <th>From</th>
-              <th />
+              <th>To</th>
+              <th className="actions" />
             </tr>
           </thead>
           <tbody>
             {allocations.map((a) => {
+              // Row dimming and the End button key off this one value, as they
+              // always have; only the badge reads the full status.
               const ended = a[AL.status] === "Ended";
+              const teacher = refName(a[AL.teacher]);
+              const allocStatus = allocationTone(str(a[AL.status], ""));
+              // A session's Name repeats the class code it belongs to
+              // ("MATH101-2026T3-A - 2026-10-05"), which is noise inside that
+              // class's own table -- the date is the part that identifies it.
+              const coverName = refName(a[AL.class_session]).replace(`${classCode} - `, '');
+              const note = str(a[AL.notes]);
               return (
                 <tr key={a.id} className={ended ? "ended" : undefined}>
-                  <td>{refName(a[AL.teacher]) || "—"}</td>
-                  <td>{str(a[AL.role], "—")}</td>
                   <td>
-                    <span className={`pill ${ended ? "todo" : "done"}`}>
-                      {str(a[AL.status], "—")}
-                    </span>
+                    {teacher ? (
+                      <div className="cell-stack">
+                        <Avatar name={teacher} small />
+                        <div className="cell-lines">
+                          <div className="cell-title">{teacher}</div>
+                          <div className="cell-sub">{str(a[AL.allocation_no], "—")}</div>
+                        </div>
+                      </div>
+                    ) : (
+                      "—"
+                    )}
                   </td>
-                  <td>{str(a[AL.effective_from], "—")}</td>
                   <td>
+                    <div className="cell-lines">
+                      <div>{str(a[AL.role], "—")}</div>
+                      {/* Why this allocation exists, where there is room for
+                          it -- a notes column of its own would be mostly
+                          empty and would push the dates off the edge. */}
+                      {note && <div className="cell-sub" title={note}>{note}</div>}
+                    </div>
+                  </td>
+                  <td>
+                    {coverName ? (
+                      <span className="cover-mark">
+                        <Icon name="calendar" size={13} />
+                        {coverName}
+                      </span>
+                    ) : (
+                      <span className="muted">Whole class</span>
+                    )}
+                  </td>
+                  <td>
+                    <Badge tone={allocStatus.tone} dot>{allocStatus.label}</Badge>
+                  </td>
+                  <td className="muted">
+                    <span className="cell-mono">{str(a[AL.effective_from], "—")}</span>
+                  </td>
+                  <td className="muted">
+                    <span className="cell-mono">{str(a[AL.effective_to], "—")}</span>
+                  </td>
+                  <td className="actions">
                     {!ended && (
-                      <button
-                        type="button"
-                        onClick={() => end(a.id)}
-                        disabled={busy}
-                      >
+                      <Button variant="ghost" onClick={() => end(a.id)} disabled={busy}>
                         {endingId === a.id ? <ButtonBusy label="Ending…" /> : 'End'}
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -432,7 +803,30 @@ function ClassStaffing({
             })}
           </tbody>
         </table>
+        </Card>
       )}
     </section>
   );
+}
+
+/** '2026-10-05 09:00' -- enough to pick the right lesson out of thirty. */
+function sessionLabel(session: RawRecord): string {
+  const stamp = [str(session[S.session_date]), str(session[S.start_time])]
+    .filter(Boolean)
+    .join(" ");
+  return stamp || str(session[S.name], session.id);
+}
+
+/**
+ * A teacher, with what actually distinguishes one from another.
+ *
+ * A list of bare names says nothing about who is right for a class;
+ * employment type and specialisms are the two the schema carries.
+ */
+function teacherLabel(teacher: RawRecord): string {
+  const name = str(teacher[TE.full_name], teacher.id);
+  const detail = [str(teacher[TE.employment_type]), strList(teacher[TE.specialisms]).join(", ")]
+    .filter(Boolean)
+    .join(" · ");
+  return detail ? `${name} — ${detail}` : name;
 }

@@ -1,0 +1,4 @@
+also in Class Allocation with other:
+-class/program at left side
+-new admission students at right sid
+-students can be dragged to program
