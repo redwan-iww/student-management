@@ -308,6 +308,7 @@ export function ClassAllocation() {
             classes={classes}
             programOf={programOf}
             programId={programId}
+            onClearProgram={() => setProgramId('')}
           />
         )
       )}

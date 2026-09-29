@@ -58,6 +58,7 @@ export function EnrollmentBoard({
   classes,
   programOf,
   programId,
+  onClearProgram,
 }: {
   /**
    * The whole record, not just its id: the board needs the enrolment window
@@ -72,6 +73,9 @@ export function EnrollmentBoard({
   programOf: Map<string, { id: string; name: string }>;
   /** The department chosen in the toolbar. Empty means all of them. */
   programId: string;
+  /** Clears that choice. The picker lives in the toolbar, so this is the only
+   *  way a panel down here can offer a way out of a filter that emptied it. */
+  onClearProgram: () => void;
 }) {
   const termId = term.id;
   const termLabel = str(term[T.name], 'this term');
@@ -271,16 +275,30 @@ export function EnrollmentBoard({
   const closesOn = str(term[T.enrollment_closes]);
   const windowClosed = closesOn !== '' && closesOn < orgToday();
 
-  // Held student has no application for this term. Normal for a continuing
-  // pupil -- they do not reapply each term -- so this warns rather than
-  // blocks. It can only fire on the All active source; every candidate on the
-  // Admitted source is by definition admitted here.
+  // The house rule: a student is admitted for each term they attend, so an
+  // enrolment without an application for *this* term is not allowed. It can
+  // only arise on the All active source -- every candidate on the Admitted
+  // source has one by definition.
+  //
+  // Not enforced anywhere else: the schema has no link from an enrolment to an
+  // application, and no validation behind it, so this screen is the only place
+  // the rule exists. Someone working in the CRM module directly can still do
+  // it. Worth knowing before trusting the data.
   const pickedNotAdmitted =
     picked !== null && admittedIds !== null && !admittedIds.has(picked.studentId);
 
   const enroll = useCallback(
     async (klass: RawRecord, who: Candidate) => {
       if (busyClass) return;
+      // The buttons are already withheld, so this is the backstop for a drop
+      // that got through some other way.
+      if (admittedIds !== null && !admittedIds.has(who.studentId)) {
+        setToast({
+          tone: 'warn',
+          message: `${who.name} has no application for ${termLabel}. Admit them first.`,
+        });
+        return;
+      }
       setBusyClass(klass.id);
       setError(null);
       const classLabel = str(klass[C.class_code], str(klass[C.name], klass.id));
@@ -337,7 +355,7 @@ export function EnrollmentBoard({
         setBusyClass(null);
       }
     },
-    [busyClass, termId],
+    [busyClass, termId, admittedIds, termLabel],
   );
 
   // Clears itself, because nothing else in this flow would. The timer is keyed
@@ -371,83 +389,6 @@ export function EnrollmentBoard({
         <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
       )}
 
-
-      <div className="board-col">
-        <div className="board-head">
-          <h2>
-            Classes in {termLabel} <span className="count">{classes.length}</span>
-          </h2>
-        </div>
-
-        {classes.length > 8 && (
-          <input
-            type="text"
-            className="board-search"
-            value={classQuery}
-            placeholder="Filter classes by name, code or room…"
-            aria-label="Filter classes"
-            onChange={(e) => setClassQuery(e.target.value)}
-          />
-        )}
-
-        {!loading && classesFiltered && shownClasses.length > 0 && (
-          <p className="muted board-count">
-            {shownClasses.length} of {classes.length}
-          </p>
-        )}
-
-        {error && <Banner tone="error">{error}</Banner>}
-
-        {!loading && windowClosed && (
-          <Banner tone="warn" icon="calendar">
-            Enrolment for <strong>{termLabel}</strong> closed on {closesOn}. Anyone
-            added now is joining after the deadline.
-          </Banner>
-        )}
-
-        {!loading && pickedNotAdmitted && picked && (
-          <Banner tone="warn" icon="user">
-            <strong>{picked.name}</strong> has no application for{' '}
-            <strong>{termLabel}</strong>. That is expected for a continuing pupil
-            being timetabled into a new term — but if you meant to pick someone
-            from this term's intake, switch the list to Admitted.
-          </Banner>
-        )}
-
-        {loading && showSpinner && <Loader label="Loading the board…" />}
-
-        {!loading && classes.length === 0 && (
-          <EmptyState
-            icon="book"
-            title="No classes in this term"
-            detail="Add some in the Classes module, then come back."
-          />
-        )}
-
-        {!loading && classes.length > 0 && shownClasses.length === 0 && (
-          <p className="muted board-none">
-            {classQuery.trim() !== ''
-              ? `No class here matches “${classQuery}”.`
-              : 'No class in this programme.'}
-          </p>
-        )}
-
-        {!loading && shownClasses.map((k) => (
-          <ClassDrop
-            key={k.id}
-            klass={k}
-            seats={countOf.get(k.id) ?? 0}
-            picked={picked}
-            programName={programOf.get(k.id)?.name ?? ''}
-            alreadyIn={picked ? (classesOf.get(picked.studentId)?.has(k.id) ?? false) : false}
-            busy={busyClass === k.id}
-            disabled={busyClass !== null}
-            dragOver={dragOver === k.id}
-            onDragOver={setDragOver}
-            onEnroll={enroll}
-          />
-        ))}
-      </div>
 
       <div className="board-col">
         <div className="board-head">
@@ -526,13 +467,33 @@ export function EnrollmentBoard({
         )}
 
         {!peopleLoading && (candidates?.length ?? 0) > 0 && shownPeople.length === 0 && (
-          <p className="muted board-none">
-            {studentQuery.trim() !== ''
-              ? `No student matches “${studentQuery}”.`
-              : untagged === (candidates?.length ?? 0)
-                ? `${untagged === 1 ? 'The one application' : `All ${untagged} applications`} for this term ${untagged === 1 ? 'has' : 'have'} no programme recorded, so nothing can match this filter.`
-                : 'Nobody was admitted into this programme for this term.'}
-          </p>
+          <EmptyState
+            icon={studentQuery.trim() !== '' ? 'users' : 'slash'}
+            title={
+              studentQuery.trim() !== ''
+                ? 'No match'
+                : untagged === (candidates?.length ?? 0)
+                  ? 'No programme recorded'
+                  : 'Nobody in this programme'
+            }
+            detail={
+              studentQuery.trim() !== ''
+                ? `No student here matches “${studentQuery}”.`
+                : untagged === (candidates?.length ?? 0)
+                  ? `${untagged === 1 ? 'The one application' : `All ${untagged} applications`} for this term ${untagged === 1 ? 'has' : 'have'} no programme against ${untagged === 1 ? 'it' : 'them'}.`
+                  : 'Nobody was admitted into this programme for this term.'
+            }
+          >
+            {studentQuery.trim() !== '' ? (
+              <Button small onClick={() => setStudentQuery('')}>
+                Clear search
+              </Button>
+            ) : (
+              <Button small onClick={onClearProgram}>
+                Show all programmes
+              </Button>
+            )}
+          </EmptyState>
         )}
 
         {!peopleLoading && shownPeople.length > 0 && (
@@ -552,6 +513,98 @@ export function EnrollmentBoard({
           </>
         )}
       </div>
+
+      <div className="board-col">
+        <div className="board-head">
+          <h2>
+            Classes in {termLabel} <span className="count">{classes.length}</span>
+          </h2>
+        </div>
+
+        {classes.length > 8 && (
+          <input
+            type="text"
+            className="board-search"
+            value={classQuery}
+            placeholder="Filter classes by name, code or room…"
+            aria-label="Filter classes"
+            onChange={(e) => setClassQuery(e.target.value)}
+          />
+        )}
+
+        {!loading && classesFiltered && shownClasses.length > 0 && (
+          <p className="muted board-count">
+            {shownClasses.length} of {classes.length}
+          </p>
+        )}
+
+        {error && <Banner tone="error">{error}</Banner>}
+
+        {!loading && windowClosed && (
+          <Banner tone="warn" icon="calendar">
+            Enrolment for <strong>{termLabel}</strong> closed on {closesOn}. Anyone
+            added now is joining after the deadline.
+          </Banner>
+        )}
+
+        {!loading && pickedNotAdmitted && picked && (
+          <Banner tone="warn" icon="user">
+            <strong>{picked.name}</strong> has no application for{' '}
+            <strong>{termLabel}</strong>, so they cannot be enrolled into it.
+            Add one in the Admissions module first — a student is admitted for
+            each term they attend.
+          </Banner>
+        )}
+
+        {loading && showSpinner && <Loader label="Loading the board…" />}
+
+        {!loading && classes.length === 0 && (
+          <EmptyState
+            icon="book"
+            title="No classes in this term"
+            detail="Add some in the Classes module, then come back."
+          />
+        )}
+
+        {!loading && classes.length > 0 && shownClasses.length === 0 && (
+          <EmptyState
+            icon={classQuery.trim() !== '' ? 'book' : 'slash'}
+            title={classQuery.trim() !== '' ? 'No match' : 'Nothing in this programme'}
+            detail={
+              classQuery.trim() !== ''
+                ? `No class here matches “${classQuery}”.`
+                : 'This term runs classes, but none in the programme selected above.'
+            }
+          >
+            {classQuery.trim() !== '' ? (
+              <Button small onClick={() => setClassQuery('')}>
+                Clear search
+              </Button>
+            ) : (
+              <Button small onClick={onClearProgram}>
+                Show all programmes
+              </Button>
+            )}
+          </EmptyState>
+        )}
+
+        {!loading && shownClasses.map((k) => (
+          <ClassDrop
+            key={k.id}
+            klass={k}
+            seats={countOf.get(k.id) ?? 0}
+            picked={picked}
+            notAdmitted={pickedNotAdmitted}
+            programName={programOf.get(k.id)?.name ?? ''}
+            alreadyIn={picked ? (classesOf.get(picked.studentId)?.has(k.id) ?? false) : false}
+            busy={busyClass === k.id}
+            disabled={busyClass !== null}
+            dragOver={dragOver === k.id}
+            onDragOver={setDragOver}
+            onEnroll={enroll}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -567,6 +620,7 @@ function ClassDrop({
   klass,
   seats,
   picked,
+  notAdmitted,
   programName,
   alreadyIn,
   busy,
@@ -578,6 +632,8 @@ function ClassDrop({
   klass: RawRecord;
   seats: number;
   picked: Candidate | null;
+  /** The held student has no application for this term, so no class accepts them. */
+  notAdmitted: boolean;
   /** The department this class's course belongs to; '' when it has none. */
   programName: string;
   alreadyIn: boolean;
@@ -591,7 +647,7 @@ function ClassDrop({
   const days = strList(klass[C.meeting_days]);
   const status = classTone(str(klass[C.status]));
   const full = capacity !== null && seats >= capacity;
-  const droppable = picked !== null && !alreadyIn && !disabled;
+  const droppable = picked !== null && !alreadyIn && !notAdmitted && !disabled;
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
 
   return (
@@ -599,7 +655,7 @@ function ClassDrop({
       className={[
         'drop-card',
         dragOver && droppable ? 'drop-over' : '',
-        picked && alreadyIn ? 'drop-blocked' : '',
+        picked && (alreadyIn || notAdmitted) ? 'drop-blocked' : '',
       ].filter(Boolean).join(' ')}
       onDragOver={(e) => {
         if (!droppable) return;
@@ -644,6 +700,11 @@ function ClassDrop({
             <span className="muted cover-mark">
               <Icon name="check" size={14} />
               {picked.name} is already in this class
+            </span>
+          ) : notAdmitted ? (
+            <span className="muted cover-mark">
+              <Icon name="alert" size={14} />
+              Not admitted for this term
             </span>
           ) : (
             <Button

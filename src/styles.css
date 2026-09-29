@@ -889,7 +889,9 @@ textarea:focus-visible {
 
 .board {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  /* Students left, classes right. The class cards carry more -- schedule,
+     department, seats, status -- so the wider share follows them. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
   gap: var(--s5);
   /* stretch, not start: the columns then share the taller one's height, which
      is what lets an empty panel in each come out the same size. Lists are
@@ -1101,7 +1103,6 @@ textarea:focus-visible {
 
 .board-search { width: 100%; box-sizing: border-box; }
 .board-count { margin: 0; font-size: .8rem; }
-.board-none { margin: var(--s3) 0; }
 
 /* The windowed list. The outer box scrolls and is the height the rows would
    occupy, so the scrollbar matches the real list; only the visible rows are in
