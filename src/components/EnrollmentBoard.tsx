@@ -11,6 +11,7 @@ import {
   getEnrollmentsForClasses,
   isAlreadyEnrolled,
   int,
+  orgToday,
   refId,
   refName,
   str,
@@ -22,6 +23,7 @@ const C = ZOHO_MODULES.classes.fields;
 const E = ZOHO_MODULES.enrollments.fields;
 const A = ZOHO_MODULES.admissions.fields;
 const ST = ZOHO_MODULES.students.fields;
+const T = ZOHO_MODULES.terms.fields;
 
 /** Where the right-hand column gets its people from. */
 type Source = 'admitted' | 'active';
@@ -32,6 +34,12 @@ interface Candidate {
   name: string;
   /** Application number and stage, or the student code -- whatever names them. */
   detail: string;
+  /**
+   * The programme the application was for. Empty on the All active source,
+   * where the person is reached through the student record and there is no
+   * application to read it from -- a student belongs to no programme.
+   */
+  programId: string;
 }
 
 /**
@@ -46,22 +54,48 @@ interface Candidate {
  * exact (student, class) pair it has already been dropped on is refused.
  */
 export function EnrollmentBoard({
-  termId,
-  termLabel,
+  term,
   classes,
+  programOf,
+  programId,
 }: {
-  termId: string;
-  termLabel: string;
+  /**
+   * The whole record, not just its id: the board needs the enrolment window
+   * off it to say when someone is being added after applications closed.
+   */
+  term: RawRecord;
   classes: RawRecord[];
+  /**
+   * Class id -> its department, resolved by the page: a class names its course
+   * but not its programme, and the mapping is shared with the staffing view.
+   */
+  programOf: Map<string, { id: string; name: string }>;
+  /** The department chosen in the toolbar. Empty means all of them. */
+  programId: string;
 }) {
+  const termId = term.id;
+  const termLabel = str(term[T.name], 'this term');
   const [source, setSource] = useState<Source>('admitted');
   // Scrolling is not a way to find one student among a thousand, and there is
   // no server-side search to lean on -- the whole term is already in memory by
   // the time the board renders, so the filter is applied here.
   const [studentQuery, setStudentQuery] = useState('');
   const [classQuery, setClassQuery] = useState('');
-  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  // Three independent reads, deliberately not one call:
+  //
+  //   admissions   change with the term
+  //   enrollments  change with the term and its classes
+  //   students     change with neither -- the roll is not term-scoped at all
+  //
+  // They used to be fetched together, keyed on all three dependencies at once,
+  // so flipping Admitted/All active re-read the enrolments of every class --
+  // the most expensive request on the screen, and nothing to do with which
+  // list of people is showing.
+  const [admissions, setAdmissions] = useState<RawRecord[] | null>(null);
   const [enrollments, setEnrollments] = useState<RawRecord[] | null>(null);
+  // Stays null until the roll is actually asked for: most visits never leave
+  // Admitted, and this is the one read that never needs repeating.
+  const [students, setStudents] = useState<RawRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The keyboard path: a card is "picked up" by activating it, then a class is
@@ -77,54 +111,98 @@ export function EnrollmentBoard({
   // deserve a toast: it is a state the page already shows.
   const [announcement, setAnnouncement] = useState('');
 
-  const loading = candidates === null || enrollments === null;
+  // Derived, not fetched. Switching source is now instant -- except the very
+  // first time the roll is shown, which is the only case that needs a request.
+  const candidates = useMemo((): Candidate[] | null => {
+    if (source === 'admitted') {
+      if (admissions === null) return null;
+      return admissions
+        .map((r): Candidate => ({
+          studentId: refId(r[A.student]) ?? '',
+          name: refName(r[A.student]),
+          detail: [str(r[A.application_no]), str(r[A.stage])].filter(Boolean).join(' · '),
+          programId: refId(r[A.program]) ?? '',
+        }))
+        .filter((c) => c.studentId);
+    }
+    if (students === null) return null;
+    return students.map((r): Candidate => ({
+      studentId: r.id,
+      name: str(r[ST.full_name], r.id),
+      detail: str(r[ST.student_code], '—'),
+      programId: '',
+    }));
+  }, [source, admissions, students]);
+
+  // Who has an application for this term, needed by the warnings whichever
+  // list is on screen.
+  const admittedIds = useMemo(
+    () =>
+      admissions === null
+        ? null
+        : new Set(
+            admissions.map((r) => refId(r[A.student])).filter((id): id is string => Boolean(id)),
+          ),
+    [admissions],
+  );
+
+  // The two columns settle independently, so they say so independently.
+  const loading = enrollments === null;
+  const peopleLoading = candidates === null;
   const showSpinner = useDelayed(loading);
+  const showPeopleSpinner = useDelayed(peopleLoading);
 
   // Depended on instead of `classes` itself. The prop is a fresh array on
   // every parent render, so an effect keyed on it would refetch forever --
   // the same loop the staffing view's memoised callback exists to avoid.
   const classKey = classes.map((k) => k.id).join(',');
 
+  // Applications for this term.
   useEffect(() => {
     let cancelled = false;
-    setCandidates(null);
-    setEnrollments(null);
+    setAdmissions(null);
     setError(null);
-    setPicked(null);
-
-    const people =
-      source === 'admitted'
-        ? getAdmissionsForTerm(termId).then((recs) =>
-            recs.map((r): Candidate => ({
-              studentId: refId(r[A.student]) ?? '',
-              name: refName(r[A.student]),
-              detail: [str(r[A.application_no]), str(r[A.stage])].filter(Boolean).join(' · '),
-            })),
-          )
-        : getActiveStudents().then((recs) =>
-            recs.map((r): Candidate => ({
-              studentId: r.id,
-              name: str(r[ST.full_name], r.id),
-              detail: str(r[ST.student_code], '—'),
-            })),
-          );
-
-    Promise.all([people, getEnrollmentsForClasses(classes.map((k) => k.id))])
-      .then(([who, enrolled]) => {
-        if (cancelled) return;
-        setCandidates(who.filter((c) => c.studentId));
-        setEnrollments(enrolled);
-      })
+    getAdmissionsForTerm(termId)
+      .then((recs) => { if (!cancelled) setAdmissions(recs); })
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(describeError(err));
-        setCandidates([]);
+        setAdmissions([]);
+      });
+    return () => { cancelled = true; };
+  }, [termId]);
+
+  // Seat counts and who is already placed. One request per class, so this is
+  // keyed as narrowly as it can be.
+  useEffect(() => {
+    let cancelled = false;
+    setEnrollments(null);
+    setPicked(null);
+    getEnrollmentsForClasses(classes.map((k) => k.id))
+      .then((recs) => { if (!cancelled) setEnrollments(recs); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(describeError(err));
         setEnrollments([]);
       });
-
     return () => { cancelled = true; };
     // classKey stands in for classes here, compared by value not identity.
-  }, [termId, source, classKey]);
+  }, [termId, classKey]);
+
+  // The roll, read at most once per mount. It carries no term, so neither
+  // changing term nor toggling back and forth is a reason to read it again.
+  useEffect(() => {
+    if (source !== 'active' || students !== null) return;
+    let cancelled = false;
+    getActiveStudents()
+      .then((recs) => { if (!cancelled) setStudents(recs); })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(describeError(err));
+        setStudents([]);
+      });
+    return () => { cancelled = true; };
+  }, [source, students]);
 
   // Which classes each student is already in, and how full each class is.
   // Both come off the one term-wide fetch rather than a query per class --
@@ -149,19 +227,56 @@ export function EnrollmentBoard({
 
   const shownClasses = useMemo(() => {
     const q = classQuery.trim().toLowerCase();
-    if (!q) return classes;
-    return classes.filter((k) =>
-      `${str(k[C.name])} ${str(k[C.class_code])} ${str(k[C.room])}`.toLowerCase().includes(q),
-    );
-  }, [classes, classQuery]);
+    return classes.filter((k) => {
+      if (programId && programOf.get(k.id)?.id !== programId) return false;
+      if (!q) return true;
+      return `${str(k[C.name])} ${str(k[C.class_code])} ${str(k[C.room])}`
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [classes, classQuery, programId, programOf]);
 
+  const classesFiltered = shownClasses.length !== classes.length;
+
+  // The programme narrows the intake as well as the classes: an application
+  // is made *for* a programme in a term, so "who did we admit into Science"
+  // is a real question. It cannot narrow the All active source -- those people
+  // are reached through the student record, which carries no programme.
   const shownPeople = useMemo(() => {
     const q = studentQuery.trim().toLowerCase();
-    if (!q) return candidates ?? [];
-    return (candidates ?? []).filter((c) =>
-      `${c.name} ${c.detail}`.toLowerCase().includes(q),
-    );
-  }, [candidates, studentQuery]);
+    return (candidates ?? []).filter((c) => {
+      if (programId && source === 'admitted' && c.programId !== programId) return false;
+      if (!q) return true;
+      return `${c.name} ${c.detail}`.toLowerCase().includes(q);
+    });
+  }, [candidates, studentQuery, programId, source]);
+
+  const peopleNarrowed = shownPeople.length !== (candidates?.length ?? 0);
+
+  // Applications with the programme field left blank. They cannot match any
+  // programme filter, so an empty result has two quite different causes --
+  // "nobody applied for this department" and "nobody recorded a department" --
+  // and saying the first when the second is true sends you looking for the
+  // wrong problem.
+  const untagged = useMemo(
+    () => (candidates ?? []).filter((c) => !c.programId).length,
+    [candidates],
+  );
+  const filteringByProgram = programId !== '' && source === 'admitted';
+
+  // Applications for this term shut before it began. Placing someone now is
+  // legitimate -- a pupil transferring in mid-term, say -- but it is worth
+  // saying out loud, because the date is on the term record and nothing else
+  // in the app ever reads it.
+  const closesOn = str(term[T.enrollment_closes]);
+  const windowClosed = closesOn !== '' && closesOn < orgToday();
+
+  // Held student has no application for this term. Normal for a continuing
+  // pupil -- they do not reapply each term -- so this warns rather than
+  // blocks. It can only fire on the All active source; every candidate on the
+  // Admitted source is by definition admitted here.
+  const pickedNotAdmitted =
+    picked !== null && admittedIds !== null && !admittedIds.has(picked.studentId);
 
   const enroll = useCallback(
     async (klass: RawRecord, who: Candidate) => {
@@ -256,14 +371,12 @@ export function EnrollmentBoard({
         <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
       )}
 
+
       <div className="board-col">
         <div className="board-head">
           <h2>
             Classes in {termLabel} <span className="count">{classes.length}</span>
           </h2>
-          <span className="muted">
-            {picked ? `Choose a class for ${picked.name}` : 'Drag a student onto a class'}
-          </span>
         </div>
 
         {classes.length > 8 && (
@@ -277,19 +390,46 @@ export function EnrollmentBoard({
           />
         )}
 
+        {!loading && classesFiltered && shownClasses.length > 0 && (
+          <p className="muted board-count">
+            {shownClasses.length} of {classes.length}
+          </p>
+        )}
+
         {error && <Banner tone="error">{error}</Banner>}
+
+        {!loading && windowClosed && (
+          <Banner tone="warn" icon="calendar">
+            Enrolment for <strong>{termLabel}</strong> closed on {closesOn}. Anyone
+            added now is joining after the deadline.
+          </Banner>
+        )}
+
+        {!loading && pickedNotAdmitted && picked && (
+          <Banner tone="warn" icon="user">
+            <strong>{picked.name}</strong> has no application for{' '}
+            <strong>{termLabel}</strong>. That is expected for a continuing pupil
+            being timetabled into a new term — but if you meant to pick someone
+            from this term's intake, switch the list to Admitted.
+          </Banner>
+        )}
+
         {loading && showSpinner && <Loader label="Loading the board…" />}
 
         {!loading && classes.length === 0 && (
           <EmptyState
             icon="book"
             title="No classes in this term"
-            detail="There is nothing to enrol into yet. Add classes in the Classes module first."
+            detail="Add some in the Classes module, then come back."
           />
         )}
 
         {!loading && classes.length > 0 && shownClasses.length === 0 && (
-          <p className="muted board-none">No class matches “{classQuery}”.</p>
+          <p className="muted board-none">
+            {classQuery.trim() !== ''
+              ? `No class here matches “${classQuery}”.`
+              : 'No class in this programme.'}
+          </p>
         )}
 
         {!loading && shownClasses.map((k) => (
@@ -298,6 +438,7 @@ export function EnrollmentBoard({
             klass={k}
             seats={countOf.get(k.id) ?? 0}
             picked={picked}
+            programName={programOf.get(k.id)?.name ?? ''}
             alreadyIn={picked ? (classesOf.get(picked.studentId)?.has(k.id) ?? false) : false}
             busy={busyClass === k.id}
             disabled={busyClass !== null}
@@ -312,20 +453,24 @@ export function EnrollmentBoard({
         <div className="board-head">
           <h2>
             Students{' '}
-            <span className="count">{candidates?.length ?? 0}</span>
+            <span className="count">
+              {peopleNarrowed
+                ? `${shownPeople.length} of ${candidates?.length ?? 0}`
+                : (candidates?.length ?? 0)}
+            </span>
           </h2>
           <div className="seg">
             <Button
               className={source === 'admitted' ? 'is-on' : undefined}
               aria-pressed={source === 'admitted'}
-              onClick={() => setSource('admitted')}
+              onClick={() => { setSource('admitted'); setPicked(null); }}
             >
               Admitted
             </Button>
             <Button
               className={source === 'active' ? 'is-on' : undefined}
               aria-pressed={source === 'active'}
-              onClick={() => setSource('active')}
+              onClick={() => { setSource('active'); setPicked(null); }}
             >
               All active
             </Button>
@@ -343,31 +488,55 @@ export function EnrollmentBoard({
           />
         )}
 
-        {loading && showSpinner && <Loader label="Loading students…" />}
+        {!peopleLoading && filteringByProgram && untagged > 0 && shownPeople.length > 0 && (
+          <p className="muted board-count">
+            {untagged} application{untagged === 1 ? '' : 's'} with no programme
+            recorded {untagged === 1 ? 'is' : 'are'} not shown.
+          </p>
+        )}
 
-        {!loading && candidates?.length === 0 && (
+        {!peopleLoading && programId && source === 'active' && (
+          <p className="muted board-count">
+            Showing the whole roll — a programme is recorded on an application,
+            so it cannot narrow this list.
+          </p>
+        )}
+
+        {peopleLoading && showPeopleSpinner && <Loader label="Loading students…" />}
+
+        {!peopleLoading && candidates?.length === 0 && (
           <EmptyState
             icon="users"
             title={source === 'admitted' ? 'Nobody admitted for this term' : 'No active students'}
             detail={
               source === 'admitted'
-                ? 'An application has nobody to place until it is accepted and a student record exists. Switch to All active for students who did not come through the pipeline.'
-                : 'Add students in the Students module, or admit them through Admissions.'
+                ? 'Applications land here once accepted, with a student record behind them.'
+                : 'Add them in the Students module, or admit them through Admissions.'
             }
-          />
-        )}
-
-        {!loading && (candidates?.length ?? 0) > 0 && shownPeople.length === 0 && (
-          <p className="muted board-none">No student matches “{studentQuery}”.</p>
-        )}
-
-        {!loading && shownPeople.length > 0 && (
-          <>
-            {studentQuery.trim() !== '' && (
-              <p className="muted board-count">
-                {shownPeople.length} of {candidates?.length ?? 0}
-              </p>
+          >
+            {/* The prose used to tell you to switch lists. Better to offer it:
+                an existing pupil not in this term's intake is the commonest
+                reason for this panel to be showing at all. */}
+            {source === 'admitted' && (
+              <Button small onClick={() => { setSource('active'); setPicked(null); }}>
+                Show all students
+              </Button>
             )}
+          </EmptyState>
+        )}
+
+        {!peopleLoading && (candidates?.length ?? 0) > 0 && shownPeople.length === 0 && (
+          <p className="muted board-none">
+            {studentQuery.trim() !== ''
+              ? `No student matches “${studentQuery}”.`
+              : untagged === (candidates?.length ?? 0)
+                ? `${untagged === 1 ? 'The one application' : `All ${untagged} applications`} for this term ${untagged === 1 ? 'has' : 'have'} no programme recorded, so nothing can match this filter.`
+                : 'Nobody was admitted into this programme for this term.'}
+          </p>
+        )}
+
+        {!peopleLoading && shownPeople.length > 0 && (
+          <>
             <StudentList
               people={shownPeople}
               classesOf={classesOf}
@@ -398,6 +567,7 @@ function ClassDrop({
   klass,
   seats,
   picked,
+  programName,
   alreadyIn,
   busy,
   disabled,
@@ -408,6 +578,8 @@ function ClassDrop({
   klass: RawRecord;
   seats: number;
   picked: Candidate | null;
+  /** The department this class's course belongs to; '' when it has none. */
+  programName: string;
   alreadyIn: boolean;
   busy: boolean;
   disabled: boolean;
@@ -451,6 +623,7 @@ function ClassDrop({
             {time && <> · {time}</>}
             {str(klass[C.room]) && <> · {str(klass[C.room])}</>}
           </div>
+          {programName && <div className="cell-sub faint">{programName}</div>}
         </div>
       </div>
 

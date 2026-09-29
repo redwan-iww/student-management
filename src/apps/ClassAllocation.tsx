@@ -15,6 +15,7 @@ import {
   getActiveTerms,
   getAllocationsForClass,
   getClassesForTerm,
+  getCourses,
   getSessionsForClass,
   getTeachers,
   int,
@@ -32,6 +33,7 @@ const T = ZOHO_MODULES.terms.fields;
 const TE = ZOHO_MODULES.teachers.fields;
 const AL = ZOHO_MODULES.allocations.fields;
 const S = ZOHO_MODULES.class_sessions.fields;
+const CO = ZOHO_MODULES.courses.fields;
 
 /**
  * What one allocation covers.
@@ -57,6 +59,13 @@ export function ClassAllocation() {
   const [termId, setTermId] = useState<string>("");
   const [classes, setClasses] = useState<RawRecord[] | null>(null);
   const [teachers, setTeachers] = useState<RawRecord[]>([]);
+  // The course catalogue, read once: it is how a class reaches its programme,
+  // and it does not change when the term does.
+  const [courses, setCourses] = useState<RawRecord[]>([]);
+  // Which department's classes to show. Empty means all of them. Lives here
+  // rather than in the board because it sits beside the term picker and
+  // narrows both views.
+  const [programId, setProgramId] = useState('');
   const [selectedClass, setSelectedClass] = useState<RawRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Active allocation count per class. The list showed only Primary_Teacher,
@@ -69,11 +78,12 @@ export function ClassAllocation() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getActiveTerms(), getTeachers()])
-      .then(([ts, teach]) => {
+    Promise.all([getActiveTerms(), getTeachers(), getCourses()])
+      .then(([ts, teach, cat]) => {
         if (cancelled) return;
         setTerms(ts);
         setTeachers(teach);
+        setCourses(cat);
         if (ts[0]) setTermId(ts[0].id);
       })
       .catch((err: unknown) => {
@@ -123,7 +133,10 @@ export function ClassAllocation() {
   const showClassSpinner = useDelayed(loadingClasses);
   const showTermsSpinner = useDelayed(terms === null);
 
-  const [view, setView] = useState<View>('staffing');
+  // Opens on students, not teachers: placing an intake is the bulk of the work
+  // and the part done under time pressure, while staffing a class is a handful
+  // of decisions made once a term.
+  const [view, setView] = useState<View>('enrollment');
 
   const selectedId = selectedClass?.id ?? null;
   // Stable identity, and a no-op when the count has not moved. ClassStaffing's
@@ -140,6 +153,51 @@ export function ClassAllocation() {
       );
     },
     [selectedId],
+  );
+
+  // NB: above the early returns below. These are hooks, and the guards that
+  // follow return before the render on the first pass -- leaving them down
+  // there means the hook count changes between renders, which React treats
+  // as a torn component and unmounts. That is what blanked the tab.
+  // Class -> programme, walked through the course: a class names its course
+  // but not its department, and COQL cannot join those two hops. A class whose
+  // course is missing from the catalogue keeps no programme rather than
+  // disappearing -- it still has to be staffable.
+  const { programOf, programs } = useMemo(() => {
+    const programByCourse = new Map<string, { id: string; name: string }>();
+    for (const course of courses) {
+      const id = refId(course[CO.program]);
+      const name = refName(course[CO.program]);
+      if (id && name) programByCourse.set(course.id, { id, name });
+    }
+
+    const programOf = new Map<string, { id: string; name: string }>();
+    const seen = new Map<string, string>();
+    for (const k of classes ?? []) {
+      const courseId = refId(k[C.course]);
+      const program = courseId ? programByCourse.get(courseId) : undefined;
+      if (program) {
+        programOf.set(k.id, program);
+        seen.set(program.id, program.name);
+      }
+    }
+
+    return {
+      programOf,
+      programs: [...seen.entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }, [classes, courses]);
+
+  // Applied to the staffing table here and inside the board, so the one
+  // picker narrows whichever view is open.
+  const shownClasses = useMemo(
+    () =>
+      programId
+        ? (classes ?? []).filter((k) => programOf.get(k.id)?.id === programId)
+        : (classes ?? []),
+    [classes, programId, programOf],
   );
 
   if (error) return <Banner tone="error">{error}</Banner>;
@@ -184,6 +242,8 @@ export function ClassAllocation() {
     );
   }
 
+  const selectedTerm = terms.find((t) => t.id === termId);
+
   return (
     <section>
       <div className="toolbar toolbar-page">
@@ -197,6 +257,23 @@ export function ClassAllocation() {
             ))}
           </select>
         </label>
+
+        {/* Beside the term, because the two answer the same question: which
+            slice of the timetable am I looking at. Hidden when the term's
+            classes all sit in one department and there is nothing to choose. */}
+        {programs.length > 1 && (
+          <label>
+            <span className="bulk-label">Programme</span>
+            <select value={programId} onChange={(e) => setProgramId(e.target.value)}>
+              <option value="">All programmes</option>
+              {programs.map((pr) => (
+                <option key={pr.id} value={pr.id}>
+                  {pr.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="seg">
           <Button
@@ -222,14 +299,15 @@ export function ClassAllocation() {
           waits for the same load the staffing table does -- handing it an
           empty array early would render "no classes" over a term that has
           plenty. */}
-      {view === 'enrollment' && (
+      {view === 'enrollment' && selectedTerm && (
         classes === null ? (
           showClassSpinner ? <Loader label="Loading classes…" /> : null
         ) : (
           <EnrollmentBoard
-            termId={termId}
-            termLabel={str(terms.find((t) => t.id === termId)?.[T.name], 'this term')}
+            term={selectedTerm}
             classes={classes}
+            programOf={programOf}
+            programId={programId}
           />
         )
       )}
@@ -251,7 +329,16 @@ export function ClassAllocation() {
         />
       )}
 
-      {classes && classes.length > 0 && (
+      {classes && classes.length > 0 && shownClasses.length === 0 && (
+        <EmptyState
+          icon="book"
+          title="No classes in this programme"
+          detail="This term runs classes, but none of them belong to the programme selected above."
+          className={loadingClasses ? 'stale' : undefined}
+        />
+      )}
+
+      {shownClasses.length > 0 && (
         <Card>
         <table className={loadingClasses ? 'stale' : undefined}>
           <thead>
@@ -266,7 +353,7 @@ export function ClassAllocation() {
             </tr>
           </thead>
           <tbody>
-            {classes.map((k) => {
+            {shownClasses.map((k) => {
               const primary = refName(k[C.primary_teacher]);
               const staff = staffCount.get(k.id);
               const status = classTone(str(k[C.status]));
@@ -280,6 +367,7 @@ export function ClassAllocation() {
                         <div className="cell-sub">
                           {str(k[C.class_code], "—")}
                           {str(k[C.section_label]) && <> · Section {str(k[C.section_label])}</>}
+                          {programOf.get(k.id) && <> · {programOf.get(k.id)?.name}</>}
                         </div>
                       </div>
                     </div>

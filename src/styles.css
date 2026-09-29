@@ -372,7 +372,6 @@ tr.ended td { opacity: .55; }
 .btn-link:hover { text-decoration: none; }
 
 .btn-sm { padding: 4px 9px; font-size: .82rem; }
-.btn-icon { padding: 7px; }
 
 /* One visible focus treatment for everything focusable. The old stylesheet
    defined none at all and leaned on the UA ring, which is close to invisible
@@ -550,13 +549,6 @@ select:hover, input:hover { border-color: var(--muted); }
    Register: sheet header and footer
    ========================================================================== */
 
-.sheet-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s3);
-  justify-content: space-between;
-  align-items: flex-start;
-}
 .bulk { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .bulk-label {
   font-size: .72rem;
@@ -697,26 +689,61 @@ select:hover, input:hover { border-color: var(--muted); }
    ========================================================================== */
 
 .empty {
-  max-width: 34rem;
+  /* width must be definite. `margin: 0 auto` on a flex item beats the
+     container's stretch, so without this the panel collapses to fit-content
+     and two of them side by side come out different widths, neither matching
+     its column. */
+  width: 100%;
+  max-width: 40rem;
+  box-sizing: border-box;
+  /* So a one-line message is not a stunted card beside a fuller one. */
+  min-height: 12rem;
   margin: 0 auto;
-  padding: var(--s6) var(--s4);
+  padding: var(--s6) var(--s5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* Already sitting inside a card -- the register's cancelled and no-roster
+   panels do -- so it must not draw a second one inside the first. */
+.card .empty {
+  max-width: none;
+  min-height: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .empty-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--faint);
   margin-bottom: var(--s3);
 }
 
-.empty h2 { font-size: 1.1rem; margin: 0 0 var(--s1); }
-.empty > .muted { margin: 0 0 var(--s5); line-height: 1.6; }
+.empty h2 { font-size: 1rem; margin: 0 0 var(--s1); }
+
+/* Centred text stops being readable past a couple of short lines, so the
+   measure is capped well inside the panel rather than at its edge. */
+.empty > .muted {
+  max-width: 24rem;
+  margin: 0 auto var(--s4);
+  font-size: .88rem;
+  line-height: 1.55;
+}
 
 .empty-nav {
   display: flex;
@@ -727,7 +754,7 @@ select:hover, input:hover { border-color: var(--muted); }
 
 /* The generator sits inside the centred block, so pull its own text back to
    the left where prose belongs. */
-.empty .card { text-align: left; margin-top: var(--s5); }
+.empty .card { width: 100%; box-sizing: border-box; text-align: left; margin-top: var(--s5); }
 .empty .card-prose { max-width: none; }
 .empty .generated { justify-content: center; margin-top: var(--s5); }
 .empty .btn-link { margin-top: var(--s5); }
@@ -762,10 +789,6 @@ select:hover, input:hover { border-color: var(--muted); }
   gap: var(--s2);
   font-size: .86rem;
 }
-
-/* A toolbar of stacked label+control pairs (the staffing form). The controls
-   are what should line up, not the tops of the labels. */
-.toolbar-fields { align-items: flex-end; }
 
 /* ==========================================================================
    Occupancy meter
@@ -868,14 +891,21 @@ textarea:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: var(--s5);
-  align-items: start;
+  /* stretch, not start: the columns then share the taller one's height, which
+     is what lets an empty panel in each come out the same size. Lists are
+     unaffected -- their cards size to their own content either way. */
+  align-items: stretch;
 }
 @media (max-width: 62rem) {
   .board { grid-template-columns: minmax(0, 1fr); }
 }
 
 .board-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.board-col > .empty { flex: 1; }
 
+/* Each heading gets a rule that stops at its own column's edge. Without one
+   the two of them sit on a single line with a wide gap between, reading as one
+   banner across the board rather than as a heading over each column. */
 .board-head {
   display: flex;
   flex-wrap: wrap;
@@ -883,9 +913,16 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: var(--s3);
   min-height: 38px;
-  margin-bottom: var(--s1);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-strong);
 }
-.board-head h2 { margin: 0; }
+/* A structural label for the column beneath, not a page title. */
+.board-head h2 {
+  margin: 0;
+  font-size: .95rem;
+  font-weight: 620;
+}
 
 /* Visible only to a screen reader: the live region that says what a drop did.
    Not `display: none`, which would stop it being announced at all. */

@@ -796,6 +796,21 @@ export async function isAlreadyEnrolled(classId: string, studentId: string): Pro
   return existing.some((r) => refId(r[fields.student]) === studentId);
 }
 
+/**
+ * The whole active course catalogue.
+ *
+ * One request, not one per class. A class names its course but not its
+ * programme -- the programme hangs off the course, and COQL cannot join two
+ * hops, which is the same wall `enrollments.course`/`term` were denormalized
+ * to get around. Rather than read each course by id, this reads the catalogue
+ * whole: it is a small, slow-moving table, and a term's classes point at a
+ * handful of its rows.
+ */
+export async function getCourses(): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.courses;
+  return search(module, `(${fields.status}:equals:Active)`);
+}
+
 /** Zoho's per-call ceiling for a bulk create. */
 export const BULK_LIMIT = 100;
 
