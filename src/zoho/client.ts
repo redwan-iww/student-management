@@ -763,8 +763,8 @@ export interface NewEnrollment {
  * (getEnrollmentsForClass) -- a Pending row would leave the student invisible
  * to the teacher who has to mark them present.
  */
-export async function createEnrollment(e: NewEnrollment): Promise<string> {
-  const { module, fields } = ZOHO_MODULES.enrollments;
+function enrollmentPayload(e: NewEnrollment): Record<string, unknown> {
+  const { fields } = ZOHO_MODULES.enrollments;
   const payload: Record<string, unknown> = {
     // Mandatory on every custom module in this model, join-like ones included.
     [fields.name]: `${e.studentLabel} - ${e.classLabel}`,
@@ -775,9 +775,73 @@ export async function createEnrollment(e: NewEnrollment): Promise<string> {
   };
   if (e.courseId) payload[fields.course] = { id: e.courseId };
   if (e.termId) payload[fields.term] = { id: e.termId };
+  return payload;
+}
 
-  const res = await zoho().CRM.API.insertRecord({ Entity: module, APIData: payload, Trigger: [] });
+export async function createEnrollment(e: NewEnrollment): Promise<string> {
+  const { module } = ZOHO_MODULES.enrollments;
+  const res = await zoho().CRM.API.insertRecord({
+    Entity: module,
+    APIData: enrollmentPayload(e),
+    Trigger: [],
+  });
   return assertWrote(res, 'enrollment');
+}
+
+/** One student's outcome in a bulk enrolment. */
+export interface EnrollmentFailure {
+  studentLabel: string;
+  reason: string;
+}
+
+/**
+ * Enrols many students in one class, in a single request.
+ *
+ * `insertRecord` takes an array as well as a single record, so 40 placements
+ * cost one round trip rather than 40. The response carries **one status row
+ * per record**, so every row is checked -- reading only `data[0]` would report
+ * a wholly failed batch as a success whenever its first row happened to land.
+ *
+ * Partial success is the normal outcome and is reported rather than thrown:
+ * one rejected row should not discard the thirty-nine that went in.
+ */
+export async function createEnrollmentBatch(
+  rows: NewEnrollment[],
+): Promise<{ ok: { row: NewEnrollment; id: string }[]; failed: EnrollmentFailure[] }> {
+  if (rows.length === 0) return { ok: [], failed: [] };
+  if (rows.length > BULK_LIMIT) {
+    throw new Error(`batch of ${rows.length} exceeds Zoho's limit of ${BULK_LIMIT}`);
+  }
+
+  const { module } = ZOHO_MODULES.enrollments;
+  const res = await zoho().CRM.API.insertRecord({
+    Entity: module,
+    APIData: rows.map(enrollmentPayload),
+    Trigger: [],
+  });
+
+  const statuses = (res.data ?? []) as Array<{
+    code?: string;
+    message?: string;
+    details?: { id?: string };
+  }>;
+
+  const ok: { row: NewEnrollment; id: string }[] = [];
+  const failed: EnrollmentFailure[] = [];
+  rows.forEach((row, i) => {
+    const status = statuses[i];
+    // The id comes back per row, and the caller needs it: a placement it
+    // cannot address is one it cannot undo until the next full read.
+    if (status?.code === 'SUCCESS' && status.details?.id) {
+      ok.push({ row, id: status.details.id });
+    } else {
+      failed.push({
+        studentLabel: row.studentLabel,
+        reason: status?.code ? `${status.code}: ${status.message ?? 'rejected'}` : 'no response row',
+      });
+    }
+  });
+  return { ok, failed };
 }
 
 /**
@@ -809,6 +873,46 @@ export async function isAlreadyEnrolled(classId: string, studentId: string): Pro
 export async function getCourses(): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.courses;
   return search(module, `(${fields.status}:equals:Active)`);
+}
+
+/**
+ * Removes an enrolment outright.
+ *
+ * Deleted, not marked `Dropped`. A Dropped row still occupies the
+ * (student, class) pair that `isAlreadyEnrolled` guards, so the student could
+ * never be put back into the class they had just been wrongly taken out of.
+ * `Dropped` is for a student who genuinely left partway through; this is for a
+ * placement that should never have existed.
+ */
+export async function deleteEnrollment(enrollmentId: string): Promise<void> {
+  const { module } = ZOHO_MODULES.enrollments;
+  const res = await zoho().CRM.API.deleteRecord({ Entity: module, RecordID: enrollmentId });
+  assertWrote(res, 'enrollment delete');
+}
+
+/**
+ * Attendance marks per enrolment, for one class.
+ *
+ * `attendance.class` is denormalized off the enrolment precisely so this is one
+ * query instead of one per student -- the same two-hop limit that shaped
+ * `enrollments.course`/`term`.
+ *
+ * Read through the relationship rather than the search index: this backs a
+ * guard against deleting a register, and a guard that cannot see marks written
+ * a minute ago would wave through exactly the deletion it exists to stop.
+ */
+export async function getAttendanceCountsForClass(classId: string): Promise<Map<string, number>> {
+  const { module, fields } = ZOHO_MODULES.attendance;
+  const recs =
+    (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
+    (await search(module, `(${fields.class}:equals:${classId})`));
+
+  const counts = new Map<string, number>();
+  for (const rec of recs) {
+    const id = refId(rec[fields.enrollment]);
+    if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /** Zoho's per-call ceiling for a bulk create. */

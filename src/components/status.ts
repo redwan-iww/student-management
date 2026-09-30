@@ -81,3 +81,23 @@ export function classTone(status: string): Status {
 export function shortDays(days: readonly string[]): string {
   return days.map((d) => d.slice(0, 3)).join(', ');
 }
+
+/**
+ * Morning, afternoon or evening, from a class's start time.
+ *
+ * Derived rather than stored. A section letter says only that two classes of a
+ * course differ, not how -- reading "-A" and "-B" means reading the times to
+ * work out which one meets after work. The times are already there, so the
+ * label follows from them and cannot drift out of step the way a hand-entered
+ * one would.
+ *
+ * Returns '' for a class with no start time, which the generator also treats
+ * as unschedulable.
+ */
+export function shiftOf(startTime: string): '' | 'Morning' | 'Afternoon' | 'Evening' {
+  if (!/^\d{1,2}:\d{2}$/.test(startTime)) return '';
+  const padded = startTime.padStart(5, '0');
+  if (padded < '12:00') return 'Morning';
+  if (padded < '17:00') return 'Afternoon';
+  return 'Evening';
+}

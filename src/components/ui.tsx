@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 // Presentational primitives.
@@ -336,6 +337,80 @@ export function Toast({
       <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
         <Icon name="close" size={14} />
       </button>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Drawer                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A panel over the page, for detail that would bury the list it came from.
+ *
+ * The app had no overlay of any kind before this -- master/detail was a full
+ * view swap with a back button. That is right when the detail *replaces* the
+ * task; it is wrong here, because the point of opening a class is to glance at
+ * it and carry on placing students behind it.
+ *
+ * Escape closes, so does the scrim. Focus moves to the panel on open and the
+ * page behind it stops scrolling, which is the least a dialog owes a keyboard
+ * or screen-reader user.
+ */
+export function Drawer({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onClose]);
+
+  // Without this the focus ring stays on the card behind the scrim, and a
+  // screen reader goes on reading the list rather than the panel.
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+
+  return (
+    <div className="drawer-scrim" onClick={onClose}>
+      <div
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        ref={panel}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer-head">
+          <div className="drawer-head-text">
+            <h2>{title}</h2>
+            {subtitle && <p className="muted">{subtitle}</p>}
+          </div>
+          <Button variant="ghost" small onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </Button>
+        </header>
+        <div className="drawer-body">{children}</div>
+      </div>
     </div>
   );
 }

@@ -84,7 +84,7 @@ export function ClassAllocation() {
         setTerms(ts);
         setTeachers(teach);
         setCourses(cat);
-        if (ts[0]) setTermId(ts[0].id);
+        if (ts.length > 0) setTermId(currentTerm(ts));
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -485,6 +485,31 @@ function Occupancy({ enrolled, capacity }: { enrolled: number | null; capacity: 
       </span>
     </div>
   );
+}
+
+/**
+ * The term to open on: the one running today.
+ *
+ * Was simply the first in the list, which is sorted by start date -- right
+ * only by coincidence, and wrong the moment a past term sorts ahead of the
+ * live one. Falls back to the next term due to start, then to the last, so
+ * there is always a selection even between terms or after the last has ended.
+ *
+ * Compared in the school's timezone, not the browser's -- see ORG_TIME_ZONE.
+ */
+function currentTerm(terms: RawRecord[]): string {
+  const today = orgToday();
+  const running = terms.find(
+    (t) => str(t[T.start_date]) <= today && today <= str(t[T.end_date]),
+  );
+  if (running) return running.id;
+
+  // terms arrive sorted by start date, so the first still ahead of today is
+  // the next one due
+  const next = terms.find((t) => str(t[T.start_date]) > today);
+  if (next) return next.id;
+
+  return terms[terms.length - 1]?.id ?? '';
 }
 
 function pickRef(teachers: RawRecord[], id: string | null) {

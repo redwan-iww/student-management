@@ -83,11 +83,14 @@ body {
   background: var(--bg);
 }
 
-/* The widget is iframed by CRM at whatever width the tab gives it. Cap the
-   measure so a wide monitor does not stretch a six-column table across 2000px,
-   but stay fluid below that. */
+/* The widget is iframed by CRM at whatever width the tab gives it. The cap
+   used to be 78rem, from when these screens were tables and a long row was
+   hard to track across. They are boards of cards now, and width buys visible
+   cards -- on a 2300px monitor the old cap left the work crammed into the
+   middle third. The ceiling that remains is only to stop text lines running
+   absurdly long on an ultrawide. */
 .page {
-  max-width: 78rem;
+  max-width: 120rem;
   margin: 0 auto;
   padding: var(--s5) var(--s4) var(--s6);
 }
@@ -488,8 +491,25 @@ select:hover, input:hover { border-color: var(--muted); }
   white-space: nowrap;
   transition: background .12s ease, color .12s ease;
 }
-.seg-choices label:not(.unavailable):hover > span { background: var(--surface); color: var(--fg); }
+/* Hover applies to the *unchecked* options only.
+//
+   This rule used to be `label:hover > span`, which outranked the checked rule
+   below it on specificity -- so hovering the selected option stripped its fill
+   and it read as unselected. Scoping it to `input:not(:checked)` leaves the
+   selected pill alone.
+
+   The fill is --surface-3 with a ring, not --surface: an unchecked option sits
+   directly on the row, and white-on-white was invisible on an unhovered row
+   and near enough on a hovered one. */
+.seg-choices label:not(.unavailable):hover input:not(:checked) + span {
+  background: var(--surface-3);
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
 .seg-choices input:checked + span { background: var(--ink); color: #fff; font-weight: 560; }
+/* The selected pill still answers the pointer, just without losing itself. */
+.seg-choices label:hover input:checked + span { background: var(--ink-hover); }
 
 /* A choice that exists but cannot be picked here -- an observation status on a
    lesson that has not happened yet. This rule was referenced in the markup for
@@ -889,9 +909,10 @@ textarea:focus-visible {
 
 .board {
   display: grid;
-  /* Students left, classes right. The class cards carry more -- schedule,
-     department, seats, status -- so the wider share follows them. */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  /* Students left, classes right. The student column is bounded: a name and a
+     code need about 20rem and no more, so past that every extra pixel should
+     go to the class grid, which turns width into another column of cards. */
+  grid-template-columns: minmax(16rem, 24rem) minmax(0, 1fr);
   gap: var(--s5);
   /* stretch, not start: the columns then share the taller one's height, which
      is what lets an empty panel in each come out the same size. Lists are
@@ -910,7 +931,10 @@ textarea:focus-visible {
    banner across the board rather than as a heading over each column. */
 .board-head {
   display: flex;
-  flex-wrap: wrap;
+  /* One line. The student column is capped at 24rem now, so the heading and
+     the source toggle no longer fit side by side by default -- the heading
+     gives way instead of the row breaking in two. */
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s3);
@@ -919,11 +943,17 @@ textarea:focus-visible {
   margin-bottom: var(--s2);
   border-bottom: 1px solid var(--line-strong);
 }
+.board-head .seg { flex: none; }
+.board-head .seg .btn { padding: 4px 9px; font-size: .82rem; }
 /* A structural label for the column beneath, not a page title. */
 .board-head h2 {
   margin: 0;
+  min-width: 0;
   font-size: .95rem;
   font-weight: 620;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Visible only to a screen reader: the live region that says what a drop did.
@@ -949,6 +979,7 @@ textarea:focus-visible {
 
 /* A class, as somewhere a student can land. */
 .drop-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--s3);
@@ -963,6 +994,8 @@ textarea:focus-visible {
 .drop-card-main { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
 .drop-card-side { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; justify-content: flex-end; }
 .drop-card-action {
+  position: relative;
+  z-index: 1;
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -996,11 +1029,14 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-card);
-  cursor: grab;
+  /* pointer, not grab. The card was something you picked up and carried; now a
+     click ticks it, and a grab hand advertises the secondary gesture while
+     hiding the primary one -- worse still because the cursor flipped to
+     grabbing on press, which reads as a drag starting when it is not. */
+  cursor: pointer;
   transition: border-color .12s ease, background .12s ease, transform .12s ease;
 }
 .pick-card:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
-.pick-card:active:not(:disabled) { cursor: grabbing; }
 .pick-card:disabled { opacity: .55; cursor: default; }
 .pick-card .cell-lines { flex: 1; min-width: 0; }
 .pick-card .cell-title,
@@ -1127,3 +1163,199 @@ textarea:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Opt-in worklist filter in the students column. */
+.board-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: .84rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Drawer
+   ========================================================================== */
+
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(16, 24, 40, .32);
+  animation: scrim-in .15s ease-out;
+}
+
+.drawer {
+  width: min(30rem, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+  animation: drawer-in .18s ease-out;
+  outline: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.drawer-head-text { min-width: 0; }
+.drawer-head h2 { margin: 0 0 2px; font-size: 1.05rem; }
+.drawer-head p { margin: 0; font-size: .86rem; }
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s4);
+}
+
+/* A labelled block of facts inside the panel. */
+.facts { display: grid; grid-template-columns: auto 1fr; gap: var(--s2) var(--s4); margin: 0 0 var(--s5); }
+.facts dt {
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint);
+  padding-top: 2px;
+}
+.facts dd { margin: 0; }
+
+.drawer-section { margin-bottom: var(--s5); }
+.drawer-section:last-child { margin-bottom: 0; }
+.drawer-section h3 {
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint);
+  margin: 0 0 var(--s3);
+}
+
+.roster { display: flex; flex-direction: column; gap: var(--s2); margin: 0; padding: 0; list-style: none; }
+.roster li { display: flex; align-items: center; gap: var(--s3); }
+
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawer-in { from { transform: translateX(12px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .drawer-scrim, .drawer { animation: none; }
+}
+
+/* The card's main area opens the panel. A real button, so it is reachable by
+   keyboard -- and kept out of the action row, since buttons cannot nest. */
+/* The button stays where it is for layout and for the accessibility tree,
+   but its hit area is stretched over the whole card by a pseudo-element. The
+   alternative -- onClick on the card div -- is not reachable by keyboard, and
+   the card cannot itself be a button because the Enrol button sits inside it
+   and buttons do not nest. */
+.drop-card-main {
+  font: inherit;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.drop-card-main::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+}
+.drop-card { cursor: pointer; }
+.drop-card-main:hover .cell-title { text-decoration: underline; text-underline-offset: 2px; }
+.drop-card-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+/* Roster rows carry a remove action, so the name takes the slack. */
+.roster-name { flex: 1; min-width: 0; }
+.roster-confirm { display: inline-flex; align-items: center; gap: var(--s1); }
+
+/* ==========================================================================
+   Selection
+   ========================================================================== */
+
+/* Sticks to the top of the students column: with a hundred rows the selection
+   is made at the top and out of sight by the time you reach the bottom. */
+.select-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  color: var(--accent-dark);
+  font-size: .86rem;
+}
+.select-bar > span:first-child { flex: 1; }
+
+/* The tick box on a student card. */
+.pick-check {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: #fff;
+}
+.pick-card.is-picked .pick-check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* The drag image for a multi-student drag. Positioned off-screen because it
+   only has to exist long enough for the browser to snapshot it. */
+.drag-ghost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: #fff;
+  font-size: .84rem;
+  font-weight: 560;
+  white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+}
+
+/* ==========================================================================
+   Class grid
+   --------------------------------------------------------------------------
+   Eleven classes stacked is a lot of scrolling in a column wide enough for
+   two. auto-fill rather than a fixed count, so the same rule gives one column
+   in a narrow tab and three on a wide monitor.
+   ========================================================================== */
+
+.class-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--s2);
+  align-content: start;
+}
+
+/* In a grid cell the card has no room for a side column, so the seats and
+   status move under the title instead of beside it. */
+.class-grid .drop-card { grid-template-columns: minmax(0, 1fr); }
+.class-grid .drop-card-side { justify-content: flex-start; }

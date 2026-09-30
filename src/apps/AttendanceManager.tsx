@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
@@ -111,6 +111,23 @@ export function AttendanceManager() {
     return () => { cancelled = true; };
   }, [date, reloadKey, F.class, C.term]);
 
+  // Taking a register changes the row we came from. The list is state
+  // fetched when the day loaded, so without this it still reads "Not taken"
+  // until something refetches -- and the only trigger for that is changing
+  // date or reloading the tab. Patch it locally instead of refetching the
+  // day: the value is already known here, so a round trip would buy nothing
+  // but a flash of the stale-dim bar.
+  const handleSaved = useCallback(
+    (attendanceTaken: boolean) => {
+      setSessions((prev) =>
+        prev?.map((s) =>
+          s.id === selected ? { ...s, [F.attendance_taken]: attendanceTaken } : s,
+        ) ?? prev,
+      );
+    },
+    [selected, F.attendance_taken],
+  );
+
   if (selected) {
     return (
       <>
@@ -118,7 +135,7 @@ export function AttendanceManager() {
           <Icon name="arrow-left" />
           Back to {date}
         </Button>
-        <AttendanceSheet sessionId={selected} />
+        <AttendanceSheet sessionId={selected} onSaved={handleSaved} />
       </>
     );
   }

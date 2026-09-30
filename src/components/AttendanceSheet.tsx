@@ -35,7 +35,19 @@ type Phase =
   | { kind: 'error'; message: string }
   | { kind: 'ready' };
 
-export function AttendanceSheet({ sessionId }: { sessionId: string }) {
+/**
+ * @param onSaved  Called after a successful save with the session's new
+ *   Attendance_Taken value, so the timetable that opened this sheet can update
+ *   the row in place. The list behind us is state fetched when the day loaded;
+ *   without this it keeps saying "Not taken" until something refetches.
+ */
+export function AttendanceSheet({
+  sessionId,
+  onSaved,
+}: {
+  sessionId: string;
+  onSaved?: (attendanceTaken: boolean) => void;
+}) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [session, setSession] = useState<RawRecord | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -157,6 +169,7 @@ export function AttendanceSheet({ sessionId }: { sessionId: string }) {
       setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
       setRows((prev) => prev.map((r) => ({ ...r, dirty: false })));
       setSavedAt(new Date());
+      onSaved?.(!futureAtSave);
     } catch (err) {
       setPhase({ kind: 'error', message: describeError(err) });
     } finally {
