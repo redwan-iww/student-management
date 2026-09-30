@@ -884,6 +884,92 @@ export async function getCourses(): Promise<RawRecord[]> {
  * `Dropped` is for a student who genuinely left partway through; this is for a
  * placement that should never have existed.
  */
+/**
+ * Ends a placement without erasing it.
+ *
+ * The distinction from deleteEnrollment matters and is not cosmetic.
+ * `attendance.enrollment` is `on_delete: cascade`, so deleting the row of a
+ * student who has been marked present takes the register with it -- it unmakes
+ * the record that they attended. A student who leaves mid-term *did* attend,
+ * so their enrolment is closed rather than removed: Dropped, dated, with the
+ * reason kept on the row.
+ *
+ * Delete stays for the other case only -- a placement made in error, which has
+ * no attendance behind it and should never have existed.
+ */
+export async function dropEnrollment(enrollmentId: string, reason: string): Promise<void> {
+  const { module, fields } = ZOHO_MODULES.enrollments;
+  await updateOne(
+    module,
+    enrollmentId,
+    {
+      [fields.status]: 'Dropped',
+      [fields.dropped_on]: orgToday(),
+      [fields.drop_reason]: reason,
+    },
+    'enrollment drop',
+  );
+}
+
+/**
+ * A wall-clock time in the org's timezone, as Zoho wants it written.
+ *
+ * `zohoDateTime` stamps the *browser's* offset, which is right for "now" and
+ * wrong for a time somebody typed: a datetime-local input yields bare
+ * wall-clock text, and an admin in another timezone would otherwise save an
+ * interview an hour or six out. The offset is looked up for the org instead.
+ *
+ * Asia/Dhaka has no daylight saving, so the offset does not depend on the
+ * instant; a zone that did would need care exactly at a transition.
+ */
+export function orgDateTime(local: string): string {
+  if (!/^d{4}-d{2}-d{2}Td{2}:d{2}$/.test(local)) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ORG_TIME_ZONE,
+    timeZoneName: 'longOffset',
+  }).formatToParts(new Date(`${local}:00Z`));
+  // 'GMT+06:00', or plain 'GMT' on a zero-offset zone.
+  const raw = parts.find((x) => x.type === 'timeZoneName')?.value ?? '';
+  const offset = raw.replace('GMT', '') || '+00:00';
+  return `${local}:00${offset}`;
+}
+
+/** Zoho's datetime back into what a datetime-local input accepts. */
+export function localDateTime(value: unknown): string {
+  const text = str(value);
+  return /^d{4}-d{2}-d{2}Td{2}:d{2}/.test(text) ? text.slice(0, 16) : '';
+}
+
+/**
+ * Saves edits to one student.
+ *
+ * The payload is keyed by API name and built by the caller, which already
+ * holds the field map -- so this stays a thin, typed way through updateOne
+ * rather than a second place that has to know what a student is made of.
+ * Autonumbers and rollups are never included: the server owns them.
+ */
+export async function updateStudent(
+  studentId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await updateOne(ZOHO_MODULES.students.module, studentId, payload, 'student update');
+}
+
+/** Saves edits to one application. Same contract as updateStudent. */
+export async function updateAdmission(
+  admissionId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await updateOne(ZOHO_MODULES.admissions.module, admissionId, payload, 'admission update');
+}
+
+/** One student record in full -- the list reads carry only a lookup's id and name. */
+export async function getStudent(studentId: string): Promise<RawRecord | null> {
+  const { module } = ZOHO_MODULES.students;
+  const res = await zoho().CRM.API.getRecord({ Entity: module, RecordID: studentId });
+  return rows(res)[0] ?? null;
+}
+
 export async function deleteEnrollment(enrollmentId: string): Promise<void> {
   const { module } = ZOHO_MODULES.enrollments;
   const res = await zoho().CRM.API.deleteRecord({ Entity: module, RecordID: enrollmentId });
@@ -901,18 +987,49 @@ export async function deleteEnrollment(enrollmentId: string): Promise<void> {
  * guard against deleting a register, and a guard that cannot see marks written
  * a minute ago would wave through exactly the deletion it exists to stop.
  */
-export async function getAttendanceCountsForClass(classId: string): Promise<Map<string, number>> {
+export interface AttendanceStats {
+  /** Every mark, whatever its status. Backs the delete guard. */
+  marks: number;
+  /** Present or Late -- the numerator of the rate. */
+  present: number;
+  /** Marks that count towards a rate at all; Excused is neither hit nor miss. */
+  eligible: number;
+}
+
+export async function getAttendanceStatsForClass(
+  classId: string,
+): Promise<Map<string, AttendanceStats>> {
   const { module, fields } = ZOHO_MODULES.attendance;
   const recs =
     (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
     (await search(module, `(${fields.class}:equals:${classId})`));
 
-  const counts = new Map<string, number>();
+  const stats = new Map<string, AttendanceStats>();
   for (const rec of recs) {
     const id = refId(rec[fields.enrollment]);
-    if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    if (!id) continue;
+    const row = stats.get(id) ?? { marks: 0, present: 0, eligible: 0 };
+    const status = str(rec[fields.status]);
+    row.marks += 1;
+    if (status !== 'Excused') row.eligible += 1;
+    if (status === 'Present' || status === 'Late') row.present += 1;
+    stats.set(id, row);
   }
-  return counts;
+  return stats;
+}
+
+/**
+ * Attendance rate as a whole percent, or null when nothing counts yet.
+ *
+ * `enrollments.attendance_rate` is a rollup in the schema, but the field was
+ * never created in the CRM -- selecting Attendance_Rate fails with an invalid
+ * column. So it is computed here from the marks already being read for the
+ * delete guard, to the rollup's own definition: Present or Late over
+ * everything that is not Excused.
+ */
+export function attendanceRate(s: AttendanceStats | undefined): number | null {
+  if (!s || s.eligible === 0) return null;
+  return Math.round((s.present / s.eligible) * 100);
 }
 
 /** Zoho's per-call ceiling for a bulk create. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ZOHO_MODULES } from '../generated/types';
-import { Loader, useDelayed } from './Loader';
+import { GENDER_VALUES, ZOHO_MODULES } from '../generated/types';
+import { ButtonBusy, Loader, useDelayed } from './Loader';
 import { Avatar, Badge, Banner, Button, Chip, Drawer, EmptyState, Icon, Toast } from './ui';
 import { classTone, shiftOf, shortDays } from './status';
 import {
@@ -10,7 +10,12 @@ import {
   describeError,
   getActiveStudents,
   getAllocationsForClass,
-  getAttendanceCountsForClass,
+  attendanceRate,
+  dropEnrollment,
+  getAttendanceStatsForClass,
+  getStudent,
+  localDateTime,
+  orgDateTime,
   getAdmissionsForTerm,
   getEnrollmentsForClass,
   getEnrollmentsForClasses,
@@ -20,6 +25,9 @@ import {
   refName,
   str,
   strList,
+  updateAdmission,
+  updateStudent,
+  type AttendanceStats,
   type NewEnrollment,
   type RawRecord,
 } from '../zoho/client';
@@ -46,6 +54,18 @@ interface Candidate {
    * application to read it from -- a student belongs to no programme.
    */
   programId: string;
+}
+
+/** One enrolment as the class drawer shows it. */
+interface RosterRow {
+  enrollmentId: string;
+  studentId: string;
+  name: string;
+  /** Recorded at the end of the class; empty until then. */
+  grade: string;
+  /** Set only on the leavers. */
+  droppedOn: string;
+  dropReason: string;
 }
 
 /**
@@ -118,6 +138,9 @@ export function EnrollmentBoard({
   const [dragOver, setDragOver] = useState<string | null>(null);
   // Which class's detail panel is open, if any.
   const [openClass, setOpenClass] = useState<RawRecord | null>(null);
+  // Which student's record is open, if any. Held as id plus name so the panel
+  // has something to title itself with while the record is still loading.
+  const [openStudent, setOpenStudent] = useState<{ studentId: string; name: string } | null>(null);
   const [busyClass, setBusyClass] = useState<string | null>(null);
   // What just happened. The Toast is itself the live region, so this is the
   // one channel -- sighted and otherwise -- rather than a visible message and
@@ -355,19 +378,45 @@ export function EnrollmentBoard({
     [selected, admittedIds],
   );
 
+  /**
+   * The class's people, split by whether they are still in it.
+   *
+   * A dropped enrolment is not gone -- that is the whole point of dropping
+   * rather than deleting -- so it is shown, separately, with its reason. The
+   * seat counts elsewhere on the board keep counting Active only.
+   */
   const openRoster = useMemo(() => {
-    if (!openClass) return [];
-    const rows: { enrollmentId: string; name: string }[] = [];
+    const empty = { active: [] as RosterRow[], dropped: [] as RosterRow[] };
+    if (!openClass) return empty;
+    const out = { active: [] as RosterRow[], dropped: [] as RosterRow[] };
     const seen = new Set<string>();
     for (const e of enrollments ?? []) {
       if (refId(e[E.class]) !== openClass.id) continue;
-      if (str(e[E.status]) !== 'Active') continue;
+      const status = str(e[E.status]);
       const studentId = refId(e[E.student]);
-      if (!studentId || seen.has(studentId)) continue;
-      seen.add(studentId);
-      rows.push({ enrollmentId: e.id, name: refName(e[E.student]) || '—' });
+      if (!studentId) continue;
+      const row: RosterRow = {
+        enrollmentId: e.id,
+        studentId,
+        name: refName(e[E.student]) || '—',
+        grade: str(e[E.final_grade]),
+        droppedOn: str(e[E.dropped_on]),
+        dropReason: str(e[E.drop_reason]),
+      };
+      if (status === 'Active') {
+        // One row per student: a duplicate pair would otherwise be counted
+        // twice against the seats.
+        if (seen.has(studentId)) continue;
+        seen.add(studentId);
+        out.active.push(row);
+      } else if (status === 'Dropped' || status === 'Transferred') {
+        out.dropped.push(row);
+      }
     }
-    return rows.sort((a, b) => a.name.localeCompare(b.name));
+    const byName = (a: RosterRow, b: RosterRow) => a.name.localeCompare(b.name);
+    out.active.sort(byName);
+    out.dropped.sort(byName);
+    return out;
   }, [openClass, enrollments]);
 
   const removeEnrollment = useCallback(
@@ -379,6 +428,33 @@ export function EnrollmentBoard({
         // it yet, and every count on the board derives from this list.
         setEnrollments((prev) => (prev ?? []).filter((e) => e.id !== enrollmentId));
         setToast({ tone: 'positive', message: `Removed ${name} from this class.` });
+      } catch (err) {
+        setToast({ tone: 'warn', message: describeError(err) });
+      }
+    },
+    [],
+  );
+
+  const dropStudent = useCallback(
+    async (enrollmentId: string, name: string, reason: string) => {
+      try {
+        await dropEnrollment(enrollmentId, reason);
+        // Patched in place rather than re-read, for the same reason the
+        // removal filters locally: the term-wide reads lag a write, and every
+        // seat count on this board derives from this list.
+        setEnrollments((prev) =>
+          (prev ?? []).map((e) =>
+            e.id === enrollmentId
+              ? {
+                  ...e,
+                  [E.status]: 'Dropped',
+                  [E.dropped_on]: orgToday(),
+                  [E.drop_reason]: reason,
+                }
+              : e,
+          ),
+        );
+        setToast({ tone: 'positive', message: `${name} dropped from this class.` });
       } catch (err) {
         setToast({ tone: 'warn', message: describeError(err) });
       }
@@ -507,12 +583,35 @@ export function EnrollmentBoard({
         <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
       )}
 
+      {openStudent && (
+        <StudentDetails
+          studentId={openStudent.studentId}
+          name={openStudent.name}
+          /* The term's applications are already in memory. A student reached
+             from the roll of all students may have no application for this
+             term at all, which the panel says rather than hiding the section. */
+          admission={
+            (admissions ?? []).find((a) => refId(a[A.student]) === openStudent.studentId) ?? null
+          }
+          termLabel={termLabel}
+          onAdmissionPatched={(id, patch) =>
+            setAdmissions((prev) =>
+              (prev ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)),
+            )
+          }
+          onClose={() => setOpenStudent(null)}
+        />
+      )}
+
       {openClass && (
         <ClassDetails
           klass={openClass}
           programName={programOf.get(openClass.id)?.name ?? ''}
-          roster={openRoster}
+          roster={openRoster.active}
+          dropped={openRoster.dropped}
           onRemove={removeEnrollment}
+          onDrop={dropStudent}
+          onOpenStudent={setOpenStudent}
           onClose={() => setOpenClass(null)}
         />
       )}
@@ -682,6 +781,7 @@ export function EnrollmentBoard({
                     : `${who.name} selected.`,
                 );
               }}
+              onOpenStudent={setOpenStudent}
             />
           </>
         )}
@@ -806,48 +906,58 @@ function ClassDetails({
   klass,
   programName,
   roster,
+  dropped,
   onRemove,
+  onDrop,
+  onOpenStudent,
   onClose,
 }: {
   klass: RawRecord;
   programName: string;
-  roster: { enrollmentId: string; name: string }[];
+  roster: RosterRow[];
+  /** Enrolments that ended early. Shown, not hidden -- see openRoster. */
+  dropped: RosterRow[];
   onRemove: (enrollmentId: string, name: string) => Promise<void>;
+  onDrop: (enrollmentId: string, name: string, reason: string) => Promise<void>;
+  onOpenStudent: (who: { studentId: string; name: string }) => void;
   onClose: () => void;
 }) {
   const [staff, setStaff] = useState<RawRecord[] | null>(null);
-  // Attendance marks per enrolment. Removing an enrolment cascades to its
-  // marks -- attendance.enrollment is on_delete: cascade -- so a student with
-  // a register behind them cannot be removed here at all. That is a deletion
-  // of the record that they attended, not an undo of a misplacement.
-  const [marks, setMarks] = useState<Map<string, number> | null>(null);
-  // Removing a student is not undoable, so it asks -- in place, on the row,
-  // rather than behind a dialog stacked on the panel that opened it.
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+  // Attendance per enrolment, serving two purposes at once. It is the guard on
+  // deletion -- attendance.enrollment is on_delete: cascade, so deleting a row
+  // with marks behind it destroys the register -- and it is the only source of
+  // an attendance rate, because the schema's rollup field does not exist in
+  // the CRM. One read, both answers.
+  const [stats, setStats] = useState<Map<string, AttendanceStats> | null>(null);
+  // Which row is mid-decision, and what is being done to it. Ending someone's
+  // place in a class is not undoable, so it asks in place on the row.
+  const [acting, setActing] = useState<{ id: string; mode: 'drop' | 'remove' } | null>(null);
+  const [reason, setReason] = useState('');
+  const [working, setWorking] = useState<string | null>(null);
   const [staffError, setStaffError] = useState<string | null>(null);
   const showStaffSpinner = useDelayed(staff === null);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getAllocationsForClass(klass.id), getAttendanceCountsForClass(klass.id)])
+    Promise.all([getAllocationsForClass(klass.id), getAttendanceStatsForClass(klass.id)])
       .then(([allocations, counts]) => {
         if (cancelled) return;
         setStaff(allocations.filter((a) => str(a[AL.status]) !== 'Ended'));
-        setMarks(counts);
+        setStats(counts);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setStaffError(describeError(err));
         setStaff([]);
         // An empty map would read as "no marks anywhere", which would unlock
-        // every remove button on a failed read. Left null, so they stay shut.
-        setMarks(null);
+        // every delete button on a failed read. Left null, so they stay shut.
+        setStats(null);
       });
     return () => { cancelled = true; };
   }, [klass.id]);
 
   const capacity = int(klass[C.capacity]);
+  const sessions = int(klass[C.sessions_count]);
   const days = strList(klass[C.meeting_days]);
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
   const status = classTone(str(klass[C.status]));
@@ -885,6 +995,20 @@ function ClassDetails({
         <dt>Runs</dt>
         <dd>
           {str(klass[C.start_date], '—')} → {str(klass[C.end_date], '—')}
+        </dd>
+
+        <dt>Lessons</dt>
+        <dd>
+          {sessions === null ? (
+            '—'
+          ) : sessions === 0 ? (
+            <span className="warn-text">
+              <Icon name="alert" size={14} />
+              None generated yet
+            </span>
+          ) : (
+            <>{sessions} scheduled</>
+          )}
         </dd>
 
         <dt>Seats</dt>
@@ -927,52 +1051,144 @@ function ClassDetails({
           <p className="muted">Nobody enrolled yet.</p>
         ) : (
           <ul className="roster">
-            {roster.map((r) => (
-              <li key={r.enrollmentId}>
-                <Avatar name={r.name} small />
-                <span className="roster-name">{r.name}</span>
-
-                {marks === null ? (
-                  <span className="muted cell-sub">…</span>
-                ) : (marks.get(r.enrollmentId) ?? 0) > 0 ? (
-                  <span className="muted cell-sub" title="Removing would delete these marks">
-                    {marks.get(r.enrollmentId)} mark
-                    {marks.get(r.enrollmentId) === 1 ? '' : 's'}
-                  </span>
-                ) : confirming === r.enrollmentId ? (
-                  <span className="roster-confirm">
-                    <Button
-                      small
-                      variant="primary"
-                      disabled={removing !== null}
-                      onClick={async () => {
-                        setRemoving(r.enrollmentId);
-                        await onRemove(r.enrollmentId, r.name);
-                        setRemoving(null);
-                        setConfirming(null);
-                      }}
+            {roster.map((r) => {
+              const st = stats?.get(r.enrollmentId);
+              const marks = st?.marks ?? 0;
+              const rate = attendanceRate(st);
+              const mode = acting?.id === r.enrollmentId ? acting.mode : null;
+              return (
+                <li key={r.enrollmentId}>
+                  <Avatar name={r.name} small />
+                  <span className="cell-lines">
+                    <button
+                      type="button"
+                      className="roster-name-btn"
+                      onClick={() => onOpenStudent({ studentId: r.studentId, name: r.name })}
                     >
-                      {removing === r.enrollmentId ? 'Removing…' : 'Remove'}
-                    </Button>
-                    <Button small variant="ghost" onClick={() => setConfirming(null)}>
-                      Cancel
-                    </Button>
+                      {r.name}
+                    </button>
+                    <span className="cell-sub">
+                      {stats === null
+                        ? '…'
+                        : rate === null
+                          ? 'No marks yet'
+                          : `${rate}% attendance`}
+                      {marks > 0 && <> · {marks} mark{marks === 1 ? '' : 's'}</>}
+                      {r.grade && <> · Grade {r.grade}</>}
+                    </span>
                   </span>
-                ) : (
-                  <Button
-                    small
-                    variant="ghost"
-                    aria-label={`Remove ${r.name} from this class`}
-                    onClick={() => setConfirming(r.enrollmentId)}
-                  >
-                    <Icon name="close" size={14} />
-                  </Button>
-                )}
-              </li>
-            ))}
+
+                  {mode === 'drop' ? (
+                    <span className="roster-confirm roster-drop">
+                      <input
+                        type="text"
+                        value={reason}
+                        autoFocus
+                        maxLength={2000}
+                        placeholder="Why are they leaving?"
+                        aria-label={`Reason ${r.name} is leaving this class`}
+                        onChange={(e) => setReason(e.target.value)}
+                      />
+                      <Button
+                        small
+                        variant="primary"
+                        disabled={working !== null || reason.trim() === ''}
+                        onClick={async () => {
+                          setWorking(r.enrollmentId);
+                          await onDrop(r.enrollmentId, r.name, reason.trim());
+                          setWorking(null);
+                          setActing(null);
+                          setReason('');
+                        }}
+                      >
+                        {working === r.enrollmentId ? 'Dropping…' : 'Drop'}
+                      </Button>
+                      <Button
+                        small
+                        variant="ghost"
+                        onClick={() => { setActing(null); setReason(''); }}
+                      >
+                        Cancel
+                      </Button>
+                    </span>
+                  ) : mode === 'remove' ? (
+                    <span className="roster-confirm">
+                      <span className="muted cell-sub">Delete outright?</span>
+                      <Button
+                        small
+                        variant="primary"
+                        disabled={working !== null}
+                        onClick={async () => {
+                          setWorking(r.enrollmentId);
+                          await onRemove(r.enrollmentId, r.name);
+                          setWorking(null);
+                          setActing(null);
+                        }}
+                      >
+                        {working === r.enrollmentId ? 'Removing…' : 'Remove'}
+                      </Button>
+                      <Button small variant="ghost" onClick={() => setActing(null)}>
+                        Cancel
+                      </Button>
+                    </span>
+                  ) : (
+                    <span className="roster-actions">
+                      <Button
+                        small
+                        variant="ghost"
+                        onClick={() => { setActing({ id: r.enrollmentId, mode: 'drop' }); setReason(''); }}
+                      >
+                        Drop
+                      </Button>
+                      {/* Deleting cascades to the register, so it is offered
+                          only where there is none to lose -- a placement made
+                          by mistake. Everyone else leaves by being dropped. */}
+                      {stats !== null && marks === 0 && (
+                        <Button
+                          small
+                          variant="ghost"
+                          aria-label={`Delete ${r.name}'s enrolment`}
+                          title="Delete this enrolment outright"
+                          onClick={() => setActing({ id: r.enrollmentId, mode: 'remove' })}
+                        >
+                          <Icon name="close" size={14} />
+                        </Button>
+                      )}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
+
+      {dropped.length > 0 && (
+        <section className="drawer-section">
+          <h3>Left this class ({dropped.length})</h3>
+          <ul className="roster">
+            {dropped.map((r) => (
+              <li key={r.enrollmentId} className="roster-past">
+                <Avatar name={r.name} small />
+                <span className="cell-lines">
+                  <button
+                    type="button"
+                    className="roster-name-btn"
+                    onClick={() => onOpenStudent({ studentId: r.studentId, name: r.name })}
+                  >
+                    {r.name}
+                  </button>
+                  <span className="cell-sub">
+                    {r.droppedOn || 'date not recorded'}
+                    {r.dropReason && <> · {r.dropReason}</>}
+                  </span>
+                </span>
+                <Badge tone="neutral">Dropped</Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </Drawer>
   );
 }
@@ -1015,6 +1231,10 @@ function ClassDrop({
   const days = strList(klass[C.meeting_days]);
   const status = classTone(str(klass[C.status]));
   const full = capacity !== null && seats >= capacity;
+  // A class with no lessons generated cannot have a register taken against
+  // it, so students placed here have nowhere to be marked present. Worth
+  // seeing before the placement, not after.
+  const sessions = int(klass[C.sessions_count]);
   // A class accepts a drop whenever anything is selected: whoever cannot go
   // in -- already enrolled, no application -- is reported per student after
   // the attempt rather than blocking the whole set.
@@ -1064,6 +1284,13 @@ function ClassDrop({
           <Icon name="users" size={13} />
           {capacity === null ? `${seats}` : `${seats} / ${capacity}`}
         </Chip>
+        {sessions !== null && sessions > 0 && (
+          <Chip title={`${sessions} lessons scheduled`}>
+            <Icon name="calendar" size={13} />
+            {sessions}
+          </Chip>
+        )}
+        {sessions === 0 && <Badge tone="critical" dot>No lessons</Badge>}
         {full && <Badge tone="pending" dot>Full</Badge>}
         <Badge tone={status.tone} dot>{status.label}</Badge>
       </div>
@@ -1131,6 +1358,7 @@ function StudentList({
   selectedIds,
   disabled,
   onToggle,
+  onOpenStudent,
 }: {
   people: Candidate[];
   /** Classes each student holds within the current view; absent means none. */
@@ -1138,6 +1366,7 @@ function StudentList({
   selectedIds: Set<string>;
   disabled: boolean;
   onToggle: (who: Candidate) => void;
+  onOpenStudent: (who: { studentId: string; name: string }) => void;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -1161,6 +1390,7 @@ function StudentList({
               selectedCount={selectedIds.size}
               disabled={disabled}
               onToggle={onToggle}
+              onOpenStudent={onOpenStudent}
             />
           </div>
         ))}
@@ -1183,6 +1413,7 @@ function PersonCard({
   selectedCount,
   disabled,
   onToggle,
+  onOpenStudent,
 }: {
   person: Candidate;
   classCount: number;
@@ -1191,11 +1422,13 @@ function PersonCard({
   selectedCount: number;
   disabled: boolean;
   onToggle: (who: Candidate) => void;
+  onOpenStudent: (who: { studentId: string; name: string }) => void;
 }) {
   return (
+    <div className={`pick-row${selected ? ' is-picked' : ''}`}>
     <button
       type="button"
-      className={`pick-card${selected ? ' is-picked' : ''}`}
+      className="pick-card"
       draggable={!disabled}
       aria-pressed={selected}
       disabled={disabled}
@@ -1238,5 +1471,486 @@ function PersonCard({
         </span>
       )}
     </button>
+
+    <button
+      type="button"
+      className="pick-info"
+      aria-label={`Open ${person.name}'s record`}
+      title="Open record"
+      onClick={() => onOpenStudent(person)}
+    >
+      <Icon name="info" size={15} />
+    </button>
+    </div>
   );
+}
+
+/**
+ * Everything on file about one person, from both sides of their arrival, and
+ * editable in place.
+ *
+ * Two records, deliberately shown together. The student row is who they are
+ * now -- contacts, household, medical notes; the application is how they got
+ * here -- source, stage, the dates it moved through. The board had neither:
+ * it showed a name, an application number and a stage, and nothing else about
+ * the person being placed into a class.
+ *
+ * Only the student record is fetched. The term's applications are already in
+ * memory on the board, so the one that matches is handed down rather than
+ * read again -- and a student reached from the roll of all students may have
+ * no application for this term at all, which the panel says plainly.
+ *
+ * What editing deliberately leaves alone:
+ *
+ *   Student_Code, Application_No   autonumbers -- the server assigns them
+ *   Active classes                 a rollup, counted from the enrolments
+ *   Household                      a lookup; changing it needs a picker, not
+ *                                  a text box, and moves the child's billing
+ *   Status, Stage, Source          pipeline decisions. Stage especially:
+ *                                  moving it is what puts somebody in or out
+ *                                  of this board's own left-hand list, and a
+ *                                  rejection wants a reason and a decided-by
+ *                                  that this panel does not collect.
+ */
+function StudentDetails({
+  studentId,
+  name,
+  admission,
+  termLabel,
+  onAdmissionPatched,
+  onClose,
+}: {
+  studentId: string;
+  name: string;
+  admission: RawRecord | null;
+  termLabel: string;
+  /** Keeps the board's copy of the application in step with an edit here. */
+  onAdmissionPatched: (admissionId: string, patch: Record<string, unknown>) => void;
+  onClose: () => void;
+}) {
+  const [student, setStudent] = useState<RawRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const showSpinner = useDelayed(student === null && error === null);
+
+  // The application arrives as a prop but is edited here, so the panel keeps
+  // its own copy and hands patches back up rather than writing through a prop.
+  const [appRec, setAppRec] = useState<RawRecord | null>(admission);
+  useEffect(() => { setAppRec(admission); }, [admission]);
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<FormState>(BLANK_FORM);
+  // What the fields held when editing began, so only what actually changed is
+  // sent. A payload of unchanged values would stamp Modified_By across the
+  // whole record for nothing.
+  const [initial, setInitial] = useState<FormState>(BLANK_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getStudent(studentId)
+      .then((rec) => {
+        if (cancelled) return;
+        if (!rec) setError('That student record could not be read.');
+        else setStudent(rec);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(describeError(err));
+      });
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  // Record_Image is a stock Zoho field and comes back as a URL when one has
+  // been uploaded. Anything else -- null, or the object shape some versions
+  // return -- falls back to the initials avatar rather than a broken image.
+  const photo = student ? str(student[ST.photo]) : '';
+  const hasPhoto = /^https?:\/\//.test(photo);
+
+  const set = (key: keyof FormState) => (
+    e: { target: { value: string } },
+  ) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  function startEditing() {
+    const next = formOf(student, appRec);
+    setForm(next);
+    setInitial(next);
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  async function save() {
+    if (!student) return;
+    setSaving(true);
+    setSaveError(null);
+
+    const sp: Record<string, unknown> = {};
+    const put = (changed: boolean, field: string, value: unknown) => {
+      if (changed) sp[field] = value;
+    };
+    put(form.dob !== initial.dob, ST.date_of_birth, form.dob || null);
+    put(form.gender !== initial.gender, ST.gender, form.gender || null);
+    put(form.phone !== initial.phone, ST.phone, form.phone.trim() || null);
+    put(form.email !== initial.email, ST.email, form.email.trim() || null);
+    put(form.emName !== initial.emName, ST.emergency_contact_name, form.emName.trim() || null);
+    put(form.emPhone !== initial.emPhone, ST.emergency_contact_phone, form.emPhone.trim() || null);
+    put(form.medical !== initial.medical, ST.medical_notes, form.medical.trim() || null);
+
+    const ap: Record<string, unknown> = {};
+    if (appRec) {
+      if (form.gName !== initial.gName) ap[A.guardian_name] = form.gName.trim() || null;
+      if (form.gPhone !== initial.gPhone) ap[A.guardian_phone] = form.gPhone.trim() || null;
+      if (form.gEmail !== initial.gEmail) ap[A.guardian_email] = form.gEmail.trim() || null;
+      if (form.decision !== initial.decision) ap[A.decision_date] = form.decision || null;
+      if (form.notes !== initial.notes) ap[A.notes] = form.notes.trim() || null;
+      if (form.interview !== initial.interview) {
+        // Datetime, so it needs the org's offset -- never a bare local string
+        // and never a trailing Z.
+        ap[A.interview_date] = form.interview ? orgDateTime(form.interview) : null;
+      }
+    }
+
+    // Two records, two writes. The student goes first, and its result is kept
+    // whatever happens next -- a half-saved edit is reported as such rather
+    // than rolled back silently or claimed as a success.
+    if (Object.keys(sp).length > 0) {
+      try {
+        await updateStudent(studentId, sp);
+        setStudent((prev) => (prev ? { ...prev, ...sp } : prev));
+      } catch (err) {
+        setSaveError(`Nothing was saved: ${describeError(err)}`);
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (appRec && Object.keys(ap).length > 0) {
+      try {
+        await updateAdmission(appRec.id, ap);
+        setAppRec((prev) => (prev ? { ...prev, ...ap } : prev));
+        onAdmissionPatched(appRec.id, ap);
+      } catch (err) {
+        setSaveError(
+          Object.keys(sp).length > 0
+            ? `The student details were saved, but the application was not: ${describeError(err)}`
+            : `The application was not saved: ${describeError(err)}`,
+        );
+        setSaving(false);
+        return;
+      }
+    }
+
+    setSaving(false);
+    setEditing(false);
+  }
+
+  return (
+    <Drawer
+      title={name}
+      subtitle={student ? str(student[ST.student_code], '—') : 'Loading…'}
+      onClose={onClose}
+      footer={
+        student && (
+          <>
+            {saveError && <Banner tone="error">{saveError}</Banner>}
+            <div className="drawer-actions">
+              {editing ? (
+                <>
+                  <Button variant="primary" onClick={save} disabled={saving}>
+                    {saving ? <ButtonBusy label="Saving…" /> : 'Save changes'}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button onClick={startEditing}>Edit details</Button>
+              )}
+            </div>
+          </>
+        )
+      }
+    >
+      {error && <Banner tone="error">{error}</Banner>}
+      {student === null && !error && showSpinner && <Loader inline label="Loading record…" />}
+
+      {student && (
+        <>
+          <div className="student-head">
+            {hasPhoto ? (
+              <img className="student-photo" src={photo} alt="" />
+            ) : (
+              <Avatar name={name} />
+            )}
+            <div className="cell-lines">
+              <div className="cell-title">{str(student[ST.full_name], name)}</div>
+              <div className="cell-sub">
+                {refName(student[ST.household]) || 'No household on file'}
+              </div>
+            </div>
+            <Badge tone={str(student[ST.status]) === 'Active' ? 'positive' : 'neutral'} dot>
+              {str(student[ST.status], '—')}
+            </Badge>
+          </div>
+
+          <dl className="facts">
+            <dt>Date of birth</dt>
+            <dd>
+              {editing ? (
+                <input className="field" type="date" value={form.dob} onChange={set('dob')} />
+              ) : (
+                <>
+                  {str(student[ST.date_of_birth], '—')}
+                  {ageOf(str(student[ST.date_of_birth])) !== null && (
+                    <span className="muted"> · {ageOf(str(student[ST.date_of_birth]))} years</span>
+                  )}
+                </>
+              )}
+            </dd>
+
+            <dt>Gender</dt>
+            <dd>
+              {editing ? (
+                <select className="field" value={form.gender} onChange={set('gender')}>
+                  <option value="">—</option>
+                  {GENDER_VALUES.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+              ) : (
+                str(student[ST.gender], '—')
+              )}
+            </dd>
+
+            <dt>Phone</dt>
+            <dd>
+              {editing ? (
+                <input className="field" type="tel" value={form.phone} onChange={set('phone')} />
+              ) : (
+                str(student[ST.phone], '—')
+              )}
+            </dd>
+
+            <dt>Email</dt>
+            <dd>
+              {editing ? (
+                <input className="field" type="email" value={form.email} onChange={set('email')} />
+              ) : (
+                str(student[ST.email], '—')
+              )}
+            </dd>
+
+            <dt>On roll since</dt>
+            <dd>{str(student[ST.enrollment_date], '—')}</dd>
+
+            <dt>Active classes</dt>
+            <dd>{int(student[ST.active_enrollments_count]) ?? 0}</dd>
+          </dl>
+
+          <section className="drawer-section">
+            <h3>In an emergency</h3>
+            {editing ? (
+              <dl className="facts">
+                <dt>Name</dt>
+                <dd>
+                  <input className="field" value={form.emName} onChange={set('emName')} />
+                </dd>
+                <dt>Phone</dt>
+                <dd>
+                  <input className="field" type="tel" value={form.emPhone} onChange={set('emPhone')} />
+                </dd>
+              </dl>
+            ) : str(student[ST.emergency_contact_name]) ||
+              str(student[ST.emergency_contact_phone]) ? (
+              <p>
+                <strong>{str(student[ST.emergency_contact_name], '—')}</strong>
+                {str(student[ST.emergency_contact_phone]) && (
+                  <> · {str(student[ST.emergency_contact_phone])}</>
+                )}
+              </p>
+            ) : (
+              <p className="muted">No emergency contact on file.</p>
+            )}
+          </section>
+
+          {/* Called out rather than left as one row in the table above: if
+              there is anything here, whoever is about to put this student in
+              a class needs to have seen it. */}
+          <section className="drawer-section">
+            <h3>Medical notes</h3>
+            {editing ? (
+              <textarea
+                className="field"
+                rows={3}
+                maxLength={2000}
+                placeholder="Allergies, medication, anything a teacher must know"
+                value={form.medical}
+                onChange={set('medical')}
+              />
+            ) : str(student[ST.medical_notes]) ? (
+              <Banner tone="warn">{str(student[ST.medical_notes])}</Banner>
+            ) : (
+              <p className="muted">None recorded.</p>
+            )}
+          </section>
+
+          <section className="drawer-section">
+            <h3>Application</h3>
+            {appRec === null ? (
+              <p className="muted">
+                No application for {termLabel}. This student is on the roll from an
+                earlier term.
+              </p>
+            ) : (
+              <dl className="facts">
+                <dt>Application</dt>
+                <dd>{str(appRec[A.application_no], '—')}</dd>
+
+                <dt>Stage</dt>
+                <dd>{str(appRec[A.stage], '—')}</dd>
+
+                <dt>Came from</dt>
+                <dd>{str(appRec[A.source], '—')}</dd>
+
+                <dt>Applied</dt>
+                <dd>{str(appRec[A.applied_date], '—')}</dd>
+
+                <dt>Interview</dt>
+                <dd>
+                  {editing ? (
+                    <input
+                      className="field"
+                      type="datetime-local"
+                      value={form.interview}
+                      onChange={set('interview')}
+                    />
+                  ) : (
+                    str(appRec[A.interview_date], 'Not scheduled')
+                  )}
+                </dd>
+
+                <dt>Decided</dt>
+                <dd>
+                  {editing ? (
+                    <input
+                      className="field"
+                      type="date"
+                      value={form.decision}
+                      onChange={set('decision')}
+                    />
+                  ) : (
+                    str(appRec[A.decision_date], 'Not recorded')
+                  )}
+                </dd>
+
+                <dt>Guardian</dt>
+                <dd>
+                  {editing ? (
+                    <div className="field-stack">
+                      <input
+                        className="field"
+                        value={form.gName}
+                        placeholder="Name"
+                        aria-label="Guardian name"
+                        onChange={set('gName')}
+                      />
+                      <input
+                        className="field"
+                        type="tel"
+                        value={form.gPhone}
+                        placeholder="Phone"
+                        aria-label="Guardian phone"
+                        onChange={set('gPhone')}
+                      />
+                      <input
+                        className="field"
+                        type="email"
+                        value={form.gEmail}
+                        placeholder="Email"
+                        aria-label="Guardian email"
+                        onChange={set('gEmail')}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {str(appRec[A.guardian_name], '—')}
+                      {str(appRec[A.guardian_phone]) && <> · {str(appRec[A.guardian_phone])}</>}
+                      {str(appRec[A.guardian_email]) && (
+                        <span className="muted"> · {str(appRec[A.guardian_email])}</span>
+                      )}
+                    </>
+                  )}
+                </dd>
+
+                <dt>Notes</dt>
+                <dd>
+                  {editing ? (
+                    <textarea
+                      className="field"
+                      rows={3}
+                      maxLength={2000}
+                      value={form.notes}
+                      onChange={set('notes')}
+                    />
+                  ) : str(appRec[A.notes]) ? (
+                    <span className="note-inline">{str(appRec[A.notes])}</span>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </dl>
+            )}
+          </section>
+        </>
+      )}
+    </Drawer>
+  );
+}
+
+/** The editable half of the panel, as strings an input can hold. */
+interface FormState {
+  dob: string;
+  gender: string;
+  phone: string;
+  email: string;
+  emName: string;
+  emPhone: string;
+  medical: string;
+  gName: string;
+  gPhone: string;
+  gEmail: string;
+  interview: string;
+  decision: string;
+  notes: string;
+}
+
+const BLANK_FORM: FormState = {
+  dob: '', gender: '', phone: '', email: '', emName: '', emPhone: '', medical: '',
+  gName: '', gPhone: '', gEmail: '', interview: '', decision: '', notes: '',
+};
+
+function formOf(student: RawRecord | null, admission: RawRecord | null): FormState {
+  return {
+    dob: student ? str(student[ST.date_of_birth]) : '',
+    gender: student ? str(student[ST.gender]) : '',
+    phone: student ? str(student[ST.phone]) : '',
+    email: student ? str(student[ST.email]) : '',
+    emName: student ? str(student[ST.emergency_contact_name]) : '',
+    emPhone: student ? str(student[ST.emergency_contact_phone]) : '',
+    medical: student ? str(student[ST.medical_notes]) : '',
+    gName: admission ? str(admission[A.guardian_name]) : '',
+    gPhone: admission ? str(admission[A.guardian_phone]) : '',
+    gEmail: admission ? str(admission[A.guardian_email]) : '',
+    interview: admission ? localDateTime(admission[A.interview_date]) : '',
+    decision: admission ? str(admission[A.decision_date]) : '',
+    notes: admission ? str(admission[A.notes]) : '',
+  };
+}
+
+/** Whole years between a yyyy-MM-dd birth date and today, or null if unparsable. */
+function ageOf(isoDate: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
+  const today = orgToday();
+  let years = Number(today.slice(0, 4)) - Number(isoDate.slice(0, 4));
+  // Not had the birthday yet this year.
+  if (today.slice(5) < isoDate.slice(5)) years -= 1;
+  return years >= 0 && years < 150 ? years : null;
 }

@@ -975,7 +975,7 @@ textarea:focus-visible {
    height, and the headers above them share one too. A class card grows past
    this only while a student is held, when it gains an action row. */
 .drop-card,
-.pick-card { min-height: 60px; }
+.pick-row { min-height: 60px; }
 
 /* A class, as somewhere a student can land. */
 .drop-card {
@@ -1016,42 +1016,82 @@ textarea:focus-visible {
    answer to "why will it not drop here" should be on screen. */
 .drop-card.drop-blocked { opacity: .6; border-style: dashed; }
 
-/* A student, waiting to be placed. */
+/* A student, waiting to be placed.
+   The row is the card; the two buttons sit inside its border. Buttons cannot
+   nest, and opening the record has to be reachable without ticking the
+   student -- so the toggle and the record button are siblings. */
+.pick-row {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: border-color .12s ease, background .12s ease;
+}
+.pick-row:hover { border-color: var(--line-strong); }
+.pick-row:hover .pick-card:not(:disabled) { background: var(--surface-2); }
+
 .pick-card {
   font: inherit;
   text-align: left;
   display: flex;
   align-items: center;
   gap: var(--s3);
-  width: 100%;
-  padding: var(--s3) var(--s4);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  padding: var(--s3) var(--s2) var(--s3) var(--s4);
+  background: none;
+  border: 0;
   /* pointer, not grab. The card was something you picked up and carried; now a
      click ticks it, and a grab hand advertises the secondary gesture while
      hiding the primary one -- worse still because the cursor flipped to
      grabbing on press, which reads as a drag starting when it is not. */
   cursor: pointer;
-  transition: border-color .12s ease, background .12s ease, transform .12s ease;
+  transition: background .12s ease;
 }
-.pick-card:hover:not(:disabled) { border-color: var(--line-strong); background: var(--surface-2); }
 .pick-card:disabled { opacity: .55; cursor: default; }
 .pick-card .cell-lines { flex: 1; min-width: 0; }
 .pick-card .cell-title,
 .pick-card .cell-sub { display: block; }
 
+/* Opens the record. Quiet until the row is hovered or it is focused: it is
+   the secondary action on every one of a thousand rows. */
+.pick-info {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  padding: 0 var(--s3);
+  background: none;
+  border: 0;
+  border-left: 1px solid transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease, border-color .12s ease;
+}
+.pick-row:hover .pick-info { color: var(--muted); border-left-color: var(--line); }
+.pick-info:hover { background: var(--surface-3); color: var(--fg); }
+.pick-info:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  color: var(--fg);
+}
+
 /* Picked up -- by click, by keyboard, or mid-drag. */
-.pick-card.is-picked {
+.pick-row.is-picked {
   border-color: var(--accent);
   background: var(--accent-soft);
   box-shadow: var(--ring);
 }
+.pick-row.is-picked .pick-card,
+.pick-row.is-picked:hover .pick-card:not(:disabled) { background: none; }
+.pick-row.is-picked .pick-info { color: var(--accent-dark); border-left-color: var(--accent-line); }
 .pick-card:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  box-shadow: var(--ring);
+  outline-offset: -2px;
+  border-radius: var(--r-md);
 }
 
 /* The selected half of a two-button segmented switch. */
@@ -1153,7 +1193,7 @@ textarea:focus-visible {
 }
 .board-list-inner { position: relative; }
 .board-row { position: absolute; left: 0; right: 0; padding-bottom: var(--s2); }
-.board-row .pick-card { height: 60px; }
+.board-row .pick-row { height: 60px; }
 
 /* A name too long for the card truncates rather than wrapping: a wrapped row
    would be taller than the pitch the windowing assumes. */
@@ -1319,7 +1359,7 @@ textarea:focus-visible {
   background: var(--surface);
   color: #fff;
 }
-.pick-card.is-picked .pick-check {
+.pick-row.is-picked .pick-check {
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -1359,3 +1399,131 @@ textarea:focus-visible {
    status move under the title instead of beside it. */
 .class-grid .drop-card { grid-template-columns: minmax(0, 1fr); }
 .class-grid .drop-card-side { justify-content: flex-start; }
+
+/* ---------------------------------------------------------------------------
+   Roster rows, and the record panel behind a name
+   --------------------------------------------------------------------------- */
+
+/* A name in a roster opens that person's record. A link, not a button shape:
+   it sits in a list of names and a row of buttons would drown the list. */
+.roster-name-btn {
+  font: inherit;
+  font-weight: 560;
+  text-align: left;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  cursor: pointer;
+  border-radius: 2px;
+}
+.roster-name-btn:hover { color: var(--accent-dark); text-decoration: underline; }
+.roster-name-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.roster li .cell-lines { flex: 1; min-width: 0; }
+.roster-actions { display: inline-flex; align-items: center; gap: var(--s1); flex-shrink: 0; }
+
+/* The reason is required, so the field is the widest thing on the row and the
+   confirm stays disabled until it has something in it. */
+.roster-drop { flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+.roster-drop input {
+  flex: 1;
+  min-width: 11rem;
+  padding: 6px var(--s3);
+  font: inherit;
+  font-size: .85rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+}
+.roster-drop input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+/* Someone who has left. Dimmed, but still legible -- it is a record, not noise. */
+.roster-past { opacity: .72; }
+.roster-past .roster-name-btn { font-weight: 500; }
+
+.student-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding-bottom: var(--s4);
+  margin-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.student-head .cell-lines { flex: 1; min-width: 0; }
+.student-photo {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-pill);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+/* A fact that is a problem: no lessons on a class, in the drawer's fact list. */
+.warn-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--warn);
+}
+
+/* Free text somebody typed, given room to breathe rather than squeezed into
+   the fact grid beside a label. */
+.note-block {
+  margin: var(--s3) 0 0;
+  padding: var(--s3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: .88rem;
+  white-space: pre-wrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Editing a record in a drawer
+   --------------------------------------------------------------------------- */
+
+/* Pinned under the scrolling body. The panel is taller than the viewport on
+   most records, so a Save button inside the flow would scroll out of reach. */
+.drawer-foot {
+  flex-shrink: 0;
+  padding: var(--s3) var(--s4);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.drawer-actions { display: flex; align-items: center; gap: var(--s2); }
+.drawer-foot .banner { margin: 0 0 var(--s3); }
+
+/* One control shape for every editable field, sized to the fact grid's second
+   column so switching into edit mode does not reflow the panel. */
+.field {
+  font: inherit;
+  font-size: .9rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px var(--s2);
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+}
+.field:hover { border-color: var(--muted); }
+.field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+textarea.field { resize: vertical; min-height: 4.5rem; line-height: 1.45; }
+select.field { cursor: pointer; }
+
+/* Several inputs standing in for one displayed line -- the guardian's name,
+   phone and email are one <dd> when read and three fields when edited. */
+.field-stack { display: flex; flex-direction: column; gap: var(--s2); }
+
+/* Free text inside the fact grid, wrapped rather than run off the column. */
+.note-inline { display: block; white-space: pre-wrap; }
