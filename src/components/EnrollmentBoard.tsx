@@ -80,9 +80,11 @@ interface Candidate {
   /** Application number and stage, or the student code -- whatever names them. */
   detail: string;
   /**
-   * The programme the application was for. Empty on the All active source,
-   * where the person is reached through the student record and there is no
-   * application to read it from -- a student belongs to no programme.
+   * The programme they are in: off the application on the Applied roll, off
+   * the student record on the All students roll. Empty when the record does
+   * not say -- students.program is not required, and the rows that predate it
+   * have none -- which means "unknown", never "no programme", so a check
+   * against it has to let an empty value pass rather than refuse it.
    */
   programId: string;
 }
@@ -254,7 +256,7 @@ export function EnrollmentBoard({
       studentId: r.id,
       name: str(r[ST.full_name], r.id),
       detail: str(r[ST.student_ref]) || str(r[ST.student_code], '—'),
-      programId: '',
+      programId: refId(r[ST.program]) ?? '',
     }));
   }, [source, admissions, students, refOf]);
 
@@ -562,6 +564,29 @@ export function EnrollmentBoard({
     [],
   );
 
+  /**
+   * May this student go in this class?
+   *
+   * Two ways to not know, and both have to pass rather than refuse. An empty
+   * programme on the student means the record does not say -- students.program
+   * is not required and the rows that predate it have none -- not that they
+   * belong to none. An empty list on the class means the course is in no
+   * programme's catalogue, which is a gap in program_courses rather than a
+   * rule that nobody may take it.
+   *
+   * The card and the write both ask this, so what a class says it will accept
+   * and what it actually accepts cannot drift apart.
+   */
+  const fitsProgramme = useCallback(
+    (classId: string, studentProgramId: string) => {
+      if (studentProgramId === '') return true;
+      const offered = programOf.get(classId) ?? [];
+      if (offered.length === 0) return true;
+      return offered.some((pr) => pr.id === studentProgramId);
+    },
+    [programOf],
+  );
+
   const enroll = useCallback(
     async (klass: RawRecord) => {
       if (busyClass || selected.length === 0) return;
@@ -581,10 +606,25 @@ export function EnrollmentBoard({
         const rows: NewEnrollment[] = [];
         let skippedAlready = 0;
         let skippedNotAdmitted = 0;
+        let skippedOffProgramme = 0;
 
         for (const who of selected) {
           if (admittedIds !== null && !admittedIds.has(who.studentId)) {
             skippedNotAdmitted += 1;
+            continue;
+          }
+          // The programme picker narrows what is on screen; it does not
+          // narrow what may be done. Clearing it, or switching roll, puts
+          // every student next to every class, and nothing here stopped a
+          // Commerce student being dropped into a Life Sciences class -- the
+          // student's own record would then flag the placement as off
+          // programme, after it had already been written.
+          //
+          // Same rule as that flag, so the two cannot disagree: refuse only
+          // when the student's programme is known AND the course lists its
+          // programmes AND this one is not among them.
+          if (!fitsProgramme(klass.id, who.programId)) {
+            skippedOffProgramme += 1;
             continue;
           }
           if (already.has(who.studentId)) {
@@ -632,6 +672,9 @@ export function EnrollmentBoard({
         const notes = [
           skippedAlready > 0 ? `${skippedAlready} already in it` : '',
           skippedNotAdmitted > 0 ? `${skippedNotAdmitted} without an application` : '',
+          skippedOffProgramme > 0
+            ? `${skippedOffProgramme} not on a programme that offers it`
+            : '',
           failed.length > 0 ? `${failed.length} rejected` : '',
         ].filter(Boolean);
 
@@ -649,7 +692,7 @@ export function EnrollmentBoard({
         setBusyClass(null);
       }
     },
-    [busyClass, selected, admittedIds, termId],
+    [busyClass, selected, admittedIds, termId, fitsProgramme],
   );
 
   // Clears itself, because nothing else in this flow would. The timer is keyed
@@ -983,6 +1026,14 @@ export function EnrollmentBoard({
             selected={selected}
             program={programLabel(programOf.get(k.id) ?? [], programCount)}
             alreadyIn={selected.filter((c) => pairsOf.get(c.studentId)?.has(k.id)).length}
+            /* Counted among those not already in it, so the two numbers do
+               not both claim the same student. */
+            offProgramme={
+              selected.filter(
+                (c) =>
+                  !pairsOf.get(c.studentId)?.has(k.id) && !fitsProgramme(k.id, c.programId),
+              ).length
+            }
             busy={busyClass === k.id}
             disabled={busyClass !== null}
             dragOver={dragOver === k.id}
@@ -1356,6 +1407,7 @@ function ClassDrop({
   selected,
   program,
   alreadyIn,
+  offProgramme,
   busy,
   disabled,
   dragOver,
@@ -1368,9 +1420,12 @@ function ClassDrop({
   selected: Candidate[];
   /** The programmes offering it, already summarised for one line by
    *  `programLabel`, with the full list in `title`. Null when it has none. */
-  program: { text: string; title: string } | null;
+  program: { text: string; lead: string; title: string } | null;
   /** How many of the selection are already in this class. */
   alreadyIn: number;
+  /** How many of the rest are on a programme this course is not offered by.
+   *  Disjoint from `alreadyIn`, so the two can be subtracted together. */
+  offProgramme: number;
   busy: boolean;
   disabled: boolean;
   dragOver: boolean;
@@ -1390,7 +1445,7 @@ function ClassDrop({
   // in -- already enrolled, no application -- is reported per student after
   // the attempt rather than blocking the whole set.
   const droppable = selected.length > 0 && !disabled;
-  const placeable = selected.length - alreadyIn;
+  const placeable = selected.length - alreadyIn - offProgramme;
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
   const shift = shiftOf(str(klass[C.start_time]));
 
@@ -1425,9 +1480,15 @@ function ClassDrop({
             {time && <> · {time}</>}
             {str(klass[C.room]) && <> · {str(klass[C.room])}</>}
           </div>
+          {/* "Open to", not the bare list. A course several programmes
+              teach names them all, and a line reading "Life Sciences -
+              Secondary Science" sat where a description of the class would
+              and was read as "this is a Life Sciences class" -- which made
+              a Secondary Science student being placeable here look like a
+              bug. The words say what the list is for: who may take it. */}
           {program && (
             <div className="cell-sub faint" title={program.title}>
-              {program.text}
+              Open to {program.lead}
             </div>
           )}
         </div>
@@ -1455,10 +1516,22 @@ function ClassDrop({
       {selected.length > 0 && (
         <div className="drop-card-action">
           {placeable === 0 ? (
-            <span className="muted cover-mark">
-              <Icon name="check" size={14} />
-              {selected.length === 1 ? 'Already in this class' : 'All already in this class'}
-            </span>
+            /* Say which of the two reasons it is. "Already in this class" on
+               a class the student may not take at all sends them looking for
+               a placement that was never made. */
+            offProgramme > 0 && alreadyIn === 0 ? (
+              <span className="muted cover-mark">
+                <Icon name="alert" size={14} />
+                {selected.length === 1
+                  ? 'Not on their programme'
+                  : 'Not on their programmes'}
+              </span>
+            ) : (
+              <span className="muted cover-mark">
+                <Icon name="check" size={14} />
+                {selected.length === 1 ? 'Already in this class' : 'All already in this class'}
+              </span>
+            )
           ) : (
             <Button
               variant={full ? 'default' : 'primary'}
@@ -1473,8 +1546,13 @@ function ClassDrop({
                   : `Enrol ${placeable}${full ? ' anyway' : ''}`}
             </Button>
           )}
-          {alreadyIn > 0 && placeable > 0 && (
-            <span className="muted cell-sub">{alreadyIn} already in</span>
+          {placeable > 0 && (alreadyIn > 0 || offProgramme > 0) && (
+            <span className="muted cell-sub">
+              {[
+                alreadyIn > 0 ? `${alreadyIn} already in` : '',
+                offProgramme > 0 ? `${offProgramme} off programme` : '',
+              ].filter(Boolean).join(' · ')}
+            </span>
           )}
         </div>
       )}

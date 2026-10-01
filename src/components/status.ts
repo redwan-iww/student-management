@@ -121,10 +121,19 @@ export function shiftOf(startTime: string): '' | 'Morning' | 'Afternoon' | 'Even
 export function programLabel(
   list: { name: string }[],
   total: number,
-): { text: string; title: string } | null {
+): { text: string; lead: string; title: string } | null {
   if (list.length === 0) return null;
   const title = list.map((p) => p.name).join(', ');
-  if (total > 1 && list.length >= total) return { text: 'All programmes', title };
-  if (list.length <= 2) return { text: list.map((p) => p.name).join(' · '), title };
-  return { text: `${list.length} programmes`, title };
+  // `lead` is the same label for a sentence that already began -- "Open to
+  // all programmes" rather than "Open to All programmes". Callers that start
+  // a line with it use `text`; callers that continue one use `lead`.
+  if (total > 1 && list.length >= total) {
+    return { text: 'All programmes', lead: 'all programmes', title };
+  }
+  if (list.length <= 2) {
+    const names = list.map((p) => p.name).join(' · ');
+    return { text: names, lead: names, title };
+  }
+  const n = `${list.length} programmes`;
+  return { text: n, lead: n, title };
 }
