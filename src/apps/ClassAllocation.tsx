@@ -286,7 +286,11 @@ export function ClassAllocation() {
   const windowClosed = enrolmentClosedOn !== '' && enrolmentClosedOn < orgToday();
 
   return (
-    <section>
+    /* tabview, because the board below wants the height the window has left
+       under the title. The shell hands that down the chain and each level has
+       to pass it on; a plain section stops it here and the board has nothing
+       to grow into. */
+    <section className="tabview">
       {/* Above the tab's own heading, via the shell's slot: the enrolment
           window is shut for the whole term, which outranks both the pickers
           that choose what to look at within it and the title of the screen

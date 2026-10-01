@@ -89,10 +89,38 @@ body {
    cards -- on a 2300px monitor the old cap left the work crammed into the
    middle third. The ceiling that remains is only to stop text lines running
    absurdly long on an ultrawide. */
+/* A tab's own content, under the shell's title. Column, and growing, so that
+   the leftover height .page works out is carried down to whichever child asks
+   for it -- the enrolment board does, via its own `flex: 1 0 auto`. Nothing
+   here forces a child to grow, so a tab with no such child is unaffected and
+   simply sits at its content height as before. */
+.tabview {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .page {
   max-width: 120rem;
   margin: 0 auto;
   padding: var(--s5) var(--s4) var(--s6);
+
+  /* A column so that one child can be told to take whatever height is left
+     over. The board is that child: with a short term -- three classes in one
+     row -- the grid stopped at the cards and the student roll collapsed to its
+     own floor, leaving the bottom half of the screen empty under both columns.
+
+     dvh, not vh, so a mobile browser's retracting toolbar does not leave the
+     page permanently taller than the window. border-box keeps the padding
+     inside the height, or the page would overflow by exactly that padding and
+     put a scrollbar on a screen that fits. The vh line is the fallback for a
+     browser without dvh and is deliberately left in front of it. */
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 h1 { font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; margin: 0; }
@@ -943,6 +971,12 @@ textarea:focus-visible {
      is what lets an empty panel in each come out the same size. Lists are
      unaffected -- their cards size to their own content either way. */
   align-items: stretch;
+
+  /* Grow into the rest of the window, never shrink below the content. Basis
+     auto, so a term with more classes than fit still sizes to them and the
+     page scrolls as before -- this only adds height, it never takes any. The
+     student roll picks the extra up through its own `flex: 1 1 0`. */
+  flex: 1 0 auto;
 }
 @media (max-width: 62rem) {
   .board { grid-template-columns: minmax(0, 1fr); }
