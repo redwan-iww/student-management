@@ -103,6 +103,16 @@ entities:
           zoho: { api_name: Name, stock: true },
           note: "Stock display field. Keep in step with first_name + last_name." }
       - { name: student_code, label: Student Code, type: autonumber, format: "STU-{00000}", unique: true }
+      - { name: student_ref, label: Student Ref, type: text, length: 32, unique: true,
+          note: "The readable identity: <programme>-<term>-<application serial>, taken from the
+                 student's FIRST admission, so it never changes as they move between programmes
+                 in later terms. Composed on write, not autonumbered: student_code is an
+                 autonumber and Zoho silently ignores writes to those -- an update reports
+                 SUCCESS and leaves the old value in place." }
+      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null,
+          note: "The programme the student is admitted to, chosen once and fixed -- student_ref is
+                 built from it. Not required at the schema level only because the record can exist
+                 before the decision; the rule is enforced when admitting." }
       - { name: household, label: Household, type: reference, ref: households, required: true, on_delete: restrict }
       - { name: first_name, label: First Name, type: text, length: 60, required: true }
       - { name: last_name, label: Last Name, type: text, length: 60, required: true }
@@ -248,7 +258,7 @@ entities:
       - { name: duration_terms, label: Duration (Terms), type: integer }
       - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
       - { name: courses_count, label: Courses, type: rollup,
-          rollup: { from: courses, via: program, function: count } }
+          rollup: { from: program_courses, via: program, function: count } }
 
   # =========================================================================
   # courses -- catalog entry, independent of when it runs
@@ -277,13 +287,41 @@ entities:
       - { name: name, label: Course Name, type: text, length: 120, required: true,
           zoho: { api_name: Name, stock: true } }
       - { name: course_code, label: Course Code, type: text, length: 30, required: true, unique: true }
-      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null }
       - { name: description, label: Description, type: textarea }
       - { name: level, label: Level, type: enum, enum: academic_level }
       - { name: contact_hours, label: Contact Hours, type: decimal, precision: 6, scale: 2 }
       - { name: default_capacity, label: Default Capacity, type: integer, default: 20 }
       - { name: default_fee, label: Default Fee, type: currency }
       - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
+
+  # =========================================================================
+  # program_courses -- which programmes offer which course
+  # =========================================================================
+  - name: program_courses
+    label: Program Course
+    plural_label: Program Courses
+    description: >
+      Which programmes offer a course, many-to-many. A subject several
+      programmes teach -- Mathematics 101 in both Science and Commerce -- is
+      ONE course with one row here per programme. Before this, courses.program
+      gave a course exactly one programme, so a shared subject had to be
+      duplicated per programme; the copies then drifted into separate codes,
+      classes and enrollments.
+    zoho:
+      module: Program_Courses
+      access_type: org_based
+      singular_label: Program Course
+      plural_label: Program Courses
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Offering Name, type: text, length: 160, required: true,
+          zoho: { api_name: Name, stock: true },
+          note: "Mandatory on every custom module, join-like ones included." }
+      - { name: program, label: Program, type: reference, ref: programs, required: true, on_delete: cascade }
+      - { name: course, label: Course, type: reference, ref: courses, required: true, on_delete: cascade }
+    constraints:
+      - { type: unique, name: uq_program_course, fields: [program, course] }
 
   # =========================================================================
   # admissions -- application pipeline, BEFORE a student record exists

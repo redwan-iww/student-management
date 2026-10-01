@@ -29,6 +29,8 @@ erDiagram
     STUDENTS {
         text full_name "required"
         autonumber student_code "unique"
+        text student_ref "unique"
+        FK_programs program
         FK_households household "required"
         text first_name "required"
         text last_name "required"
@@ -86,13 +88,17 @@ erDiagram
     COURSES {
         text name "required"
         text course_code "required,unique"
-        FK_programs program
         textarea description
         enum level
         decimal contact_hours
         integer default_capacity
         currency default_fee
         enum status "required"
+    }
+    PROGRAM_COURSES {
+        text name "required"
+        FK_programs program "required"
+        FK_courses course "required"
     }
     ADMISSIONS {
         text name "required"
@@ -189,9 +195,11 @@ erDiagram
         textarea remarks
     }
 
+    PROGRAMS |o--o{ STUDENTS : "program"
     HOUSEHOLDS ||--o{ STUDENTS : "household"
     TERMS |o--o{ HOLIDAYS : "term"
-    PROGRAMS |o--o{ COURSES : "program"
+    PROGRAMS ||--o{ PROGRAM_COURSES : "program"
+    COURSES ||--o{ PROGRAM_COURSES : "course"
     HOUSEHOLDS |o--o{ ADMISSIONS : "household"
     STUDENTS |o--o{ ADMISSIONS : "student"
     TERMS ||--o{ ADMISSIONS : "term"
@@ -223,6 +231,7 @@ erDiagram
 - **Term** (`terms`) — An academic term/session. Classes and enrollments are scoped to one.
 - **Holiday** (`holidays`) — A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.
 - **Course** (`courses`) — What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
+- **Program Course** (`program_courses`) — Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
 - **Admission** (`admissions`) — An application. Applicant details are held inline because no student row exists until the application is accepted; `student` is back-filled then.
 - **Class** (`classes`) — A section/batch: course x term x weekly timetable. NOT a dated lesson -- that is `class_sessions`. Attendance never attaches here.
 - **Class Session** (`class_sessions`) — A single dated meeting of a class, generated from the weekly pattern on `classes`. teacher_taken records who actually ran it, which may differ from the class primary_teacher (substitutions).

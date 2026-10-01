@@ -116,19 +116,6 @@
       "_entity_field": "status"
     }
   ],
-  "lookup_fields": [
-    {
-      "field_label": "Program",
-      "api_name": "Program",
-      "data_type": "lookup",
-      "lookup": {
-        "module": {
-          "api_name": "Academic_Programs"
-        },
-        "display_label": "Courses"
-      },
-      "_entity_field": "program"
-    }
-  ],
+  "lookup_fields": [],
   "relabel_stock_fields": []
 }

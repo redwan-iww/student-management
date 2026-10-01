@@ -16,6 +16,16 @@
       "enforcement": "Zoho validation rule on the listed expression."
     },
     {
+      "_entity": "program_courses",
+      "module": "Program_Courses",
+      "name": "uq_program_course",
+      "fields": [
+        "Program",
+        "Course"
+      ],
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Program + Course); reject when count > 0."
+    },
+    {
       "_entity": "classes",
       "module": "Classes",
       "name": "class_dates_ordered",

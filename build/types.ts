@@ -369,6 +369,8 @@ export interface Student {
   id: string;
   full_name: string;
   student_code?: string;
+  student_ref?: string;
+  program?: ZohoRef;
   household: ZohoRef;
   first_name: string;
   last_name: string;
@@ -454,13 +456,23 @@ export interface Course {
   id: string;
   name: string;
   course_code: string;
-  program?: ZohoRef;
   description?: string;
   level?: AcademicLevel;
   contact_hours?: number;
   default_capacity?: number;
   default_fee?: number;
   status: CatalogStatus;
+}
+
+/**
+ * Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
+ * Zoho module: Program_Courses
+ */
+export interface ProgramCourse {
+  id: string;
+  name: string;
+  program: ZohoRef;
+  course: ZohoRef;
 }
 
 /**
@@ -649,6 +661,8 @@ export const ZOHO_MODULES = {
     fields: {
       full_name: 'Name',
       student_code: 'Student_Code',
+      student_ref: 'Student_Ref',
+      program: 'Program',
       household: 'Household',
       first_name: 'First_Name',
       last_name: 'Last_Name',
@@ -728,13 +742,21 @@ export const ZOHO_MODULES = {
     fields: {
       name: 'Name',
       course_code: 'Course_Code',
-      program: 'Program',
       description: 'Description',
       level: 'Level',
       contact_hours: 'Contact_Hours',
       default_capacity: 'Default_Capacity',
       default_fee: 'Default_Fee',
       status: 'Status',
+    },
+  },
+  program_courses: {
+    module: 'Program_Courses',
+    displayField: 'Name',
+    fields: {
+      name: 'Name',
+      program: 'Program',
+      course: 'Course',
     },
   },
   admissions: {
@@ -873,6 +895,7 @@ export interface EntityTypes {
   holidays: Holiday;
   programs: Program;
   courses: Course;
+  program_courses: ProgramCourse;
   admissions: Admission;
   classes: Class;
   class_sessions: ClassSession;

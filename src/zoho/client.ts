@@ -314,12 +314,20 @@ function assertWrote(res: ZohoApiResponse, what: string): string {
 // Catalog / calendar
 // ---------------------------------------------------------------------------
 
-/** Terms currently worth showing: open for enrollment or running. */
+/**
+ * Terms worth showing in the picker: running, open for enrollment, or finished.
+ *
+ * Closed is included deliberately. A term that has ended still has a roster, a
+ * register and results behind it, and the staffing and enrolment views are the
+ * only way to look at them -- excluding it made last term unreachable the day
+ * it ended. Archived is the status for a term that should drop out of the
+ * picker, and that one is still excluded.
+ */
 export async function getActiveTerms(): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.terms;
   const recs = await search(
     module,
-    `((${fields.status}:equals:Open)or(${fields.status}:equals:In Progress))`,
+    `((${fields.status}:equals:Open)or(${fields.status}:equals:In Progress)or(${fields.status}:equals:Closed))`,
   );
   return recs.sort((a, b) => str(a[fields.start_date]).localeCompare(str(b[fields.start_date])));
 }
@@ -468,28 +476,43 @@ export async function getClassSession(sessionId: string): Promise<RawRecord | nu
   return rows(res)[0] ?? null;
 }
 
-/** Active enrollments for a class -- the roster the attendance sheet renders. */
+/**
+ * The people in a class -- the roster the attendance sheet renders.
+ *
+ * "In" means Active or Completed. A term that has finished leaves Completed
+ * enrolments behind, and its registers are still worth opening: excluding
+ * them showed "No students enrolled" over a class that ran all term and has a
+ * register for every session of it.
+ */
+export const PLACED_STATUSES = ['Active', 'Completed'] as const;
+
 export async function getEnrollmentsForClass(
   classId: string,
   /**
-   * The register wants only the students it should be marking, so this
-   * defaults to Active. The duplicate guard wants every row, because a
-   * Dropped enrollment still occupies the (student, class) pair that
-   * uq_enrollment_student_class is supposed to keep unique.
+   * The register wants the students it should be marking -- or, on a finished
+   * class, reviewing -- so this defaults to true. The duplicate guard wants
+   * every row, because a Dropped enrollment still occupies the (student,
+   * class) pair that uq_enrollment_student_class is supposed to keep unique.
    */
-  activeOnly = true,
+  placedOnly = true,
 ): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.enrollments;
   const related = await relatedRecords(ZOHO_MODULES.classes.module, classId, [
     module,
     fields.class,
   ]);
-  // The related list carries every enrollment, so the Active filter that the
-  // search criteria applied server-side is applied here instead.
-  if (related) return activeOnly ? related.filter((r) => str(r[fields.status]) === 'Active') : related;
+  const placed = (r: RawRecord) =>
+    (PLACED_STATUSES as readonly string[]).includes(str(r[fields.status]));
 
-  return activeOnly
-    ? search(module, `((${fields.class}:equals:${classId})and(${fields.status}:equals:Active))`)
+  // The related list carries every enrollment, so the status filter that the
+  // search criteria applied server-side is applied here instead.
+  if (related) return placedOnly ? related.filter(placed) : related;
+
+  return placedOnly
+    ? search(
+        module,
+        `((${fields.class}:equals:${classId})and((${fields.status}:equals:Active)or(${fields.status}:equals:Completed)))`,
+      )
     : search(module, `(${fields.class}:equals:${classId})`);
 }
 
@@ -876,6 +899,28 @@ export async function getCourses(): Promise<RawRecord[]> {
 }
 
 /**
+ * Which programmes offer which course.
+ *
+ * The whole junction in one read, not a query per course: it is a few dozen
+ * rows for a catalogue of this size, and every caller wants the mapping as a
+ * whole rather than one course's programmes.
+ *
+ * A course belongs to as many programmes as offer it -- Mathematics 101 is one
+ * course taught in several streams, not a copy per stream.
+ */
+export async function getProgramCourses(): Promise<RawRecord[]> {
+  const { module } = ZOHO_MODULES.program_courses;
+  // Every row, so this reads the module rather than searching it: a search
+  // needs criteria and there is no criterion meaning "all". `not_equal:null`
+  // on a lookup is not one -- Zoho rejects it with
+  // "INVALID_QUERY: Invalid query formed: (field: Course)".
+  // The table is small: one row per programme that offers a course.
+  return pageThrough(`all ${module}`, (page) =>
+    zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
+  );
+}
+
+/**
  * Removes an enrolment outright.
  *
  * Deleted, not marked `Dropped`. A Dropped row still occupies the
@@ -961,6 +1006,74 @@ export async function updateAdmission(
   payload: Record<string, unknown>,
 ): Promise<void> {
   await updateOne(ZOHO_MODULES.admissions.module, admissionId, payload, 'admission update');
+}
+
+/**
+ * The family behind a student.
+ *
+ * `households` is the stock Contacts module wearing custom fields, so the
+ * api_names are a mix: Last_Name carries the family name and the address is
+ * Zoho's own Mailing_* set, while the guardians and billing are custom. The
+ * generated field map is the only place that knows which is which.
+ *
+ * Fetched rather than joined: a student's lookup carries the household's id
+ * and name and nothing else, and COQL cannot reach through it to the contact
+ * details -- the same two-hop limit that shaped enrollments.course/term.
+ */
+export async function getHousehold(householdId: string): Promise<RawRecord | null> {
+  const { module } = ZOHO_MODULES.households;
+  const res = await zoho().CRM.API.getRecord({ Entity: module, RecordID: householdId });
+  return rows(res)[0] ?? null;
+}
+
+/** Saves edits to one household. Same contract as updateStudent. */
+export async function updateHousehold(
+  householdId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await updateOne(ZOHO_MODULES.households.module, householdId, payload, 'household update');
+}
+
+/**
+ * Every class one student has been put in, across every term.
+ *
+ * Not scoped to the selected term on purpose: the question this answers is
+ * "what has this child taken", and the answer runs backwards through terms
+ * that are over. Course and term are denormalized onto the enrolment -- the
+ * `derived_from` pair -- so one read carries the subject and the term with it
+ * and no second hop is needed.
+ *
+ * Read through the relationship first, which sees a placement made moments
+ * ago; the search index does not.
+ */
+export async function getEnrollmentsForStudent(studentId: string): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.enrollments;
+  const recs =
+    (await relatedRecords(ZOHO_MODULES.students.module, studentId, [module, fields.student])) ??
+    (await search(module, `(${fields.student}:equals:${studentId})`));
+
+  // Newest first: the term they are in now matters more than the one they
+  // finished a year ago.
+  return recs.sort((a, b) =>
+    str(b[fields.enrolled_on]).localeCompare(str(a[fields.enrolled_on])),
+  );
+}
+
+/**
+ * Every attendance mark for one student, across every class and term.
+ *
+ * `attendance.student` is denormalized off the enrolment for exactly this:
+ * one read answers "how often has this child turned up", where going via the
+ * classes would be one request per class. The caller groups by enrolment.
+ *
+ * Through the relationship, so a mark saved moments ago is included.
+ */
+export async function getAttendanceForStudent(studentId: string): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.attendance;
+  return (
+    (await relatedRecords(ZOHO_MODULES.students.module, studentId, [module, fields.student])) ??
+    (await search(module, `(${fields.student}:equals:${studentId})`))
+  );
 }
 
 /** One student record in full -- the list reads carry only a lookup's id and name. */

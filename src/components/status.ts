@@ -101,3 +101,30 @@ export function shiftOf(startTime: string): '' | 'Morning' | 'Afternoon' | 'Even
   if (padded < '17:00') return 'Afternoon';
   return 'Evening';
 }
+
+/**
+ * How a class's programmes read on one line.
+ *
+ * A course belongs to every programme that teaches it, and the common ones --
+ * English, Maths -- belong to all of them. Printing the list put four names on
+ * a class card and buried the thing the card is actually for: the name, the
+ * time and the room. Worse, it said the least where it took the most room,
+ * since "offered everywhere" is the one case that distinguishes nothing.
+ *
+ * So the list collapses once it stops being a useful distinction. The full
+ * list goes in `title` either way, and the panel behind the card still spells
+ * it out in full, so nothing is only ever a tooltip.
+ *
+ * `total` is how many programmes exist in the term. Pass 0 if unknown -- the
+ * "all of them" case is then simply not detected and the count is shown.
+ */
+export function programLabel(
+  list: { name: string }[],
+  total: number,
+): { text: string; title: string } | null {
+  if (list.length === 0) return null;
+  const title = list.map((p) => p.name).join(', ');
+  if (total > 1 && list.length >= total) return { text: 'All programmes', title };
+  if (list.length <= 2) return { text: list.map((p) => p.name).join(' · '), title };
+  return { text: `${list.length} programmes`, title };
+}

@@ -39,7 +39,7 @@
       "data_type": "integer",
       "rollup_summary": {
         "based_on": {
-          "api_name": "Course_Catalog"
+          "api_name": "Program_Courses"
         },
         "linking_field": "Program",
         "function": "count"

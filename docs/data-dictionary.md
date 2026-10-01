@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE -- do not edit. Source: schema/model.yaml (npm run gen:docs) -->
 
-13 entities. Rollup fields are derived — they exist as a Zoho
+14 entities. Rollup fields are derived — they exist as a Zoho
 rollup summary field, never as stored data.
 
 ## Household — `households`
@@ -43,6 +43,8 @@ Zoho module `Students` (extend_custom)
 |---|---|:-:|:-:|---|---|
 | `full_name` | text | ✓ |  | `Name` | Stock display field. Keep in step with first_name + last_name. |
 | `student_code` | autonumber |  | ✓ | `Student_Code` |  |
+| `student_ref` | text |  | ✓ | `Student_Ref` | The readable identity: <programme>-<term>-<application serial>, taken from the student's FIRST admission, so it never changes as they move between programmes in later terms. Composed on write, not autonumbered: student_code is an autonumber and Zoho silently ignores writes to those -- an update reports SUCCESS and leaves the old value in place. |
+| `program` | reference → `programs` |  |  | `Program` | The programme the student is admitted to, chosen once and fixed -- student_ref is built from it. Not required at the schema level only because the record can exist before the decision; the rule is enforced when admitting. |
 | `household` | reference → `households` | ✓ |  | `Household` |  |
 | `first_name` | text | ✓ |  | `First_Name` |  |
 | `last_name` | text | ✓ |  | `Last_Name` |  |
@@ -131,7 +133,7 @@ Zoho module `Academic_Programs` (create)
 | `level` | enum `academic_level` |  |  | `Level` |  |
 | `duration_terms` | integer |  |  | `Duration_Terms` |  |
 | `status` | enum `catalog_status` | ✓ |  | `Status` | default `Active` |
-| `courses_count` | rollup(count of `courses`) |  |  | _(rollup)_ |  |
+| `courses_count` | rollup(count of `program_courses`) |  |  | _(rollup)_ |  |
 
 ## Course — `courses`
 
@@ -143,13 +145,28 @@ Zoho module `Course_Catalog` (create)
 |---|---|:-:|:-:|---|---|
 | `name` | text | ✓ |  | `Name` |  |
 | `course_code` | text | ✓ | ✓ | `Course_Code` |  |
-| `program` | reference → `programs` |  |  | `Program` |  |
 | `description` | textarea |  |  | `Description` |  |
 | `level` | enum `academic_level` |  |  | `Level` |  |
 | `contact_hours` | decimal |  |  | `Contact_Hours` |  |
 | `default_capacity` | integer |  |  | `Default_Capacity` | default `20` |
 | `default_fee` | currency |  |  | `Default_Fee` |  |
 | `status` | enum `catalog_status` | ✓ |  | `Status` | default `Active` |
+
+## Program Course — `program_courses`
+
+Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
+
+Zoho module `Program_Courses` (create)
+
+| Field | Type | Req | Unique | Zoho api_name | Notes |
+|---|---|:-:|:-:|---|---|
+| `name` | text | ✓ |  | `Name` | Mandatory on every custom module, join-like ones included. |
+| `program` | reference → `programs` | ✓ |  | `Program` |  |
+| `course` | reference → `courses` | ✓ |  | `Course` |  |
+
+**Constraints**
+
+- `uq_program_course` — unique (program, course)
 
 ## Admission — `admissions`
 

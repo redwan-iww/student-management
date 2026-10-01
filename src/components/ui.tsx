@@ -37,6 +37,7 @@ const PATHS = {
   slash: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM5.6 5.6l12.8 12.8',
   close: 'M18 6L6 18M6 6l12 12',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16v-4.5M12 8h.01',
+  pencil: 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -296,15 +297,22 @@ export function EmptyState({
 export function Banner({
   tone = 'warn',
   icon = 'alert',
+  compact = false,
   children,
 }: {
   tone?: 'warn' | 'info' | 'error';
   icon?: IconName;
+  /**
+   * A single tight line instead of a padded block. For a standing condition
+   * that has to stay on screen the whole time -- a closed enrolment window --
+   * where the full-size banner spends most of its height saying nothing.
+   */
+  compact?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className={`banner banner-${tone}`}>
-      <Icon name={icon} size={18} />
+    <div className={`banner banner-${tone}${compact ? ' banner-compact' : ''}`}>
+      <Icon name={icon} size={compact ? 14 : 18} />
       <p>{children}</p>
     </div>
   );
@@ -358,22 +366,40 @@ export function Toast({
  * page behind it stops scrolling, which is the least a dialog owes a keyboard
  * or screen-reader user.
  */
+/* Drawers replace each other: one closes in the same commit the next one
+   opens, and React is free to run the new panel's effect before the old
+   panel's cleanup. Saving and restoring body.overflow per drawer loses that
+   race -- the second drawer records the first drawer's own 'hidden' as the
+   value to go back to, and the page stays locked after the last one closes.
+
+   So the lock is counted rather than saved per panel, and only the drawer
+   that takes the count from nothing to one records what to restore. */
+let scrollLocks = 0;
+let scrollWas = '';
+
+function lockScroll() {
+  if (scrollLocks === 0) {
+    scrollWas = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  scrollLocks += 1;
+}
+
+function unlockScroll() {
+  scrollLocks = Math.max(0, scrollLocks - 1);
+  if (scrollLocks === 0) document.body.style.overflow = scrollWas;
+}
+
 export function Drawer({
   title,
   subtitle,
   onClose,
   children,
-  footer,
 }: {
   title: string;
   subtitle?: ReactNode;
   onClose: () => void;
   children: ReactNode;
-  /**
-   * Pinned below the scrolling body rather than inside it: a Save button that
-   * scrolls away is a Save button you have to go looking for.
-   */
-  footer?: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
 
@@ -382,11 +408,10 @@ export function Drawer({
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    lockScroll();
     return () => {
       window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = previous;
+      unlockScroll();
     };
   }, [onClose]);
 
@@ -417,7 +442,6 @@ export function Drawer({
           </Button>
         </header>
         <div className="drawer-body">{children}</div>
-        {footer && <footer className="drawer-foot">{footer}</footer>}
       </div>
     </div>
   );

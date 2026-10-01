@@ -204,7 +204,11 @@ tr.ended td { opacity: .55; }
 
 /* Two lines in one cell: a title and its subtitle, without a nested table. */
 .cell-stack { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
-.cell-lines { min-width: 0; }
+/* A stacked label: a title with a quieter line under it.
+   Must stack itself rather than rely on its children being block-level -- in
+   the roster the title is a <button> and the sub is a <span>, both inline, so
+   without this they ran together as "Rafi AhmedNo marks yet". */
+.cell-lines { display: flex; flex-direction: column; min-width: 0; }
 .cell-title { font-weight: 550; }
 .cell-sub { font-size: .8rem; color: var(--muted); }
 
@@ -400,6 +404,10 @@ input:focus-visible,
   align-items: center;
 }
 .toolbar-page { margin-bottom: var(--s4); }
+/* Pushed to the far end of the row. Two segmented controls sitting shoulder to
+   shoulder read as one four-way control; the gap says they are separate
+   questions. Wraps to its own line before it would crowd the pickers. */
+.toolbar-end { margin-left: auto; }
 .toolbar label { display: inline-flex; align-items: center; gap: var(--s2); }
 
 /* Label above the control rather than beside it, for the form row in the
@@ -542,6 +550,23 @@ select:hover, input:hover { border-color: var(--muted); }
 .banner-warn { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
 .banner-info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-dark); }
 .banner-error { background: var(--danger-soft); border-color: var(--danger-line); color: var(--danger); }
+
+/* The same banner, reduced to one line.
+   A standing condition -- the enrolment window is shut, and stays shut for as
+   long as this term is selected -- sits above the class list the whole time,
+   so the block version spends most of its height on padding above a column
+   the user is trying to read. Tone, border and icon are kept: it is still a
+   banner, just not a paragraph. Text still wraps if the column is narrow
+   rather than being clipped. */
+.banner-compact {
+  gap: var(--s2);
+  align-items: center;
+  padding: 5px var(--s3);
+  margin-bottom: var(--s3);
+  font-size: .82rem;
+  line-height: 1.35;
+}
+.banner-compact svg { margin-top: 0; }
 
 /* The dev-proxy marker. Previously a full-bleed yellow strip that doubled as a
    general warning banner; now a chip in the header, so the two can differ. */
@@ -931,13 +956,13 @@ textarea:focus-visible {
    banner across the board rather than as a heading over each column. */
 .board-head {
   display: flex;
-  /* One line. The student column is capped at 24rem now, so the heading and
-     the source toggle no longer fit side by side by default -- the heading
-     gives way instead of the row breaking in two. */
-  flex-wrap: nowrap;
+  /* Wraps now. The roll toggle that forced one line has gone up to the page
+     toolbar; what shares the row instead -- the filter and Select all -- is
+     better off breaking onto a second line in a narrow column than being
+     crushed against the heading. */
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s3);
+  gap: var(--s2) var(--s3);
   min-height: 38px;
   padding-bottom: var(--s2);
   margin-bottom: var(--s2);
@@ -1185,6 +1210,22 @@ textarea:focus-visible {
    the DOM, positioned into it. Geometry comes from ROW_H in the component --
    nothing here may set a row height or the two would drift apart. */
 .board-list {
+  /* Fills whatever the column has left after the heading and the search box,
+     so the list is as tall as the class grid beside it rather than stopping at
+     a fixed 560px.
+
+     The basis must be 0, not auto. With `auto` the item's base size is its
+     own content -- and the content here is every row the windowing pretends
+     exists, a thousand students being ~68,000px. The column then grew to fit
+     that, the grid stretched the row to match, and the student list ran far
+     past the classes beside it. At basis 0 the item asks for nothing and takes
+     only the space the column has left, which is what makes the class grid the
+     side that decides the height.
+
+     min-height is the floor for the case the grid is shorter than the list,
+     so a single filtered class does not squash the roll to nothing. */
+  flex: 1 1 0;
+  min-height: 20rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Room for the scrollbar without it sitting on top of the cards. */
@@ -1205,12 +1246,28 @@ textarea:focus-visible {
 }
 
 /* Opt-in worklist filter in the students column. */
+/* Pushed to the end of the heading row, so the action sits clear of the
+   label and the filter that precede it. */
+.board-tools-end { margin-left: auto; }
+
 .board-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: var(--s2);
-  font-size: .84rem;
+  font-size: .82rem;
   color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.board-toggle:hover { color: var(--fg); }
+
+/* The UA checkbox is the wrong size and the wrong blue next to the green tick
+   boxes on the cards below it. */
+.board-toggle input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -1488,16 +1545,59 @@ textarea:focus-visible {
    Editing a record in a drawer
    --------------------------------------------------------------------------- */
 
-/* Pinned under the scrolling body. The panel is taller than the viewport on
-   most records, so a Save button inside the flow would scroll out of reach. */
-.drawer-foot {
+/* A fact and its pencil. Quiet, but never invisible: hiding it until hover
+   would put it out of reach entirely on a touch screen, where there is no
+   hover to reveal it. So it sits at --faint always and firms up on hover and
+   focus, which keeps a column of pencils from reading louder than the values
+   they are there to edit. */
+.fact-row { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; }
+.fact-row .fact-value { flex: 1; min-width: 0; }
+
+/* Value and pencil share a line; the editor replaces that line in place. */
+.fact-row:not(.is-editing) { flex-direction: row; align-items: center; gap: var(--s2); }
+
+.fact-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  padding: var(--s3) var(--s4);
-  background: var(--surface);
-  border-top: 1px solid var(--line);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--faint);
+  cursor: pointer;
+  transition: color .12s ease, background .12s ease;
 }
-.drawer-actions { display: flex; align-items: center; gap: var(--s2); }
-.drawer-foot .banner { margin: 0 0 var(--s3); }
+.facts:hover .fact-edit,
+.drawer-section:hover .fact-edit { color: var(--muted); }
+.fact-edit:hover { background: var(--surface-3); color: var(--fg); }
+.fact-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  color: var(--fg);
+}
+
+/* The input and its two buttons, kept on one line and allowed to wrap on a
+   narrow panel rather than pushing the grid wider than the drawer. */
+.fact-input { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.fact-input .field { flex: 1; min-width: 8rem; }
+
+/* The write failed, and it failed here -- not as a banner about the record. */
+.field-error {
+  display: block;
+  margin-top: var(--s1);
+  color: var(--danger);
+  font-size: .8rem;
+  line-height: 1.4;
+}
+
+/* A section heading that carries its own edit control. */
+.section-head { display: flex; align-items: center; gap: var(--s2); }
+.section-head h3 { margin: 0; }
+.note-actions { display: flex; gap: var(--s2); margin-top: var(--s2); }
 
 /* One control shape for every editable field, sized to the fact grid's second
    column so switching into edit mode does not reflow the panel. */
@@ -1521,9 +1621,60 @@ textarea:focus-visible {
 textarea.field { resize: vertical; min-height: 4.5rem; line-height: 1.45; }
 select.field { cursor: pointer; }
 
-/* Several inputs standing in for one displayed line -- the guardian's name,
-   phone and email are one <dd> when read and three fields when edited. */
-.field-stack { display: flex; flex-direction: column; gap: var(--s2); }
-
 /* Free text inside the fact grid, wrapped rather than run off the column. */
 .note-inline { display: block; white-space: pre-wrap; }
+
+/* The household's number, surfaced where the student's own is missing. */
+.fallback-note {
+  margin: var(--s2) 0 0;
+  padding-top: var(--s2);
+  border-top: 1px dashed var(--line);
+  font-size: .85rem;
+}
+
+/* Slot above the tab heading. Empty on every screen that has nothing to say
+   there, so it must take no room at all rather than a collapsed margin. */
+.page-notice:empty { display: none; }
+
+/* Full-bleed: pulled out through the page's own padding so it meets the top
+   and both edges, with only the gap under it left to separate it from the
+   heading. The negative margins mirror .page's padding exactly -- change one
+   and the other has to follow. */
+.page-notice {
+  margin-top: calc(var(--s5) * -1);
+  margin-left: calc(var(--s4) * -1);
+  margin-right: calc(var(--s4) * -1);
+  margin-bottom: var(--s4);
+}
+/* The slot owns the spacing below it, so the banner inside drops its own.
+   Square, too: rounded corners on something flush to the page edges leave a
+   notch at each top corner rather than reading as a deliberate card. */
+.page-notice .banner {
+  margin-bottom: 0;
+  border-radius: 0;
+}
+
+/* The destructive one of the pair. Quiet until hovered, like its sibling, but
+   it turns red rather than neutral -- Drop and Delete sit side by side and
+   only one of them cannot be undone. */
+.roster-delete:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+/* One term's classes, under its own heading. */
+.term-group { margin-bottom: var(--s3); }
+.term-group:last-child { margin-bottom: 0; }
+.term-group h4 {
+  margin: 0 0 var(--s2);
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Totals for the classes on screen, directly under the heading. */
+.totals-line { margin: 0 0 var(--s3); font-size: .82rem; }
+.section-head-end { margin-left: auto; }

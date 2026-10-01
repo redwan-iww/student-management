@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader, useDelayed } from './Loader';
 import { Card } from './ui';
 import { describeError } from '../zoho/client';
@@ -42,6 +43,28 @@ const REMEDY: Record<HandshakeFailure, { headline: string; detail: string }> = {
 };
 
 /**
+ * The element a PageNotice renders into, published by the shell.
+ *
+ * Null until the shell has mounted and handed over its node, which is why the
+ * portal is guarded below rather than assumed.
+ */
+const NoticeSlot = createContext<HTMLElement | null>(null);
+
+/**
+ * Puts its children above the page title, from anywhere inside the page.
+ *
+ * The tab's heading belongs to the shell, and the screens render as its
+ * children -- strictly below it. A notice that outranks the title therefore
+ * cannot get there by nesting, so it is portalled into a slot the shell keeps
+ * above its own header. Rendered where it belongs in the tree, so the state it
+ * depends on stays where it is computed.
+ */
+export function PageNotice({ children }: { children: ReactNode }) {
+  const host = useContext(NoticeSlot);
+  return host ? createPortal(children, host) : null;
+}
+
+/**
  * Common chrome for both web tabs: waits for the CRM handshake, then renders.
  *
  * A web tab gets no record context from PageLoad, so unlike a detail-view
@@ -49,6 +72,9 @@ const REMEDY: Record<HandshakeFailure, { headline: string; detail: string }> = {
  */
 export function TabShell({ title, children }: { title: string; children: ReactNode }) {
   const [state, setState] = useState<State>({ kind: 'init' });
+  // A callback ref rather than useRef: the portal needs a render once the node
+  // exists, and a ref object mutating would not cause one.
+  const [noticeHost, setNoticeHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +117,9 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
 
   return (
     <main className="page">
+      {/* Sits above the heading and collapses to nothing when unused. */}
+      <div className="page-notice" ref={setNoticeHost} />
+
       <header className="tabhead">
         <h1>{title}</h1>
         {/* The dev-proxy marker rides in the header rather than sitting as a
@@ -144,7 +173,9 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
       )}
 
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
-      {(state.kind === 'ready' || state.kind === 'ready-live') && children}
+      {(state.kind === 'ready' || state.kind === 'ready-live') && (
+        <NoticeSlot.Provider value={noticeHost}>{children}</NoticeSlot.Provider>
+      )}
     </main>
   );
 }

@@ -17,6 +17,7 @@ drift check.
 | `holidays` | `Holidays` | create |  |
 | `programs` | `Academic_Programs` | create | Zoho rejects "Program"/"Programs" as a module name -- "You cannot have a module name that matches a system keyword" (hit 2026-09-19 creating this module in demo3). Both the labels and the api_name have to change, unlike Course_Catalog where only the api_name did. The canonical entity stays `programs` and SQL/TypeScript are unaffected. |
 | `courses` | `Course_Catalog` | create | api_name is Course_Catalog, not Courses: CustomModule2 already holds the Courses api_name. Audited 2026-09-14 and re-verified 2026-09-19 against demo3 (id 4731441000000553422) -- that module is status user_hidden and COQL returns NO_PERMISSION, so it can be neither read nor safely reused. User-facing labels stay Course / Courses. |
+| `program_courses` | `Program_Courses` | create |  |
 | `admissions` | `Admissions` | create |  |
 | `classes` | `Classes` | create |  |
 | `class_sessions` | `Class_Sessions` | create |  |
@@ -59,6 +60,8 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 |---|---|---|:-:|
 | `full_name` | `Name` | text | ✓ |
 | `student_code` | `Student_Code` | autonumber |  |
+| `student_ref` | `Student_Ref` | text |  |
+| `program` | `Program` | lookup → `Academic_Programs` |  |
 | `household` | `Household` | lookup → `Contacts` |  |
 | `first_name` | `First_Name` | text |  |
 | `last_name` | `Last_Name` | text |  |
@@ -133,13 +136,20 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 |---|---|---|:-:|
 | `name` | `Name` | text | ✓ |
 | `course_code` | `Course_Code` | text |  |
-| `program` | `Program` | lookup → `Academic_Programs` |  |
 | `description` | `Description` | textarea |  |
 | `level` | `Level` | picklist |  |
 | `contact_hours` | `Contact_Hours` | double |  |
 | `default_capacity` | `Default_Capacity` | integer |  |
 | `default_fee` | `Default_Fee` | currency |  |
 | `status` | `Status` | picklist |  |
+
+### Program_Courses — `program_courses`
+
+| Field | Zoho api_name | Zoho data_type | Stock? |
+|---|---|---|:-:|
+| `name` | `Name` | text | ✓ |
+| `program` | `Program` | lookup → `Academic_Programs` |  |
+| `course` | `Course` | lookup → `Course_Catalog` |  |
 
 ### Admissions — `admissions`
 
@@ -262,6 +272,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 
 - **Check** `Terms`.`term_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Holidays`.`holiday_dates_ordered` — `end_date IS NULL OR end_date >= start_date` — implement as a Zoho validation rule.
+- **Composite unique** `Program_Courses` (program + course) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Check** `Classes`.`class_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Classes`.`class_capacity_positive` — `capacity > 0` — implement as a Zoho validation rule.
 - **Time-only field** `Classes`.`Start_Time` — stored as `HH:MM` text.
@@ -285,16 +296,17 @@ Lookups need their target module to exist, so modules are created in this order:
 
 ```
 Contacts
-  -> Students
   -> Teachers
   -> Terms
   -> Holidays
   -> Academic_Programs
   -> Course_Catalog
-  -> Admissions
+  -> Program_Courses
   -> Classes
   -> Class_Sessions
-  -> Enrollments
   -> Allocations
+  -> Students
+  -> Admissions
+  -> Enrollments
   -> Attendance
 ```

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader, ButtonBusy, useDelayed } from '../components/Loader';
 import { Avatar, Badge, Banner, Button, Card, Chip, EmptyState, Icon } from '../components/ui';
-import { allocationTone, classTone, shortDays } from '../components/status';
-import { EnrollmentBoard } from '../components/EnrollmentBoard';
+import { allocationTone, classTone, programLabel, shortDays } from '../components/status';
+import { EnrollmentBoard, type Source } from '../components/EnrollmentBoard';
+import { PageNotice } from '../components/TabShell';
 import {
   ZOHO_MODULES,
   ALLOCATION_ROLE_VALUES,
@@ -15,7 +16,7 @@ import {
   getActiveTerms,
   getAllocationsForClass,
   getClassesForTerm,
-  getCourses,
+  getProgramCourses,
   getSessionsForClass,
   getTeachers,
   int,
@@ -33,7 +34,7 @@ const T = ZOHO_MODULES.terms.fields;
 const TE = ZOHO_MODULES.teachers.fields;
 const AL = ZOHO_MODULES.allocations.fields;
 const S = ZOHO_MODULES.class_sessions.fields;
-const CO = ZOHO_MODULES.courses.fields;
+const PC = ZOHO_MODULES.program_courses.fields;
 
 /**
  * What one allocation covers.
@@ -61,7 +62,8 @@ export function ClassAllocation() {
   const [teachers, setTeachers] = useState<RawRecord[]>([]);
   // The course catalogue, read once: it is how a class reaches its programme,
   // and it does not change when the term does.
-  const [courses, setCourses] = useState<RawRecord[]>([]);
+  // Which programmes offer which course -- the junction, read whole.
+  const [offerings, setOfferings] = useState<RawRecord[]>([]);
   // Which department's classes to show. Empty means all of them. Lives here
   // rather than in the board because it sits beside the term picker and
   // narrows both views.
@@ -78,12 +80,14 @@ export function ClassAllocation() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getActiveTerms(), getTeachers(), getCourses()])
-      .then(([ts, teach, cat]) => {
+    // The course catalogue itself is no longer read here: the programme walk
+    // goes through the junction, which already names both sides.
+    Promise.all([getActiveTerms(), getTeachers(), getProgramCourses()])
+      .then(([ts, teach, offers]) => {
         if (cancelled) return;
         setTerms(ts);
         setTeachers(teach);
-        setCourses(cat);
+        setOfferings(offers);
         if (ts.length > 0) setTermId(currentTerm(ts));
       })
       .catch((err: unknown) => {
@@ -137,6 +141,9 @@ export function ClassAllocation() {
   // and the part done under time pressure, while staffing a class is a handful
   // of decisions made once a term.
   const [view, setView] = useState<View>('enrollment');
+  // Which roll the enrolment board offers. Up here because its control sits
+  // in the toolbar; the board reads it as a prop.
+  const [source, setSource] = useState<Source>('admitted');
 
   const selectedId = selectedClass?.id ?? null;
   // Stable identity, and a no-op when the count has not moved. ClassStaffing's
@@ -163,23 +170,47 @@ export function ClassAllocation() {
   // but not its department, and COQL cannot join those two hops. A class whose
   // course is missing from the catalogue keeps no programme rather than
   // disappearing -- it still has to be staffable.
+  // Course -> the programmes offering it. Built from the same junction rows
+  // as the walk below, and handed to the board so the student panel can check
+  // a placement against the student's own programme.
+  const offeringsOf = useMemo(() => {
+    const m = new Map<string, { id: string; name: string }[]>();
+    for (const row of offerings) {
+      const courseId = refId(row[PC.course]);
+      const id = refId(row[PC.program]);
+      const name = refName(row[PC.program]);
+      if (!courseId || !id || !name) continue;
+      const list = m.get(courseId);
+      if (list) list.push({ id, name });
+      else m.set(courseId, [{ id, name }]);
+    }
+    return m;
+  }, [offerings]);
+
   const { programOf, programs } = useMemo(() => {
-    const programByCourse = new Map<string, { id: string; name: string }>();
-    for (const course of courses) {
-      const id = refId(course[CO.program]);
-      const name = refName(course[CO.program]);
-      if (id && name) programByCourse.set(course.id, { id, name });
+    // A course is offered by as many programmes as teach it, so this is a list
+    // per course, not a single programme. Built from the junction rather than
+    // a field on the course: a shared subject used to need a copy per
+    // programme, and the copies drifted.
+    const byCourse = new Map<string, { id: string; name: string }[]>();
+    for (const row of offerings) {
+      const courseId = refId(row[PC.course]);
+      const id = refId(row[PC.program]);
+      const name = refName(row[PC.program]);
+      if (!courseId || !id || !name) continue;
+      const list = byCourse.get(courseId);
+      if (list) list.push({ id, name });
+      else byCourse.set(courseId, [{ id, name }]);
     }
 
-    const programOf = new Map<string, { id: string; name: string }>();
+    const programOf = new Map<string, { id: string; name: string }[]>();
     const seen = new Map<string, string>();
     for (const k of classes ?? []) {
       const courseId = refId(k[C.course]);
-      const program = courseId ? programByCourse.get(courseId) : undefined;
-      if (program) {
-        programOf.set(k.id, program);
-        seen.set(program.id, program.name);
-      }
+      const found = courseId ? byCourse.get(courseId) : undefined;
+      if (!found || found.length === 0) continue;
+      programOf.set(k.id, found);
+      for (const pr of found) seen.set(pr.id, pr.name);
     }
 
     return {
@@ -188,14 +219,16 @@ export function ClassAllocation() {
         .map(([id, name]) => ({ id, name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     };
-  }, [classes, courses]);
+  }, [classes, offerings]);
 
   // Applied to the staffing table here and inside the board, so the one
   // picker narrows whichever view is open.
   const shownClasses = useMemo(
     () =>
       programId
-        ? (classes ?? []).filter((k) => programOf.get(k.id)?.id === programId)
+        ? (classes ?? []).filter((k) =>
+            (programOf.get(k.id) ?? []).some((pr) => pr.id === programId),
+          )
         : (classes ?? []),
     [classes, programId, programOf],
   );
@@ -243,9 +276,31 @@ export function ClassAllocation() {
   }
 
   const selectedTerm = terms.find((t) => t.id === termId);
+  // Depends on the term alone, so it is known before the classes or the
+  // admissions land -- no late-appearing strip shoving the page down once
+  // they do.
+  const enrolmentClosedOn =
+    view === 'enrollment' && selectedTerm
+      ? str(selectedTerm[T.enrollment_closes])
+      : '';
+  const windowClosed = enrolmentClosedOn !== '' && enrolmentClosedOn < orgToday();
 
   return (
     <section>
+      {/* Above the tab's own heading, via the shell's slot: the enrolment
+          window is shut for the whole term, which outranks both the pickers
+          that choose what to look at within it and the title of the screen
+          doing the looking. Scoped to the enrolment view all the same -- it
+          says nothing about who teaches a class. */}
+      {windowClosed && selectedTerm && (
+        <PageNotice>
+          <Banner tone="warn" icon="calendar" compact>
+            Enrolment for <strong>{str(selectedTerm[T.name], 'this term')}</strong>{' '}
+            closed {enrolmentClosedOn} — anyone added now is late.
+          </Banner>
+        </PageNotice>
+      )}
+
       <div className="toolbar toolbar-page">
         <label>
           <span className="bulk-label">Term</span>
@@ -275,24 +330,53 @@ export function ClassAllocation() {
           </label>
         )}
 
+        {/* Named for the job, not the people. Both views list this term's
+            classes -- one to put a teacher in front of each, the other to put
+            students in it -- so "Teachers" promised a list of teachers and
+            delivered a list of classes. */}
         <div className="seg">
           <Button
             className={view === 'staffing' ? 'is-on' : undefined}
             aria-pressed={view === 'staffing'}
+            title="Assign teachers to this term's classes"
             onClick={() => setView('staffing')}
           >
             <Icon name="user" size={14} />
-            Teachers
+            Staffing
           </Button>
           <Button
             className={view === 'enrollment' ? 'is-on' : undefined}
             aria-pressed={view === 'enrollment'}
+            title="Place students into this term's classes"
             onClick={() => setView('enrollment')}
           >
             <Icon name="users" size={14} />
-            Students
+            Enrolment
           </Button>
         </div>
+
+        {/* Which roll to place from -- the same kind of question as the term
+            and programme pickers beside it, so it belongs on this row rather
+            than down in the column it filters. Only the enrolment view has
+            a roll to choose. */}
+        {view === 'enrollment' && (
+          <div className="seg toolbar-end">
+            <Button
+              className={source === 'admitted' ? 'is-on' : undefined}
+              aria-pressed={source === 'admitted'}
+              onClick={() => setSource('admitted')}
+            >
+              Applied this term
+            </Button>
+            <Button
+              className={source === 'active' ? 'is-on' : undefined}
+              aria-pressed={source === 'active'}
+              onClick={() => setSource('active')}
+            >
+              All students
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* The board is given the class list rather than fetching its own, so it
@@ -307,8 +391,12 @@ export function ClassAllocation() {
             term={selectedTerm}
             classes={classes}
             programOf={programOf}
+            programCount={programs.length}
             programId={programId}
             onClearProgram={() => setProgramId('')}
+            offeringsOf={offeringsOf}
+            source={source}
+            onSourceChange={setSource}
           />
         )
       )}
@@ -368,7 +456,10 @@ export function ClassAllocation() {
                         <div className="cell-sub">
                           {str(k[C.class_code], "—")}
                           {str(k[C.section_label]) && <> · Section {str(k[C.section_label])}</>}
-                          {programOf.get(k.id) && <> · {programOf.get(k.id)?.name}</>}
+                          {(() => {
+                            const p = programLabel(programOf.get(k.id) ?? [], programs.length);
+                            return p ? <span title={p.title}> · {p.text}</span> : null;
+                          })()}
                         </div>
                       </div>
                     </div>

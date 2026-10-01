@@ -1,0 +1,36 @@
+{
+  "_entity": "program_courses",
+  "module": "Program_Courses",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [],
+  "lookup_fields": [
+    {
+      "field_label": "Program",
+      "api_name": "Program",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Academic_Programs"
+        },
+        "display_label": "Program Courses"
+      },
+      "system_mandatory": true,
+      "_entity_field": "program"
+    },
+    {
+      "field_label": "Course",
+      "api_name": "Course",
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Course_Catalog"
+        },
+        "display_label": "Program Courses"
+      },
+      "system_mandatory": true,
+      "_entity_field": "course"
+    }
+  ],
+  "relabel_stock_fields": []
+}
