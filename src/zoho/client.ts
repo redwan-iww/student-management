@@ -464,10 +464,50 @@ export async function setPrimaryTeacher(
 // ---------------------------------------------------------------------------
 
 /** Sessions on one date -- the web tab's entry point, since there is no record context. */
-export async function getSessionsForDate(isoDate: string): Promise<RawRecord[]> {
+/**
+ * Every session between two dates, inclusive.
+ *
+ * Two paths, because search cannot express a range here. `equals` on the date
+ * is the only date criterion this org's search endpoint accepts: a range
+ * written as
+ * `((Session_Date:greater_equal:a)and(Session_Date:less_equal:b))` is rejected
+ * outright with "INVALID_QUERY: Invalid query formed: (field: Session_Date)",
+ * the same way `not_equal:null` on a lookup is -- see getProgramCourses.
+ *
+ * So one day searches, and anything wider reads the module and filters here.
+ * That sounds worse than it is: the whole table is under 400 rows, which is
+ * two pages, while a week filtered server-side would have been seven searches
+ * and a term around ninety. The read-everything path is the cheaper one for
+ * every span except the single day, which is exactly the one that keeps its
+ * search.
+ *
+ * Sorted by date then time, because every caller renders a timetable and a
+ * timetable is read in that order.
+ */
+export async function getSessionsBetween(
+  fromIso: string,
+  toIso: string,
+): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.class_sessions;
-  const recs = await search(module, `(${fields.session_date}:equals:${isoDate})`);
-  return recs.sort((a, b) => str(a[fields.start_time]).localeCompare(str(b[fields.start_time])));
+
+  const recs =
+    fromIso === toIso
+      ? await search(module, `(${fields.session_date}:equals:${fromIso})`)
+      : (
+          await pageThrough(`all ${module}`, (page) =>
+            zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
+          )
+        ).filter((r) => {
+          // yyyy-MM-dd is fixed width, so string order is date order.
+          const d = str(r[fields.session_date]);
+          return d >= fromIso && d <= toIso;
+        });
+
+  return recs.sort(
+    (a, b) =>
+      str(a[fields.session_date]).localeCompare(str(b[fields.session_date])) ||
+      str(a[fields.start_time]).localeCompare(str(b[fields.start_time])),
+  );
 }
 
 export async function getClassSession(sessionId: string): Promise<RawRecord | null> {
