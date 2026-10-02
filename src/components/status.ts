@@ -83,7 +83,16 @@ export function shortDays(days: readonly string[]): string {
 }
 
 /**
- * Morning, afternoon or evening, from a class's start time.
+ * Morning or evening, from a class's start time.
+ *
+ * The school runs two shifts, so the split is one time and nothing else: a
+ * class starting before 13:00 is on the morning shift, anything from 13:00 is
+ * on the evening one. The boundary is the changeover, not midday -- a lesson
+ * that starts at 12:30 still belongs to the morning the morning staff work.
+ *
+ * There was a third label, Afternoon, covering 12:00 to 17:00. It named a part
+ * of the clock rather than a shift, and a 14:00 class is on the same shift as
+ * an 18:00 one.
  *
  * Derived rather than stored. A section letter says only that two classes of a
  * course differ, not how -- reading "-A" and "-B" means reading the times to
@@ -94,12 +103,9 @@ export function shortDays(days: readonly string[]): string {
  * Returns '' for a class with no start time, which the generator also treats
  * as unschedulable.
  */
-export function shiftOf(startTime: string): '' | 'Morning' | 'Afternoon' | 'Evening' {
+export function shiftOf(startTime: string): '' | 'Morning' | 'Evening' {
   if (!/^\d{1,2}:\d{2}$/.test(startTime)) return '';
-  const padded = startTime.padStart(5, '0');
-  if (padded < '12:00') return 'Morning';
-  if (padded < '17:00') return 'Afternoon';
-  return 'Evening';
+  return startTime.padStart(5, '0') < '13:00' ? 'Morning' : 'Evening';
 }
 
 /**

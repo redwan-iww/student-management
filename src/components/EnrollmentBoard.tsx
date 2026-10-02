@@ -109,6 +109,21 @@ interface RosterRow {
  * panel titles itself with while it is still fetching, and the roster row it
  * was opened from already has it.
  */
+/**
+ * A placement that has been made on the board but not yet written.
+ *
+ * Carries the student's name and programme rather than just the id: the card
+ * has to show who is staged, and the programme check has to be re-runnable
+ * without going back to the roll, which may have been filtered since.
+ */
+interface Staged {
+  classId: string;
+  classLabel: string;
+  studentId: string;
+  name: string;
+  programId: string;
+}
+
 type DrawerEntry =
   | { kind: 'class'; klass: RawRecord }
   | { kind: 'student'; studentId: string; name: string };
@@ -212,7 +227,13 @@ export function EnrollmentBoard({
   // The class whose roster the board must have ready, which is only ever the
   // one on top: a class further down the stack is not on screen to need it.
   const openClass = openDrawer !== null && openDrawer.kind === 'class' ? openDrawer.klass : null;
-  const [busyClass, setBusyClass] = useState<string | null>(null);
+  // Placements made but not written. The board is an editor now, not a
+  // remote control: a drop puts a student on a card and nothing leaves the
+  // browser until Save. That is what makes placing one student across five
+  // subjects -- and changing your mind about the third -- a single action
+  // instead of five writes and a correction.
+  const [staged, setStaged] = useState<Staged[]>([]);
+  const [saving, setSaving] = useState(false);
   // What just happened. The Toast is itself the live region, so this is the
   // one channel -- sighted and otherwise -- rather than a visible message and
   // a separate hidden announcement that have to be kept in step.
@@ -308,6 +329,11 @@ export function EnrollmentBoard({
     return () => { cancelled = true; };
   }, [termId]);
 
+  // Staged placements name classes of the term on screen, so they cannot
+  // survive a change of term -- the ids would point at classes no longer
+  // loaded. Cleared with the enrolments they were going to join.
+  useEffect(() => { setStaged([]); }, [termId]);
+
   // Seat counts and who is already placed. One request per class, so this is
   // keyed as narrowly as it can be.
   useEffect(() => {
@@ -387,6 +413,72 @@ export function EnrollmentBoard({
     });
   }, [classes, classQuery, programId, programOf]);
 
+  /**
+   * The classes on screen, in shift order.
+   *
+   * Flat and alphabetical, the two sections of a course sat next to each other
+   * -- ACC101-A and ACC101-B, one a morning class and one an evening one --
+   * and the whole grid read as one undifferentiated list in which the thing
+   * that actually separates a card from its neighbour was a chip halfway down
+   * it. Grouping puts the shift where it is read once, as a heading, instead
+   * of once per card.
+   *
+   * Within a shift the order is by start time, then by name: the grid then
+   * runs down the day the way a timetable does, rather than alphabetically
+   * through classes that happen to share a shift.
+   *
+   * A class with no start time has no shift. It gets its own group at the end
+   * rather than being dropped or filed under a guess -- it is a class that
+   * cannot be scheduled, which is worth seeing, not hiding.
+   */
+  const classGroups = useMemo(() => {
+    const by = new Map<string, RawRecord[]>();
+    for (const k of shownClasses) {
+      const shift = shiftOf(str(k[C.start_time]));
+      const list = by.get(shift);
+      if (list) list.push(k);
+      else by.set(shift, [k]);
+    }
+    // The window is spelled out rather than left to be inferred from the
+    // cards: 13:00 is a house rule, not something a reader can derive from
+    // seeing an 11:00 class above and a 14:00 one below.
+    const meta = {
+      Morning: { label: 'Morning', note: 'starts before 13:00', icon: 'sun' },
+      Evening: { label: 'Evening', note: 'starts 13:00 or later', icon: 'moon' },
+      '': { label: 'No time set', note: 'cannot be scheduled', icon: 'alert' },
+    } as const;
+    return (['Morning', 'Evening', ''] as const)
+      .filter((shift) => (by.get(shift)?.length ?? 0) > 0)
+      .map((shift) => ({
+        shift,
+        ...meta[shift],
+        classes: [...(by.get(shift) ?? [])].sort(
+          (a, b) =>
+            str(a[C.start_time]).padStart(5, '0').localeCompare(
+              str(b[C.start_time]).padStart(5, '0'),
+            ) || str(a[C.name]).localeCompare(str(b[C.name])),
+        ),
+      }));
+  }, [shownClasses]);
+
+  /** Staged placements per class, for the card to list and count. */
+  const stagedOf = useMemo(() => {
+    const m = new Map<string, Staged[]>();
+    for (const row of staged) {
+      const list = m.get(row.classId);
+      if (list) list.push(row);
+      else m.set(row.classId, [row]);
+    }
+    return m;
+  }, [staged]);
+
+  /** Every (student, class) pair held on the board, saved or staged. One set,
+   *  so the duplicate guard cannot be told a different story by each half. */
+  const stagedPairs = useMemo(
+    () => new Set(staged.map((row) => `${row.studentId}:${row.classId}`)),
+    [staged],
+  );
+
   const classesFiltered = shownClasses.length !== classes.length;
 
   // The programme narrows the intake as well as the classes: an application
@@ -401,19 +493,28 @@ export function EnrollmentBoard({
   // cannot disagree. They used to: the chip counted every class in the term
   // while the checkbox counted only the filtered ones, so a student filtered
   // to English could show "1 class" for a maths class they were in.
+  //
+  // Staged placements count too. They are not in the CRM, but they are on the
+  // board, and a chip reading "1 class" beside a student you have just put
+  // into three contradicts the three cards showing their name. The chip
+  // describes the term as it will be once saved, which is what the rest of
+  // the board already shows.
   const classesInView = useMemo(() => {
+    const inView = (classId: string) =>
+      !programId || (programOf.get(classId) ?? []).some((pr) => pr.id === programId);
+
     const counts = new Map<string, number>();
     for (const [studentId, classIds] of classesOf) {
       let n = 0;
-      for (const classId of classIds) {
-        if (!programId || (programOf.get(classId) ?? []).some((pr) => pr.id === programId)) {
-          n += 1;
-        }
-      }
+      for (const classId of classIds) if (inView(classId)) n += 1;
       if (n > 0) counts.set(studentId, n);
     }
+    for (const row of staged) {
+      if (!inView(row.classId)) continue;
+      counts.set(row.studentId, (counts.get(row.studentId) ?? 0) + 1);
+    }
     return counts;
-  }, [classesOf, programId, programOf]);
+  }, [classesOf, programId, programOf, staged]);
 
   // Everything except the placed filter, so the checkbox can say how many it
   // would remove without the count circling back on itself.
@@ -587,113 +688,201 @@ export function EnrollmentBoard({
     [programOf],
   );
 
-  const enroll = useCallback(
-    async (klass: RawRecord) => {
-      if (busyClass || selected.length === 0) return;
-      setBusyClass(klass.id);
-      setError(null);
+  /**
+   * Put the selection on a class. Nothing is written.
+   *
+   * Every reason a placement cannot be made is checked here rather than at
+   * Save, so the answer arrives while the student is still in your hand. Save
+   * re-checks the one thing that can change underneath you -- somebody else
+   * enrolling the same student -- against a fresh read.
+   */
+  const stage = useCallback(
+    (klass: RawRecord) => {
+      if (selected.length === 0) return;
       const classLabel = str(klass[C.class_code], str(klass[C.name], klass.id));
 
-      try {
-        // Read once for the whole batch, through the relationship so it sees
-        // rows written moments ago. Nothing server-side enforces the
-        // (student, class) pair.
-        const existing = await getEnrollmentsForClass(klass.id, false);
+      const add: Staged[] = [];
+      let already = 0;
+      let notAdmitted = 0;
+      let offProgramme = 0;
+      let dup = 0;
+
+      for (const who of selected) {
+        if (admittedIds !== null && !admittedIds.has(who.studentId)) {
+          notAdmitted += 1;
+          continue;
+        }
+        // The programme picker narrows what is on screen; it does not narrow
+        // what may be done. Clearing it, or switching roll, puts every student
+        // next to every class, and nothing used to stop a Commerce student
+        // being dropped into a Life Sciences class.
+        if (!fitsProgramme(klass.id, who.programId)) {
+          offProgramme += 1;
+          continue;
+        }
+        if (pairsOf.get(who.studentId)?.has(klass.id)) {
+          already += 1;
+          continue;
+        }
+        if (stagedPairs.has(who.studentId + ':' + klass.id)) {
+          dup += 1;
+          continue;
+        }
+        add.push({
+          classId: klass.id,
+          classLabel,
+          studentId: who.studentId,
+          name: who.name,
+          programId: who.programId,
+        });
+      }
+
+      if (add.length > 0) setStaged((prev) => [...prev, ...add]);
+
+      // The selection deliberately survives a drop. A student takes five
+      // subjects, so placing the same one in five classes is the common move,
+      // not the rare one; Escape and Clear still put them down.
+      const notes = [
+        already > 0 ? already + ' already enrolled' : '',
+        dup > 0 ? dup + ' already added' : '',
+        notAdmitted > 0 ? notAdmitted + ' without an application' : '',
+        offProgramme > 0 ? offProgramme + ' not on a programme that offers it' : '',
+      ].filter(Boolean);
+
+      setAnnouncement(
+        add.length > 0
+          ? add.length + ' added to ' + classLabel + '. Not saved yet.'
+          : 'Nothing added to ' + classLabel + '.',
+      );
+      if (notes.length > 0 || add.length === 0) {
+        setToast({
+          tone: add.length > 0 ? 'positive' : 'warn',
+          message:
+            (add.length > 0
+              ? add.length + ' added to ' + classLabel
+              : 'Nothing to add to ' + classLabel) +
+            (notes.length > 0 ? ' \u00b7 skipped ' + notes.join(', ') : '.'),
+        });
+      }
+    },
+    [selected, admittedIds, fitsProgramme, pairsOf, stagedPairs],
+  );
+
+  /** Take one staged placement back off a card. */
+  const unstage = useCallback((classId: string, studentId: string) => {
+    setStaged((prev) =>
+      prev.filter((row) => !(row.classId === classId && row.studentId === studentId)),
+    );
+  }, []);
+
+  /**
+   * Write every staged placement.
+   *
+   * Grouped by class because the duplicate guard is a per-class read: one
+   * request per class touched, not one per placement.
+   *
+   * What landed, and what turned out to be already enrolled, leaves the
+   * staging area. What failed stays, so pressing Save again retries exactly
+   * the remainder instead of re-sending rows that already worked.
+   */
+  const commit = useCallback(async () => {
+    if (staged.length === 0 || saving) return;
+    setSaving(true);
+    setError(null);
+
+    const byClass = new Map<string, Staged[]>();
+    for (const row of staged) {
+      const list = byClass.get(row.classId);
+      if (list) list.push(row);
+      else byClass.set(row.classId, [row]);
+    }
+
+    const settled = new Set<string>();
+    const landed: RawRecord[] = [];
+    const failed: { studentLabel: string; reason: string }[] = [];
+    let alreadyThere = 0;
+
+    try {
+      for (const [classId, group] of byClass) {
+        const klass = classes.find((k) => k.id === classId);
+        const classLabel = group[0]?.classLabel ?? classId;
+
+        // Through the relationship, so it sees rows written moments ago.
+        // Nothing server-side enforces the (student, class) pair.
+        const existing = await getEnrollmentsForClass(classId, false);
         const already = new Set(
           existing.map((r) => refId(r[E.student])).filter((id): id is string => Boolean(id)),
         );
 
         const rows: NewEnrollment[] = [];
-        let skippedAlready = 0;
-        let skippedNotAdmitted = 0;
-        let skippedOffProgramme = 0;
-
-        for (const who of selected) {
-          if (admittedIds !== null && !admittedIds.has(who.studentId)) {
-            skippedNotAdmitted += 1;
-            continue;
-          }
-          // The programme picker narrows what is on screen; it does not
-          // narrow what may be done. Clearing it, or switching roll, puts
-          // every student next to every class, and nothing here stopped a
-          // Commerce student being dropped into a Life Sciences class -- the
-          // student's own record would then flag the placement as off
-          // programme, after it had already been written.
-          //
-          // Same rule as that flag, so the two cannot disagree: refuse only
-          // when the student's programme is known AND the course lists its
-          // programmes AND this one is not among them.
-          if (!fitsProgramme(klass.id, who.programId)) {
-            skippedOffProgramme += 1;
-            continue;
-          }
-          if (already.has(who.studentId)) {
-            skippedAlready += 1;
+        for (const row of group) {
+          if (already.has(row.studentId)) {
+            alreadyThere += 1;
+            settled.add(row.studentId + ':' + classId);
             continue;
           }
           rows.push({
-            studentId: who.studentId,
-            classId: klass.id,
-            studentLabel: who.name,
+            studentId: row.studentId,
+            classId,
+            studentLabel: row.name,
             classLabel,
-            courseId: refId(klass[C.course]) ?? undefined,
+            courseId: klass ? refId(klass[C.course]) ?? undefined : undefined,
             termId,
           });
         }
 
-        // Zoho takes 100 rows per request; a bigger selection is chunked.
-        const ok: { row: NewEnrollment; id: string }[] = [];
-        const failed: { studentLabel: string; reason: string }[] = [];
+        // Zoho takes 100 rows per request; a bigger batch is chunked.
         for (let i = 0; i < rows.length; i += BULK_LIMIT) {
           const batch = await createEnrollmentBatch(rows.slice(i, i + BULK_LIMIT));
-          ok.push(...batch.ok);
-          failed.push(...batch.failed);
-        }
-
-        if (ok.length > 0) {
-          // Appended, not re-read -- the term-wide reads would not show these
-          // yet, and every count on the board derives from this list.
-          setEnrollments((prev) => [
-            ...(prev ?? []),
-            ...ok.map(({ row, id }) => ({
+          for (const { row, id } of batch.ok) {
+            settled.add(row.studentId + ':' + row.classId);
+            landed.push({
               id,
               [E.student]: { id: row.studentId, name: row.studentLabel },
-              [E.class]: { id: klass.id, name: classLabel },
+              [E.class]: { id: row.classId, name: classLabel },
               [E.term]: { id: termId },
               [E.status]: 'Active',
-            })),
-          ]);
-          // Only the ones that landed leave the selection, so a retry targets
-          // exactly what is left.
-          const placed = new Set(ok.map((o) => o.row.studentId));
-          setSelected((prev) => prev.filter((c) => !placed.has(c.studentId)));
+            });
+          }
+          failed.push(...batch.failed);
         }
-
-        const notes = [
-          skippedAlready > 0 ? `${skippedAlready} already in it` : '',
-          skippedNotAdmitted > 0 ? `${skippedNotAdmitted} without an application` : '',
-          skippedOffProgramme > 0
-            ? `${skippedOffProgramme} not on a programme that offers it`
-            : '',
-          failed.length > 0 ? `${failed.length} rejected` : '',
-        ].filter(Boolean);
-
-        setToast({
-          tone: ok.length > 0 ? 'positive' : 'warn',
-          message:
-            `${ok.length} enrolled in ${classLabel}` +
-            (notes.length > 0 ? ` · skipped ${notes.join(', ')}` : '.'),
-        });
-
-        if (failed.length > 0) setError(failed.map((f) => `${f.studentLabel}: ${f.reason}`).join('; '));
-      } catch (err) {
-        setError(describeError(err));
-      } finally {
-        setBusyClass(null);
       }
-    },
-    [busyClass, selected, admittedIds, termId, fitsProgramme],
-  );
+
+      if (landed.length > 0) {
+        // Appended, not re-read -- the term-wide reads would not show these
+        // yet, and every count on the board derives from this list.
+        setEnrollments((prev) => [...(prev ?? []), ...landed]);
+      }
+      setStaged((prev) => prev.filter((row) => !settled.has(row.studentId + ':' + row.classId)));
+      if (settled.size > 0) setSelected([]);
+
+      const notes = [
+        alreadyThere > 0 ? alreadyThere + ' already enrolled' : '',
+        failed.length > 0 ? failed.length + ' rejected' : '',
+      ].filter(Boolean);
+
+      setToast({
+        tone: failed.length > 0 ? 'warn' : 'positive',
+        message:
+          landed.length +
+          ' enrolled across ' +
+          byClass.size +
+          ' class' +
+          (byClass.size === 1 ? '' : 'es') +
+          (notes.length > 0 ? ' \u00b7 ' + notes.join(', ') : '.'),
+      });
+
+      if (failed.length > 0) {
+        setError(failed.map((f) => f.studentLabel + ': ' + f.reason).join('; '));
+      }
+    } catch (err) {
+      setError(describeError(err));
+      setToast({ tone: 'warn', message: 'Nothing further was saved.' });
+    } finally {
+      setSaving(false);
+    }
+  }, [staged, saving, classes, termId]);
+
 
   // Clears itself, because nothing else in this flow would. The timer is keyed
   // on the toast object, so a second outcome restarts it rather than inheriting
@@ -729,6 +918,26 @@ export function EnrollmentBoard({
 
       {toast && (
         <Toast message={toast.message} tone={toast.tone} onDismiss={() => setToast(null)} />
+      )}
+
+      {/* Everything placed but not written, and the one control that writes
+          it. Fixed to the bottom of the window rather than placed after the
+          board: the board is taller than the screen, and a Save you have to
+          go looking for is a Save that gets forgotten. */}
+      {staged.length > 0 && (
+        <div className="save-bar" role="region" aria-label="Unsaved placements">
+          <i className="save-bar-dot" aria-hidden="true" />
+          <span className="save-bar-count">
+            <strong>{staged.length}</strong> placement{staged.length === 1 ? '' : 's'} in{' '}
+            {stagedOf.size} class{stagedOf.size === 1 ? '' : 'es'}, not saved
+          </span>
+          <Button variant="ghost" small disabled={saving} onClick={() => setStaged([])}>
+            Discard
+          </Button>
+          <Button variant="primary" small disabled={saving} onClick={commit}>
+            {saving ? 'Saving…' : 'Save to CRM'}
+          </Button>
+        </div>
       )}
 
       {openDrawer !== null && openDrawer.kind === 'student' && (
@@ -924,7 +1133,7 @@ export function EnrollmentBoard({
               people={shownPeople}
               classesInView={classesInView}
               selectedIds={selectedIds}
-              disabled={busyClass !== null}
+              disabled={saving}
               onToggle={(who) => {
                 toggle(who);
                 // Whatever went wrong last time was about the last attempt.
@@ -1016,9 +1225,16 @@ export function EnrollmentBoard({
           </EmptyState>
         )}
 
-        {!loading && shownClasses.length > 0 && (
-          <div className="class-grid">
-            {shownClasses.map((k) => (
+        {!loading && classGroups.map((group) => (
+          <section key={group.shift} className={`shift-group shift-${group.shift || 'none'}`}>
+            <h4 className="shift-head">
+              <Icon name={group.icon} size={15} />
+              <span className="shift-name">{group.label}</span>
+              <span className="shift-count">{group.classes.length}</span>
+              <span className="shift-note">{group.note}</span>
+            </h4>
+            <div className="class-grid">
+            {group.classes.map((k) => (
           <ClassDrop
             key={k.id}
             klass={k}
@@ -1034,16 +1250,18 @@ export function EnrollmentBoard({
                   !pairsOf.get(c.studentId)?.has(k.id) && !fitsProgramme(k.id, c.programId),
               ).length
             }
-            busy={busyClass === k.id}
-            disabled={busyClass !== null}
+            staged={stagedOf.get(k.id) ?? []}
+            disabled={saving}
             dragOver={dragOver === k.id}
             onDragOver={setDragOver}
-            onEnroll={enroll}
+            onAdd={stage}
+            onRemoveStaged={unstage}
             onOpen={(klass) => pushDrawer({ kind: 'class', klass })}
           />
             ))}
-          </div>
-        )}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -1408,11 +1626,12 @@ function ClassDrop({
   program,
   alreadyIn,
   offProgramme,
-  busy,
+  staged,
   disabled,
   dragOver,
   onDragOver,
-  onEnroll,
+  onAdd,
+  onRemoveStaged,
   onOpen,
 }: {
   klass: RawRecord;
@@ -1426,17 +1645,24 @@ function ClassDrop({
   /** How many of the rest are on a programme this course is not offered by.
    *  Disjoint from `alreadyIn`, so the two can be subtracted together. */
   offProgramme: number;
-  busy: boolean;
+  /** Placed here but not written yet. Listed on the card so the board shows
+   *  the term as it will be, with a way to take each one back. */
+  staged: Staged[];
   disabled: boolean;
   dragOver: boolean;
   onDragOver: (id: string | null) => void;
-  onEnroll: (klass: RawRecord) => void;
+  onAdd: (klass: RawRecord) => void;
+  onRemoveStaged: (classId: string, studentId: string) => void;
   onOpen: (klass: RawRecord) => void;
 }) {
   const capacity = int(klass[C.capacity]);
   const days = strList(klass[C.meeting_days]);
   const status = classTone(str(klass[C.status]));
-  const full = capacity !== null && seats >= capacity;
+  // Capacity counts what the class will hold once saved, not what it holds
+  // now: filling the last seat twice over before pressing Save is exactly the
+  // mistake staging is supposed to make visible.
+  const taken = seats + staged.length;
+  const full = capacity !== null && taken >= capacity;
   // A class with no lessons generated cannot have a register taken against
   // it, so students placed here have nowhere to be marked present. Worth
   // seeing before the placement, not after.
@@ -1445,14 +1671,18 @@ function ClassDrop({
   // in -- already enrolled, no application -- is reported per student after
   // the attempt rather than blocking the whole set.
   const droppable = selected.length > 0 && !disabled;
-  const placeable = selected.length - alreadyIn - offProgramme;
+  // Disjoint from the other two by construction: staging refuses anyone who
+  // is already enrolled or off programme, so nobody is counted twice here.
+  const stagedIds = new Set(staged.map((row) => row.studentId));
+  const alreadyStaged = selected.filter((c) => stagedIds.has(c.studentId)).length;
+  const placeable = selected.length - alreadyIn - offProgramme - alreadyStaged;
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
-  const shift = shiftOf(str(klass[C.start_time]));
 
   return (
     <div
       className={[
         'drop-card',
+        staged.length > 0 ? 'has-staged' : '',
         dragOver && droppable ? 'drop-over' : '',
         selected.length > 0 && placeable === 0 ? 'drop-blocked' : '',
       ].filter(Boolean).join(' ')}
@@ -1466,7 +1696,7 @@ function ClassDrop({
       onDrop={(e) => {
         e.preventDefault();
         onDragOver(null);
-        if (droppable) onEnroll(klass);
+        if (droppable) onAdd(klass);
       }}
     >
       {/* A real button, and outside the action row below -- buttons cannot
@@ -1495,10 +1725,17 @@ function ClassDrop({
       </button>
 
       <div className="drop-card-side">
-        {shift && <Chip>{shift}</Chip>}
-        <Chip>
+        <Chip
+          title={
+            staged.length > 0
+              ? `${seats} enrolled, ${staged.length} waiting to be saved`
+              : `${seats} enrolled`
+          }
+        >
           <Icon name="users" size={13} />
-          {capacity === null ? `${seats}` : `${seats} / ${capacity}`}
+          {seats}
+          {staged.length > 0 && <span className="seats-staged">+{staged.length}</span>}
+          {capacity !== null && ` / ${capacity}`}
         </Chip>
         {sessions !== null && sessions > 0 && (
           <Chip title={`${sessions} lessons scheduled`}>
@@ -1526,6 +1763,11 @@ function ClassDrop({
                   ? 'Not on their programme'
                   : 'Not on their programmes'}
               </span>
+            ) : alreadyStaged > 0 && alreadyIn === 0 ? (
+              <span className="muted cover-mark">
+                <Icon name="check" size={14} />
+                {selected.length === 1 ? 'Already added' : 'All already added'}
+              </span>
             ) : (
               <span className="muted cover-mark">
                 <Icon name="check" size={14} />
@@ -1537,13 +1779,11 @@ function ClassDrop({
               variant={full ? 'default' : 'primary'}
               small
               disabled={disabled}
-              onClick={() => onEnroll(klass)}
+              onClick={() => onAdd(klass)}
             >
-              {busy
-                ? 'Enrolling…'
-                : selected.length === 1
-                  ? `Enrol ${selected[0]?.name}${full ? ' anyway' : ''}`
-                  : `Enrol ${placeable}${full ? ' anyway' : ''}`}
+              {selected.length === 1
+                ? `Add ${selected[0]?.name}${full ? ' anyway' : ''}`
+                : `Add ${placeable}${full ? ' anyway' : ''}`}
             </Button>
           )}
           {placeable > 0 && (alreadyIn > 0 || offProgramme > 0) && (
@@ -1554,6 +1794,33 @@ function ClassDrop({
               ].filter(Boolean).join(' · ')}
             </span>
           )}
+        </div>
+      )}
+      {/* Who is waiting to be saved into this class. Named, not counted: the
+          point of staging is to read back what you have built before it is
+          written, and "3 added" cannot be checked. */}
+      {staged.length > 0 && (
+        <div className="staged-strip">
+          <span className="staged-head">
+            Adding on save · {staged.length}
+          </span>
+          <ul className="staged-list">
+            {staged.map((row) => (
+              <li key={row.studentId}>
+                <span className="staged-name">{row.name}</span>
+                <button
+                  type="button"
+                  className="staged-remove"
+                  title={'Remove ' + row.name + ' from this class'}
+                  aria-label={'Remove ' + row.name + ' from ' + str(klass[C.name])}
+                  disabled={disabled}
+                  onClick={() => onRemoveStaged(klass.id, row.studentId)}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

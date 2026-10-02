@@ -49,6 +49,15 @@
   --dirty: #fffaf0;
   --dirty-line: #f2e3c9;
 
+  /* An edit made but not written. Violet because every other meaning on a
+     class card is already spoken for -- green is Running, amber is Scheduled,
+     red is a problem, grey is inert -- and a staged placement is none of
+     those. It is not a state the class is in; it is a change about to be made
+     to it, so it gets a hue nothing else uses. */
+  --staged: #5b4bd6;
+  --staged-soft: #efedfd;
+  --staged-line: #c3bcf4;
+
   /* shape and depth */
   --r-sm: 8px;
   --r-md: 12px;
@@ -1065,6 +1074,18 @@ textarea:focus-visible {
 
 /* Dragged over, and the drop would be accepted. A dashed edge rather than a
    fill, so the card underneath stays readable while it is being aimed at. */
+/* A card holding unwritten placements is itself marked. The band at its foot
+   was too quiet to find by scanning -- one card among seventeen, with nothing
+   for the eye to catch. The border carries it.
+
+   Before .drop-over, not after: the two have equal specificity, so whichever
+   is written last wins, and the card being dragged over must look like the
+   drop target rather than like one more card with pending work. */
+.drop-card.has-staged {
+  border-color: var(--staged);
+  box-shadow: 0 0 0 1px var(--staged), var(--shadow-card);
+}
+
 .drop-card.drop-over {
   border-color: var(--accent);
   border-style: dashed;
@@ -1478,6 +1499,243 @@ textarea:focus-visible {
    two. auto-fill rather than a fixed count, so the same rule gives one column
    in a narrow tab and three on a wide monitor.
    ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   Staging: placements made on the board but not yet written
+   --------------------------------------------------------------------------- */
+
+/* The "+n" after the seat count. Saved and staged are kept as two numbers
+   rather than summed, because the whole point is to see which is which --
+   "5 + 3 / 22" says three of those seats are still yours to take back. */
+.seats-staged {
+  margin-left: 2px;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+/* Who is waiting to be saved into this class, named rather than counted.
+   Its own strip with its own label, because these are not a property of the
+   class the way the badges above are -- they are an edit sitting on top of it
+   and have to be legible as one. */
+.staged-strip {
+  /* The card is a two-column grid; without this the strip would sit in the
+     first column beside the chips instead of under everything. */
+  grid-column: 1 / -1;
+  /* Bled out to the card's edges, so it reads as a band attached to the card
+     rather than a box floating inside it. The negative values are the card's
+     own padding -- var(--s3) var(--s4) -- and must track it. */
+  margin: var(--s2) calc(var(--s4) * -1) calc(var(--s3) * -1);
+  padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--staged-line);
+  background: var(--staged-soft);
+  /* Matches the card's own corner, less its border width. */
+  border-bottom-left-radius: calc(var(--r-md) - 1px);
+  border-bottom-right-radius: calc(var(--r-md) - 1px);
+}
+.staged-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-bottom: var(--s2);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--staged);
+}
+.staged-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Square-cornered and white, deliberately. The pill shape and the green fill
+   both belong to the status badges three rows up -- Running, Completed -- and
+   a staged student wearing either read as one more thing the class *is*,
+   rather than something about to be done to it. Shape and colour both differ
+   now, so the two cannot be confused at a glance. */
+.staged-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--staged-line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: .78rem;
+  font-weight: 550;
+}
+.staged-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.staged-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.staged-remove:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+.staged-remove:disabled { cursor: default; opacity: .5; }
+
+/* The one control that writes. Fixed, because the board is taller than the
+   screen and a Save placed after it would sit below the fold for most of the
+   work.
+
+   Near-black, not white. A white pill on a near-white page announced nothing:
+   it was the single most important control on the screen and the easiest to
+   miss. Dark, it is the only object of its kind on the page, and the one
+   thing that cannot be mistaken for part of the board. */
+.save-bar {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s5);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: calc(100vw - var(--s5) * 2);
+  padding: var(--s3) var(--s3) var(--s3) var(--s5);
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  color: #fff;
+  /* A violet rim, the same hue the marked cards wear, so the bar is visibly
+     the counter for them and not a generic notification. */
+  box-shadow:
+    0 0 0 1px var(--staged),
+    0 0 0 5px rgba(91, 75, 214, .22),
+    0 8px 18px rgba(16, 24, 40, .22),
+    0 20px 48px rgba(16, 24, 40, .26);
+  /* Rises into place, so it is noticed arriving rather than found later. */
+  animation: save-bar-in .22s cubic-bezier(.2, .8, .3, 1);
+}
+@keyframes save-bar-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.save-bar { transform: translateX(-50%); }
+@media (prefers-reduced-motion: reduce) {
+  .save-bar { animation: none; }
+  .save-bar-dot { animation: none; }
+}
+
+/* An amber dot, the same colour the staged strip on each card uses, so the
+   bar and the cards it is counting are visibly the same edit. */
+.save-bar-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--staged);
+  /* Breathes, slowly. The bar is easy to stop seeing once it has been on
+     screen a while, and a single moving thing on an otherwise still page is
+     the cheapest way back into peripheral vision. */
+  animation: save-dot-pulse 2.4s ease-in-out infinite;
+}
+@keyframes save-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 75, 214, .7); }
+  70% { box-shadow: 0 0 0 7px rgba(91, 75, 214, 0); }
+}
+.save-bar-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .92rem;
+  color: rgba(255, 255, 255, .78);
+}
+.save-bar-count strong { color: #fff; font-weight: 650; }
+
+/* On ink, the ghost button needs its own treatment -- the default is tuned
+   for a light surface and comes out invisible here. */
+.save-bar .btn-ghost {
+  color: rgba(255, 255, 255, .78);
+  background: none;
+}
+.save-bar .btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+}
+.save-bar .btn-primary {
+  background: #fff;
+  color: var(--ink);
+}
+.save-bar .btn-primary:hover:not(:disabled) { background: #e9eae5; }
+
+/* A shift's worth of classes, under a heading naming it. The cards used to
+   be one flat alphabetical grid, which put the two sections of a course side
+   by side -- one a morning class, one an evening one -- and left the chip on
+   each card doing the work a heading does better. The chip has gone with it:
+   under "Morning", every card saying Morning says nothing. */
+.shift-group + .shift-group { margin-top: var(--s6); }
+
+/* The heading is a band across the column, not a caption: a small label and a
+   gap alone left the two blocks reading as one grid with a word dropped into
+   it. An icon carries the distinction at a glance and the rule closes the
+   band off.
+
+   Not sticky, though it would be useful to keep the shift named while you
+   scroll through it: the column is not its own scroll container -- the page
+   scrolls -- so a sticky band would pin itself to the top of the window and
+   sit over the toolbar rather than over its own cards. */
+.shift-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+  padding: var(--s2) 0;
+  font-size: .8rem;
+  font-weight: 650;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--fg);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+/* The icon is the fastest read of the three, so it gets the accent and the
+   label stays plain -- two coloured things would compete. */
+.shift-morning .shift-head svg { color: #b8860b; }
+.shift-evening .shift-head svg { color: #5b6bb5; }
+.shift-none .shift-head svg { color: var(--danger); }
+
+.shift-name { flex: none; }
+
+/* How many, in the same pill the counts beside the column headings use. */
+.shift-count {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--neutral-soft);
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 600;
+}
+
+/* The rule the band hangs on. Pushed to the end and allowed to shrink away
+   first, so a narrow column drops the sentence rather than wrapping the band
+   onto two lines. */
+.shift-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: .72rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
 
 .class-grid {
   display: grid;
