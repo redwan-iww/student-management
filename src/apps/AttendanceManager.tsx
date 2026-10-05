@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
@@ -118,6 +118,15 @@ type Span = 'day' | 'week' | 'month';
  * One constant, because a school on a Saturday-start week changes only this.
  */
 const WEEK_STARTS_ON = 1;
+
+/**
+ * How many lessons a month cell lists before it stops counting.
+ *
+ * Four, because that is what sits under a date without the week row growing
+ * past a screen -- five weeks of taller cells is the scrolling the month view
+ * exists to avoid. The rest are a link into that day, where they all fit.
+ */
+const MONTH_CELL_MAX = 4;
 
 const startOfWeek = (isoDate: string) => {
   const day = new Date(`${isoDate}T00:00:00Z`).getUTCDay();
@@ -668,7 +677,22 @@ export function AttendanceManager() {
             </tr>
           </thead>
           <tbody>
-            {sessions.map((s) => {
+            {/* Split at 13:00, the same line the week bands and the allocation
+                board draw. A full day is a dozen rows and the shift change is
+                the only thing in the list anyone navigates by -- the morning
+                staff stop reading at the divider and the evening staff start
+                there.
+
+                A row across the table rather than two tables: one table keeps
+                the four columns aligned down the whole day, which is what the
+                table is for. Only drawn when the day holds both -- a divider
+                over the whole list says nothing it does not already say. */}
+            {sessions.map((s, i) => {
+              const shift = shiftOf(str(s[F.start_time]));
+              const prev = i > 0 ? shiftOf(str(sessions[i - 1]![F.start_time])) : null;
+              const opensShift = shift !== '' && shift !== prev && (i > 0 || sessions.some(
+                (other) => shiftOf(str(other[F.start_time])) !== shift,
+              ));
               const taken = s[F.attendance_taken] === true;
               const cancelled = str(s[F.status]) === 'Cancelled';
               const upcoming = isFutureDate(str(s[F.session_date]));
@@ -676,7 +700,24 @@ export function AttendanceManager() {
               // before it is opened.
               const status = sessionTone(cancelled, taken, upcoming);
               return (
-                <tr key={s.id}>
+                <Fragment key={s.id}>
+                {opensShift && (
+                  <tr className={`shift-row shift-${shift.toLowerCase()}`}>
+                    <th colSpan={4} scope="colgroup">
+                      {/* The flex box is inside the cell, not the cell itself:
+                          display:flex on a th takes it out of table layout and
+                          the colSpan stops meaning anything. */}
+                      <span className="shift-row-inner">
+                        <Icon name={shift === 'Morning' ? 'sun' : 'moon'} size={13} />
+                        {shift}
+                        <span className="shift-row-note">
+                          {shift === 'Morning' ? 'starts before 13:00' : 'starts 13:00 or later'}
+                        </span>
+                      </span>
+                    </th>
+                  </tr>
+                )}
+                <tr>
                   <td>
                     <span className="cell-mono">
                       <Icon name="clock" size={14} />
@@ -708,6 +749,7 @@ export function AttendanceManager() {
                     </Button>
                   </td>
                 </tr>
+                </Fragment>
               );
             })}
           </tbody>
@@ -720,7 +762,7 @@ export function AttendanceManager() {
           than one long one you count through. Whole weeks always, so a column
           means the same weekday on every row. */}
       {span !== 'day' && sessions && sessions.length > 0 && (
-        <div className={`cal${loading ? ' stale' : ''}`}>
+        <div className={`cal cal-is-${span}${loading ? ' stale' : ''}`}>
           <div className="cal-head" aria-hidden="true">
             {weeks[0]?.map((cell) => (
               <span key={cell.date}>{weekdayOf(cell.date).slice(0, 3)}</span>
@@ -761,14 +803,29 @@ export function AttendanceManager() {
                 ))}
               </div>
 
-              {(['Morning', 'Evening'] as const).map((shift) => {
+              {/* A month is not a week with more in it.
+
+                  Banded by shift and listing every lesson, a month came to ten
+                  headings and ~160 boxed cards -- six screens of scrolling to
+                  answer questions a month view is asked, which are "which days
+                  are busy" and "where is the gap". The week already lists
+                  lessons properly, and a day lists them best of all.
+
+                  So: no bands here, one compact line per lesson, and only the
+                  first few of them, with the rest behind a link into the day.
+                  Week keeps both bands and the full list. */}
+              {(span === 'month' ? [null] : (['Morning', 'Evening'] as const)).map((shift) => {
                 const inShift = (sess: RawRecord) =>
-                  shiftOf(str(sess[F.start_time])) === shift;
+                  shift === null || shiftOf(str(sess[F.start_time])) === shift;
                 // Nothing all week on this shift means no band at all. An
                 // empty one would be a heading over seven empty boxes.
                 if (!week.some((cell) => cell.sessions.some(inShift))) return null;
                 return (
-                  <div className={`cal-band shift-${shift.toLowerCase()}`} key={shift}>
+                  <div
+                    className={`cal-band${shift ? ` shift-${shift.toLowerCase()}` : ''}`}
+                    key={shift ?? 'all'}
+                  >
+                    {shift !== null && (
                     <span className="cal-band-head">
                       <Icon name={shift === 'Morning' ? 'sun' : 'moon'} size={12} />
                       {shift}
@@ -776,9 +833,15 @@ export function AttendanceManager() {
                         {shift === 'Morning' ? 'starts before 13:00' : 'starts 13:00 or later'}
                       </span>
                     </span>
+                    )}
                     <div className="cal-band-days">
                       {week.map((cell) => {
-                        const items = cell.sessions.filter(inShift);
+                        const all = cell.sessions.filter(inShift);
+                        // A month cell shows the first few and counts the
+                        // rest. Four is what fits beside a date without the
+                        // row growing; past that the day view is the answer.
+                        const items = span === 'month' ? all.slice(0, MONTH_CELL_MAX) : all;
+                        const hidden = all.length - items.length;
                         return (
                         <div
                           key={cell.date}
@@ -816,6 +879,15 @@ export function AttendanceManager() {
                               </button>
                             );
                           })}
+                          {hidden > 0 && (
+                            <button
+                              type="button"
+                              className="cal-more"
+                              onClick={() => { setDate(cell.date); setSpan('day'); }}
+                            >
+                              +{hidden} more
+                            </button>
+                          )}
                         </div>
                         );
                       })}

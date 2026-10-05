@@ -2218,6 +2218,37 @@ select.field { cursor: pointer; }
 .row-open:hover .cell-title { text-decoration: underline; text-underline-offset: 2px; }
 .row-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-sm); }
 
+/* A shift divider inside the day's table. A th rather than a td, and
+   scope="colgroup", because it heads the rows under it rather than being one
+   of them -- which is also how a screen reader is told the list has two parts.
+
+   Styled as the week's bands are: a quiet strip, the icon carrying the
+   distinction and the word staying plain. */
+.shift-row th {
+  padding: var(--s1) var(--s4);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font-size: .68rem;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+}
+.shift-row-inner { display: flex; align-items: center; gap: var(--s2); }
+.shift-row.shift-morning svg { color: #b8860b; }
+.shift-row.shift-evening svg { color: #5b6bb5; }
+.shift-row-note {
+  margin-left: auto;
+  font-size: .66rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+}
+/* It is not a lesson, so it takes none of the row treatments. */
+.shift-row:hover th { background: var(--surface-2); }
+
 /* ---------------------------------------------------------------------------
    The calendar -- days across, lessons down
    --------------------------------------------------------------------------- */
@@ -2315,6 +2346,8 @@ select.field { cursor: pointer; }
    does not slide across. */
 .cal-day-empty { min-height: 3.5rem; }
 
+
+
 /* Only when the week is stacked -- see the media query at the end. */
 .cal-day-label { display: none; }
 .cal-day + .cal-day { border-left: 1px solid var(--line); }
@@ -2323,7 +2356,6 @@ select.field { cursor: pointer; }
    -- it is a real day and may hold real lessons -- but set back, so the
    period the heading claims is still the one the eye lands on. */
 .cal-dim { background: var(--surface-2); }
-.cal-dim .cal-date { color: var(--faint); }
 
 .cal-today { background: var(--accent-soft); }
 
@@ -2333,10 +2365,20 @@ select.field { cursor: pointer; }
   display: flex;
   align-items: center;
   gap: var(--s1);
-  font-size: .78rem;
-  font-weight: 650;
-  color: var(--muted);
+  /* Full strength and a size up, in both views. The date is what you are
+     looking for in a calendar -- everything under it is what you find once
+     you have -- and at .78rem in --muted it was the same weight as the lesson
+     times beneath it, so a grid read as a wall of grey with no anchors in it. */
+  font-size: .94rem;
+  font-weight: 680;
+  letter-spacing: -.01em;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
 }
+
+/* The days either side of the month or term the heading names keep their
+   setting-back -- that is the one case where the date should recede. */
+.cal-dim .cal-date { color: var(--faint); font-weight: 600; }
 .cal-today .cal-date { color: var(--accent-dark); }
 .cal-today-tag {
   padding: 0 6px;
@@ -2373,6 +2415,55 @@ select.field { cursor: pointer; }
 .cal-item.tone-pending { border-left-color: var(--warn); }
 .cal-item.tone-critical { border-left-color: var(--danger); }
 .cal-item.tone-neutral { border-left-color: var(--neutral); }
+
+/* ---- Month: the same grid, a quarter of the ink ----------------------------
+
+   A month cell answers "is this day busy" and "where is the gap". It does not
+   have to be legible as a timetable -- the week and the day are that -- so the
+   lesson loses its box, its second line and most of its padding, and keeps the
+   one thing that identifies it. */
+.cal-is-month .cal-day { min-height: 5.5rem; gap: 1px; padding: var(--s1) 5px var(--s2); }
+.cal-is-month .cal-day-empty { min-height: 5.5rem; }
+
+.cal-is-month .cal-item {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 4px 1px 5px;
+  border: 0;
+  /* The status is the left edge, as it is on the week's cards, but here it is
+     the only thing left of the card besides the text. */
+  border-left: 3px solid currentColor;
+  border-radius: 0 3px 3px 0;
+  font-size: .68rem;
+  line-height: 1.5;
+}
+.cal-is-month .cal-time { flex: none; font-size: .68rem; opacity: .75; }
+.cal-is-month .cal-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What did not fit, and the way to see it. A link rather than a card, so it
+   cannot be mistaken for the lesson it is standing in for. */
+.cal-more {
+  font: inherit;
+  align-self: flex-start;
+  margin-top: 1px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: .66rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cal-more:hover { color: var(--fg); }
+.cal-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 3px; }
 
 .cal-time { font-size: .7rem; font-weight: 650; color: var(--muted); }
 .cal-name {
