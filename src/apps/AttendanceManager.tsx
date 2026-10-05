@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
-import { GenerateSessions } from '../components/GenerateSessions';
-import { Avatar, Badge, Banner, Button, Card, Drawer, EmptyState, Icon } from '../components/ui';
-import { sessionTone, shortDays } from '../components/status';
+import { Avatar, Badge, Banner, Button, Card, DateField, Drawer, EmptyState, Icon } from '../components/ui';
+import { sessionTone, shiftOf, shortDays } from '../components/status';
 import {
   describeError,
   getActiveTerms,
@@ -151,6 +150,8 @@ export function AttendanceManager() {
   // class") are answered by the week today sits in, and the day is one click
   // away from it.
   const [span, setSpan] = useState<Span>('week');
+  // Which term the date lives in. Empty until the terms arrive.
+  const [termId, setTermId] = useState('');
   // Terms, read once and only when a term span is first asked for: three of
   // the four spans are arithmetic on the date and need nothing fetched.
   const [terms, setTerms] = useState<RawRecord[] | null>(null);
@@ -159,13 +160,10 @@ export function AttendanceManager() {
   const [selected, setSelected] = useState<string | null>(null);
   // Bumped to force a refetch of the same date -- setDate(d => d) is a no-op,
   // because React bails out when the next state is identical.
-  const [reloadKey, setReloadKey] = useState(0);
   // Distinct from sessions === null. Changing date keeps the previous day on
   // screen and dims it, so the panel does not collapse and rebuild on every
   // step -- only the very first load has nothing to show.
   const [loading, setLoading] = useState(true);
-  // The lesson generator is opt-in -- see the disclosure below.
-  const [setupOpen, setSetupOpen] = useState(false);
   // The class behind each session, by id. Resolved separately because a
   // session carries only a Class lookup -- its term, room and weekly pattern
   // all live on the class, and the details panel wants all three.
@@ -296,7 +294,7 @@ export function AttendanceManager() {
       });
 
     return () => { cancelled = true; };
-  }, [range.from, range.to, reloadKey, F.class]);
+  }, [range.from, range.to, F.class]);
 
   // Taking a register changes the row we came from. The list is state
   // fetched when the day loaded, so without this it still reads "Not taken"
@@ -304,14 +302,41 @@ export function AttendanceManager() {
   // date or reloading the tab. Patch it locally instead of refetching the
   // day: the value is already known here, so a round trip would buy nothing
   // but a flash of the stale-dim bar.
-  /** The term the date falls in, or null in the gap between two. */
+  /**
+   * The term on screen. Chosen, not worked out from the date.
+   *
+   * It used to be `the term containing \`date\``, which quietly came apart at
+   * the edges. A month step from 3 October lands on 3 September: September
+   * overlaps the term, so the step is allowed, but the day itself falls in the
+   * week before term starts. The term then resolved to nothing, the bounds
+   * went null, and from there every arrow was live again -- the one place the
+   * boundary had to hold was the one place it dissolved.
+   *
+   * Held as an id instead, so the frame survives a date that wanders to its
+   * edge, and the date is clamped back inside it rather than the term being
+   * abandoned.
+   */
   const currentTerm = useMemo(
-    () =>
-      (terms ?? []).find(
-        (t) => str(t[T.start_date]) <= date && date <= str(t[T.end_date]),
-      ) ?? null,
-    [terms, date, T.start_date, T.end_date],
+    () => (terms ?? []).find((t) => t.id === termId) ?? null,
+    [terms, termId],
   );
+
+  // Opens on the term containing today, or the most recent one to have
+  // started if today falls between terms -- the register you were last
+  // keeping is a better guess than the first term on record.
+  useEffect(() => {
+    if (terms === null || terms.length === 0 || termId !== '') return;
+    const now = today();
+    const inTerm = terms.find(
+      (t) => str(t[T.start_date]) <= now && now <= str(t[T.end_date]),
+    );
+    const started = [...terms].reverse().find((t) => str(t[T.start_date]) <= now);
+    const pick = inTerm ?? started ?? terms[0];
+    if (!pick) return;
+    setTermId(pick.id);
+    if (!inTerm) setDate(str(pick[T.start_date]));
+  }, [terms, termId, T.start_date, T.end_date]);
+
 
   /**
    * How far the day, week and month views may travel.
@@ -322,9 +347,10 @@ export function AttendanceManager() {
    * working on, silently, without having asked to. Changing term is the term
    * picker's job, and it is one control away.
    *
-   * Null until the terms arrive, or while the date sits in a gap: in both
-   * cases there is no term to be bounded by, and the arrows stay enabled
-   * rather than disabling themselves on a fact nobody knows.
+   * Null only until the terms arrive, which leaves the arrows enabled rather
+   * than disabling them on a fact not yet known. Once a term is chosen there
+   * is always one, so there is no longer a state in which the bounds quietly
+   * stop applying.
    */
   const bounds = useMemo(
     () =>
@@ -334,10 +360,23 @@ export function AttendanceManager() {
     [currentTerm, T.start_date, T.end_date],
   );
 
-  /** One step back or forward, in whatever unit is on screen. */
+  /**
+   * One step back or forward, in whatever unit is on screen, clamped to the
+   * term.
+   *
+   * The clamp is the point. A month step from 3 October reaches September,
+   * which is a month this term runs in -- but 3 September is not a day this
+   * term runs on. Without it the date leaves the term while the view still
+   * claims to be inside it.
+   */
   const step = useCallback(
-    (direction: -1 | 1) => setDate((d) => stepDate(span, d, direction)),
-    [span],
+    (direction: -1 | 1) =>
+      setDate((d) => {
+        const next = stepDate(span, d, direction);
+        if (bounds === null) return next;
+        return next < bounds.from ? bounds.from : next > bounds.to ? bounds.to : next;
+      }),
+    [span, bounds],
   );
 
   /**
@@ -386,12 +425,11 @@ export function AttendanceManager() {
       <div className="toolbar toolbar-page">
         <label>
           <span className="bulk-label">Date</span>
-          <input
-            type="date"
+          <DateField
             value={date}
             min={bounds?.from}
             max={bounds?.to}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={setDate}
           />
         </label>
 
@@ -455,22 +493,22 @@ export function AttendanceManager() {
           <label>
             <span className="bulk-label">Term</span>
             <select
-              value={currentTerm?.id ?? ''}
+              value={termId}
               onChange={(e) => {
                 const picked = terms.find((t) => t.id === e.target.value);
                 if (!picked) return;
                 const from = str(picked[T.start_date]);
                 const to = str(picked[T.end_date]);
+                setTermId(picked.id);
                 // Today if today is in it, its first day otherwise: switching
                 // to the term in progress should open on the day you teach,
                 // not on its September start.
                 setDate(today() >= from && today() <= to ? today() : from);
               }}
             >
-              {/* Only while the date sits in a gap between terms, so the
-                  control has something truthful to show rather than naming a
-                  term that is not on screen. */}
-              <option value="">Between terms…</option>
+              {/* Only before the terms have been read; a term is always
+                  chosen afterwards. */}
+              {termId === '' && <option value="">Choose a term…</option>}
               {terms.map((t) => (
                 <option key={t.id} value={t.id}>
                   {str(t[T.name])}
@@ -600,18 +638,12 @@ export function AttendanceManager() {
             </Button>
           </div>
 
-          {/* Behind a disclosure on purpose. Mounting the generator costs a
-              term fetch plus a session query per class -- 5-8 requests, and a
-              loader for each phase -- to render one line that, on a term
-              already set up, says "nothing to do". An empty Friday is the
-              common case and should cost nothing beyond the timetable query. */}
-          {setupOpen ? (
-            <GenerateSessions onGenerated={() => setReloadKey((k) => k + 1)} />
-          ) : (
-            <Button variant="link" onClick={() => setSetupOpen(true)}>
-              Set up a term's lessons…
-            </Button>
-          )}
+          {/* No "set up a term's lessons" here any more. This screen is where
+              a register gets taken; generating a term's lessons is setup work
+              for whoever builds the timetable, and it sat here only because an
+              empty day was a convenient place to hang it -- which also meant
+              the only way to reach it was to land on a day that happened to be
+              empty. It is a button in the class allocation toolbar now. */}
         </EmptyState>
       )}
 
@@ -695,45 +727,102 @@ export function AttendanceManager() {
             ))}
           </div>
 
+          {/* A week is two bands, not seven stacks.
+
+              Labelling the shift inside each day column put the same two words
+              on screen fourteen times and -- worse -- at a different height in
+              every column, because the heading sat wherever that day's morning
+              happened to end. The grid exists to be read across; a boundary
+              that zig-zags across it is the one thing it cannot survive.
+
+              One heading per shift, one row of days under it. The shift
+              boundary is now a straight line across the whole week, and the
+              columns still line up as weekdays underneath. */}
           {weeks.map((week) => (
             <div className="cal-week" key={week[0]?.date}>
-              {week.map((cell) => (
-                <div
-                  key={cell.date}
-                  className={[
-                    'cal-day',
-                    cell.dim ? 'cal-dim' : '',
-                    cell.date === today() ? 'cal-today' : '',
-                  ].filter(Boolean).join(' ')}
-                >
-                  {/* The weekday rides on the element for the stacked
-                      layout below 52rem, where the column header that would
-                      otherwise carry it is hidden. */}
-                  <span className="cal-date" data-weekday={weekdayOf(cell.date)}>
-                    {Number(cell.date.slice(8, 10))}
-                    {cell.date === today() && <span className="cal-today-tag">Today</span>}
-                  </span>
+              <div className="cal-dates">
+                {week.map((cell) => (
+                  <div
+                    key={cell.date}
+                    className={[
+                      'cal-datecell',
+                      cell.dim ? 'cal-dim' : '',
+                      cell.date === today() ? 'cal-today' : '',
+                    ].filter(Boolean).join(' ')}
+                  >
+                    {/* The weekday rides on the element for the stacked
+                        layout below 52rem, where the column header that would
+                        otherwise carry it is hidden. */}
+                    <span className="cal-date" data-weekday={weekdayOf(cell.date)}>
+                      {Number(cell.date.slice(8, 10))}
+                      {cell.date === today() && <span className="cal-today-tag">Today</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
 
-                  {cell.sessions.map((sess) => {
-                    const taken = sess[F.attendance_taken] === true;
-                    const cancelled = str(sess[F.status]) === 'Cancelled';
-                    const upcoming = isFutureDate(str(sess[F.session_date]));
-                    const tone = sessionTone(cancelled, taken, upcoming);
-                    return (
-                      <button
-                        type="button"
-                        key={sess.id}
-                        className={`cal-item tone-${tone.tone}`}
-                        onClick={() => setDetails(sess)}
-                        title={`${str(sess[F.start_time])} ${refName(sess[F.class])} — ${tone.label}`}
-                      >
-                        <span className="cal-time">{str(sess[F.start_time], '—')}</span>
-                        <span className="cal-name">{refName(sess[F.class]) || '—'}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+              {(['Morning', 'Evening'] as const).map((shift) => {
+                const inShift = (sess: RawRecord) =>
+                  shiftOf(str(sess[F.start_time])) === shift;
+                // Nothing all week on this shift means no band at all. An
+                // empty one would be a heading over seven empty boxes.
+                if (!week.some((cell) => cell.sessions.some(inShift))) return null;
+                return (
+                  <div className={`cal-band shift-${shift.toLowerCase()}`} key={shift}>
+                    <span className="cal-band-head">
+                      <Icon name={shift === 'Morning' ? 'sun' : 'moon'} size={12} />
+                      {shift}
+                      <span className="cal-band-note">
+                        {shift === 'Morning' ? 'starts before 13:00' : 'starts 13:00 or later'}
+                      </span>
+                    </span>
+                    <div className="cal-band-days">
+                      {week.map((cell) => {
+                        const items = cell.sessions.filter(inShift);
+                        return (
+                        <div
+                          key={cell.date}
+                          className={[
+                            'cal-day',
+                            items.length === 0 ? 'cal-day-empty' : '',
+                            cell.dim ? 'cal-dim' : '',
+                            cell.date === today() ? 'cal-today' : '',
+                          ].filter(Boolean).join(' ')}
+                        >
+                          {/* Which day this is, for the stacked layout below
+                              52rem. There the date row above cannot do the job
+                              -- it is a separate grid, and stacked it would
+                              land as seven numbers in a list of their own,
+                              nowhere near the lessons they head. Hidden at
+                              full width, where the date row is right there. */}
+                          <span className="cal-day-label" aria-hidden="true">
+                            {weekdayOf(cell.date)} {Number(cell.date.slice(8, 10))}
+                          </span>
+                          {items.map((sess) => {
+                            const taken = sess[F.attendance_taken] === true;
+                            const cancelled = str(sess[F.status]) === 'Cancelled';
+                            const upcoming = isFutureDate(str(sess[F.session_date]));
+                            const tone = sessionTone(cancelled, taken, upcoming);
+                            return (
+                              <button
+                                type="button"
+                                key={sess.id}
+                                className={`cal-item tone-${tone.tone}`}
+                                onClick={() => setDetails(sess)}
+                                title={`${str(sess[F.start_time])} ${refName(sess[F.class])} — ${tone.label}`}
+                              >
+                                <span className="cal-time">{str(sess[F.start_time], '—')}</span>
+                                <span className="cal-name">{refName(sess[F.class]) || '—'}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

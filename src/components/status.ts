@@ -77,6 +77,30 @@ export function classTone(status: string): Status {
   }
 }
 
+/**
+ * What a class's status actually is, as opposed to what the field says.
+ *
+ * Status is set by hand in the CRM and nothing advances it, so a class sits at
+ * Scheduled from the day it is created until somebody remembers to change it.
+ * A month into term that is not a status, it is a data-entry backlog -- and it
+ * was being shown on the board as though it meant something.
+ *
+ * A register taken against a past lesson is proof the class met, so it outranks
+ * the field. Two values are left alone:
+ *
+ * - Cancelled, because no date can tell you a class was called off, and a term
+ *   cancelled halfway through will have registers behind it.
+ * - Completed, because it is a deliberate statement that the class is over, and
+ *   a class that met last month met last month either way.
+ *
+ * Draft is overridden like Scheduled: a class being taught is not a draft,
+ * whatever it was when somebody set it up.
+ */
+export function effectiveClassStatus(stored: string, hasMet: boolean): string {
+  if (stored === 'Cancelled' || stored === 'Completed') return stored;
+  return hasMet ? 'Running' : stored;
+}
+
 /** 'Monday','Wednesday' -> 'Mon, Wed'. A timetable cell has no room for the rest. */
 export function shortDays(days: readonly string[]): string {
   return days.map((d) => d.slice(0, 3)).join(', ');
@@ -106,40 +130,4 @@ export function shortDays(days: readonly string[]): string {
 export function shiftOf(startTime: string): '' | 'Morning' | 'Evening' {
   if (!/^\d{1,2}:\d{2}$/.test(startTime)) return '';
   return startTime.padStart(5, '0') < '13:00' ? 'Morning' : 'Evening';
-}
-
-/**
- * How a class's programmes read on one line.
- *
- * A course belongs to every programme that teaches it, and the common ones --
- * English, Maths -- belong to all of them. Printing the list put four names on
- * a class card and buried the thing the card is actually for: the name, the
- * time and the room. Worse, it said the least where it took the most room,
- * since "offered everywhere" is the one case that distinguishes nothing.
- *
- * So the list collapses once it stops being a useful distinction. The full
- * list goes in `title` either way, and the panel behind the card still spells
- * it out in full, so nothing is only ever a tooltip.
- *
- * `total` is how many programmes exist in the term. Pass 0 if unknown -- the
- * "all of them" case is then simply not detected and the count is shown.
- */
-export function programLabel(
-  list: { name: string }[],
-  total: number,
-): { text: string; lead: string; title: string } | null {
-  if (list.length === 0) return null;
-  const title = list.map((p) => p.name).join(', ');
-  // `lead` is the same label for a sentence that already began -- "Open to
-  // all programmes" rather than "Open to All programmes". Callers that start
-  // a line with it use `text`; callers that continue one use `lead`.
-  if (total > 1 && list.length >= total) {
-    return { text: 'All programmes', lead: 'all programmes', title };
-  }
-  if (list.length <= 2) {
-    const names = list.map((p) => p.name).join(' · ');
-    return { text: names, lead: names, title };
-  }
-  const n = `${list.length} programmes`;
-  return { text: n, lead: n, title };
 }

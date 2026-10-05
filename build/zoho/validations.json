@@ -16,14 +16,16 @@
       "enforcement": "Zoho validation rule on the listed expression."
     },
     {
-      "_entity": "program_courses",
-      "module": "Program_Courses",
-      "name": "uq_program_course",
+      "_entity": "admissions",
+      "module": "Admissions",
+      "name": "uq_admission_student_course_term",
       "fields": [
-        "Program",
-        "Course"
+        "Student",
+        "Course",
+        "Term"
       ],
-      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Program + Course); reject when count > 0."
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Student + Course + Term); reject when count > 0.",
+      "note": "One admission per subject per term. Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md."
     },
     {
       "_entity": "classes",
@@ -51,17 +53,6 @@
       "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Class + Session_Date + Start_Time); reject when count > 0."
     },
     {
-      "_entity": "enrollments",
-      "module": "Enrollments",
-      "name": "uq_enrollment_student_class",
-      "fields": [
-        "Student",
-        "Class"
-      ],
-      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Student + Class); reject when count > 0.",
-      "note": "Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md."
-    },
-    {
       "_entity": "allocations",
       "module": "Allocations",
       "name": "allocation_dates_ordered",
@@ -71,12 +62,12 @@
     {
       "_entity": "attendance",
       "module": "Attendance",
-      "name": "uq_attendance_enrollment_session",
+      "name": "uq_attendance_admission_session",
       "fields": [
-        "Enrollment",
+        "Admission",
         "Class_Session"
       ],
-      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Enrollment + Class_Session); reject when count > 0.",
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Admission + Class_Session); reject when count > 0.",
       "note": "Zoho: enforced by validation rule, not a native composite unique."
     },
     {

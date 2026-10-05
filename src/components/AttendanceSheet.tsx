@@ -12,7 +12,7 @@ import {
   getAttendanceForSession,
   isFutureDate,
   getClassSession,
-  getEnrollmentsForClass,
+  getAdmissionsForClass,
   markSessionAttendanceTaken,
   refId,
   refName,
@@ -21,10 +21,20 @@ import {
 } from '../zoho/client';
 
 interface Row {
-  enrollmentId: string;
+  admissionId: string;
   studentId: string;
   studentName: string;
-  status: AttendanceStatus;
+  /**
+   * null means nobody has marked this student yet, and it is a different thing
+   * from any of the five values.
+   *
+   * It used to default to 'Present' with dirty: false, which made an untouched
+   * register look like a register in which everybody was present -- and the
+   * Save button, counting only dirty rows, agreed there were 0 changes. A
+   * teacher could open a lesson, see every student marked Present, close it,
+   * and have recorded nothing at all.
+   */
+  status: AttendanceStatus | null;
   existingId?: string;
   /** Whether this row differs from what is stored. */
   dirty: boolean;
@@ -60,7 +70,7 @@ export function AttendanceSheet({
   const showRosterSpinner = useDelayed(phase.kind === 'loading');
 
   const sessionFields = ZOHO_MODULES.class_sessions.fields;
-  const enrollmentFields = ZOHO_MODULES.enrollments.fields;
+  const admissionFields = ZOHO_MODULES.admissions.fields;
   const attendanceFields = ZOHO_MODULES.attendance.fields;
 
   useEffect(() => {
@@ -74,19 +84,21 @@ export function AttendanceSheet({
         const classId = refId(sess[sessionFields.class]);
         if (!classId) throw new Error('This session has no Class linked to it.');
 
-        const [enrollments, existing] = await Promise.all([
-          getEnrollmentsForClass(classId),
+        const [admissions, existing] = await Promise.all([
+          getAdmissionsForClass(classId),
           getAttendanceForSession(sessionId),
         ]);
 
-        const next: Row[] = enrollments.map((e) => {
+        const next: Row[] = admissions.map((e) => {
           const prior = existing.get(e.id);
           const priorStatus = prior?.[attendanceFields.status];
           return {
-            enrollmentId: e.id,
-            studentId: refId(e[enrollmentFields.student]) ?? '',
-            studentName: refName(e[enrollmentFields.student]) || '(unnamed student)',
-            status: isAttendanceStatus(priorStatus) ? priorStatus : 'Present',
+            admissionId: e.id,
+            studentId: refId(e[admissionFields.student]) ?? '',
+            studentName: refName(e[admissionFields.student]) || '(unnamed student)',
+            // No fallback. An admission with no attendance record for this
+            // session has not been marked, and saying so is the point.
+            status: isAttendanceStatus(priorStatus) ? priorStatus : null,
             existingId: prior?.id,
             dirty: false,
           };
@@ -104,13 +116,20 @@ export function AttendanceSheet({
     })();
 
     return () => { cancelled = true; };
-  }, [sessionId, sessionFields.class, enrollmentFields.student, attendanceFields.status]);
+  }, [sessionId, sessionFields.class, admissionFields.student, attendanceFields.status]);
 
-  const dirtyCount = useMemo(() => rows.filter((r) => r.dirty).length, [rows]);
+  const dirtyCount = useMemo(
+    () => rows.filter((r) => r.dirty && r.status !== null).length,
+    [rows],
+  );
+  /* Nobody has marked these. Counted so the footer can say it: a half-taken
+     register looks exactly like a finished one once the marked rows are
+     saved, and the difference matters more than anything else on the screen. */
+  const unmarkedCount = useMemo(() => rows.filter((r) => r.status === null).length, [rows]);
 
-  function setStatus(enrollmentId: string, status: AttendanceStatus) {
+  function setStatus(admissionId: string, status: AttendanceStatus) {
     setRows((prev) =>
-      prev.map((r) => (r.enrollmentId === enrollmentId ? { ...r, status, dirty: true } : r)),
+      prev.map((r) => (r.admissionId === admissionId ? { ...r, status, dirty: true } : r)),
     );
   }
 
@@ -123,14 +142,18 @@ export function AttendanceSheet({
     const classId = refId(session[sessionFields.class]);
     if (!classId) return;
 
-    const pending = rows.filter((r) => r.dirty);
+    // Marked and changed. A row still at null has nothing to write -- and
+    // saveMark would have to invent a status for it.
+    const pending = rows.filter((r) => r.dirty && r.status !== null);
 
     // Belt and braces. The UI disables these controls, but the guard is
     // re-checked here so a stale row can never slip an observation onto a
     // lesson that has not happened.
     const futureAtSave = isFutureDate(String(session[sessionFields.session_date] ?? ''));
     if (futureAtSave) {
-      const bad = pending.find((r) => !FUTURE_ALLOWED_STATUSES.includes(r.status));
+      const bad = pending.find(
+        (r) => r.status !== null && !FUTURE_ALLOWED_STATUSES.includes(r.status),
+      );
       if (bad) {
         setPhase({
           kind: 'error',
@@ -151,10 +174,11 @@ export function AttendanceSheet({
         await saveMark(
           sessionId,
           {
-            enrollmentId: row.enrollmentId,
+            admissionId: row.admissionId,
             studentId: row.studentId,
             classId,
-            status: row.status,
+            // Narrowed by the pending filter above; the field is non-null.
+            status: row.status as AttendanceStatus,
             studentName: row.studentName,
             ...(row.existingId ? { existingId: row.existingId } : {}),
           },
@@ -203,7 +227,7 @@ export function AttendanceSheet({
         subtitle={sessionDate}
         action={
           /* Bulk actions apply to every row, so they are meaningless with no
-             rows -- and "All Excused" beside "No active enrollments" invites a
+             rows -- and "All Excused" beside "Nobody placed" invites a
              click that cannot do anything. */
           rows.length > 0 && !cancelled ? (
             <div className="bulk">
@@ -239,7 +263,7 @@ export function AttendanceSheet({
           <EmptyState
             icon="users"
             title="No students enrolled"
-            detail="Nobody has an active enrollment in this class, so there is no register to take. Add enrollments in the Enrollments module first."
+            detail="Nobody is placed in this class, so there is no register to take. Place students into it from the Class Allocation tab."
           />
         ) : (
           <table>
@@ -251,7 +275,12 @@ export function AttendanceSheet({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.enrollmentId} className={row.dirty ? 'dirty' : undefined}>
+                <tr
+                  key={row.admissionId}
+                  className={[row.dirty ? 'dirty' : '', row.status === null ? 'unmarked' : '']
+                    .filter(Boolean)
+                    .join(' ') || undefined}
+                >
                   <td>
                     <div className="cell-stack">
                       <Avatar name={row.studentName} small />
@@ -268,9 +297,9 @@ export function AttendanceSheet({
                         <label key={s} className={allowed(s) ? undefined : 'unavailable'}>
                           <input
                             type="radio"
-                            name={`att-${row.enrollmentId}`}
+                            name={`att-${row.admissionId}`}
                             checked={row.status === s}
-                            onChange={() => setStatus(row.enrollmentId, s)}
+                            onChange={() => setStatus(row.admissionId, s)}
                             disabled={saving || cancelled || !allowed(s)}
                           />
                           <span>{s}</span>
@@ -292,6 +321,12 @@ export function AttendanceSheet({
             ? <ButtonBusy label={`Saving ${progress.done} of ${progress.total}…`} />
             : `Save ${dirtyCount} change${dirtyCount === 1 ? '' : 's'}`}
         </Button>
+        {unmarkedCount > 0 && !saving && (
+          <span className="unmarked-note">
+            <Icon name="alert" size={15} />
+            {unmarkedCount} not marked
+          </span>
+        )}
         <span className="spacer" />
         {savedAt && !saving && dirtyCount === 0 && (
           <span className="saved-note">

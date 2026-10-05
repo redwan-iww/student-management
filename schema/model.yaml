@@ -104,15 +104,13 @@ entities:
           note: "Stock display field. Keep in step with first_name + last_name." }
       - { name: student_code, label: Student Code, type: autonumber, format: "STU-{00000}", unique: true }
       - { name: student_ref, label: Student Ref, type: text, length: 32, unique: true,
-          note: "The readable identity: <programme>-<term>-<application serial>, taken from the
-                 student's FIRST admission, so it never changes as they move between programmes
-                 in later terms. Composed on write, not autonumbered: student_code is an
+          note: "The readable identity: STU-<term>-<application serial>, taken from the student's
+                 FIRST admission, so it says when they joined and never changes afterwards.
+                 The prefix used to be the programme they were admitted to; this school has no
+                 majors -- a student is admitted to a term and picks courses -- so there was
+                 nothing for it to name. Composed on write, not autonumbered: student_code is an
                  autonumber and Zoho silently ignores writes to those -- an update reports
                  SUCCESS and leaves the old value in place." }
-      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null,
-          note: "The programme the student is admitted to, chosen once and fixed -- student_ref is
-                 built from it. Not required at the schema level only because the record can exist
-                 before the decision; the rule is enforced when admitting." }
       - { name: household, label: Household, type: reference, ref: households, required: true, on_delete: restrict }
       - { name: first_name, label: First Name, type: text, length: 60, required: true }
       - { name: last_name, label: Last Name, type: text, length: 60, required: true }
@@ -122,13 +120,23 @@ entities:
       - { name: email, label: Email, type: email, zoho: { api_name: Email, stock: true } }
       - { name: phone, label: Phone, type: phone }
       - { name: enrollment_date, label: Enrollment Date, type: date }
+      - { name: signup_term, label: Signed Up For, type: reference, ref: terms, required: false, on_delete: set_null,
+          note: "The term this student signed up for. The sign-up lives on the student rather than
+                 in a module of its own: one person signing up once, for one term, paying once." }
+      - { name: fee_total, label: Fee Total, type: currency,
+          note: "What the chosen courses come to. Charged per sign-up, not per course -- the
+                 admissions rows are only created once this is settled." }
+      - { name: fee_paid, label: Fee Paid, type: currency, default: 0 }
+      - { name: payment_status, label: Payment Status, type: enum, enum: payment_status, required: true, default: Unpaid,
+          note: "Admissions rows are created when this reaches Paid or Waived. Before that the
+                 student has chosen courses but is not admitted to any of them." }
       - { name: exit_date, label: Exit Date, type: date }
       - { name: emergency_contact_name, label: Emergency Contact, type: text, length: 120 }
       - { name: emergency_contact_phone, label: Emergency Contact Phone, type: phone }
       - { name: medical_notes, label: Medical Notes, type: textarea }
       - { name: photo, label: Student Photo, type: image, zoho: { api_name: Record_Image, stock: true, relabel: true } }
-      - { name: active_enrollments_count, label: Active Enrollments, type: rollup,
-          rollup: { from: enrollments, via: student, function: count, where: "status = 'Active'" } }
+      - { name: active_enrollments_count, label: Courses Taken, type: rollup,
+          rollup: { from: admissions, via: student, function: count, where: "stage = 'Placed'" } }
 
   # =========================================================================
   # teachers -- deliberately NOT CRM users (only 2 licences in the org)
@@ -231,34 +239,19 @@ entities:
           expr: "end_date IS NULL OR end_date >= start_date" }
 
   # =========================================================================
-  # programs -- grouping above courses (a diploma, a stream)
+  # There is no programs entity, and that is deliberate.
+  #
+  # The model had one -- a grouping above courses, with a program_courses
+  # junction saying which programmes offered which course, a programme on each
+  # student and another on each admission. It described a school where you
+  # enrol onto a major and take that major's subjects.
+  #
+  # This school does not work that way. A student is admitted to a term and
+  # chooses courses directly, so the programme was a layer with nothing in it:
+  # it narrowed lists people did not want narrowed, and the rule it enforced --
+  # that a student may only take their own programme's courses -- refused
+  # placements that were perfectly legitimate.
   # =========================================================================
-  - name: programs
-    label: Program
-    plural_label: Programs
-    zoho:
-      module: Academic_Programs
-      access_type: team_based
-      singular_label: Academic Program
-      plural_label: Academic Programs
-      strategy: create
-      display_field: Name
-      note: >-
-        Zoho rejects "Program"/"Programs" as a module name -- "You cannot have
-        a module name that matches a system keyword" (hit 2026-09-19 creating
-        this module in demo3). Both the labels and the api_name have to change,
-        unlike Course_Catalog where only the api_name did. The canonical entity
-        stays `programs` and SQL/TypeScript are unaffected.
-    fields:
-      - { name: name, label: Program Name, type: text, length: 120, required: true,
-          zoho: { api_name: Name, stock: true } }
-      - { name: program_code, label: Program Code, type: text, length: 30, required: true, unique: true }
-      - { name: description, label: Description, type: textarea }
-      - { name: level, label: Level, type: enum, enum: academic_level }
-      - { name: duration_terms, label: Duration (Terms), type: integer }
-      - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
-      - { name: courses_count, label: Courses, type: rollup,
-          rollup: { from: program_courses, via: program, function: count } }
 
   # =========================================================================
   # courses -- catalog entry, independent of when it runs
@@ -295,43 +288,24 @@ entities:
       - { name: status, label: Status, type: enum, enum: catalog_status, required: true, default: Active }
 
   # =========================================================================
-  # program_courses -- which programmes offer which course
-  # =========================================================================
-  - name: program_courses
-    label: Program Course
-    plural_label: Program Courses
-    description: >
-      Which programmes offer a course, many-to-many. A subject several
-      programmes teach -- Mathematics 101 in both Science and Commerce -- is
-      ONE course with one row here per programme. Before this, courses.program
-      gave a course exactly one programme, so a shared subject had to be
-      duplicated per programme; the copies then drifted into separate codes,
-      classes and enrollments.
-    zoho:
-      module: Program_Courses
-      access_type: org_based
-      singular_label: Program Course
-      plural_label: Program Courses
-      strategy: create
-      display_field: Name
-    fields:
-      - { name: name, label: Offering Name, type: text, length: 160, required: true,
-          zoho: { api_name: Name, stock: true },
-          note: "Mandatory on every custom module, join-like ones included." }
-      - { name: program, label: Program, type: reference, ref: programs, required: true, on_delete: cascade }
-      - { name: course, label: Course, type: reference, ref: courses, required: true, on_delete: cascade }
-    constraints:
-      - { type: unique, name: uq_program_course, fields: [program, course] }
-
-  # =========================================================================
   # admissions -- application pipeline, BEFORE a student record exists
   # =========================================================================
   - name: admissions
     label: Admission
     plural_label: Admissions
     description: >
-      An application. Applicant details are held inline because no student row
-      exists until the application is accepted; `student` is back-filled then.
+      One student admitted to one course. Five courses chosen is five rows.
+
+      This is the record a place in a class is made against, and it carries the
+      class once the placement is made -- so one row is the whole life of "this
+      person takes this subject": admitted, placed, marked, graded.
+
+      It used to be an application made before any student existed, with the
+      applicant's own name and guardian held inline. That is gone: a student
+      signs up first (see students.signup_term and the fee fields on it), and
+      only once the fee is settled is a row created here per course chosen.
+      Holding applicant details here would have repeated one person's date of
+      birth once per subject they take.
     zoho:
       module: Admissions
       access_type: team_based
@@ -343,29 +317,31 @@ entities:
           zoho: { api_name: Name, stock: true },
           note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from application_no." }
       - { name: application_no, label: Application No, type: autonumber, format: "APP-{00000}", unique: true }
-      - { name: applicant_first_name, label: Applicant First Name, type: text, length: 60, required: true }
-      - { name: applicant_last_name, label: Applicant Last Name, type: text, length: 60, required: true }
-      - { name: applicant_date_of_birth, label: Applicant Date of Birth, type: date }
-      - { name: applicant_gender, label: Applicant Gender, type: enum, enum: gender }
-      - { name: guardian_name, label: Guardian Name, type: text, length: 120 }
-      - { name: guardian_phone, label: Guardian Phone, type: phone }
-      - { name: guardian_email, label: Guardian Email, type: email }
-      - { name: household, label: Household, type: reference, ref: households, required: false, on_delete: set_null,
-          note: "Linked once an existing family is matched, or created on acceptance." }
-      - { name: student, label: Student, type: reference, ref: students, required: false, on_delete: set_null,
-          note: "Back-filled when the application is accepted." }
-      - { name: term, label: Applying For Term, type: reference, ref: terms, required: true, on_delete: restrict }
-      - { name: program, label: Program, type: reference, ref: programs, required: false, on_delete: set_null }
+      - { name: student, label: Student, type: reference, ref: students, required: true, on_delete: cascade }
+      - { name: course, label: Course, type: reference, ref: courses, required: true, on_delete: restrict,
+          note: "The subject admitted to. Chosen at sign-up; a class running it comes later." }
+      - { name: term, label: Term, type: reference, ref: terms, required: true, on_delete: restrict }
+      - { name: class, label: Class, type: reference, ref: classes, required: false, on_delete: set_null,
+          note: "Which run of the course they were put in. Empty until placed, which is what the
+                 enrolment board does -- an admitted-but-unplaced row is exactly what its left
+                 panel lists." }
       - { name: source, label: Source, type: enum, enum: admission_source }
-      - { name: stage, label: Stage, type: enum, enum: admission_stage, required: true, default: Enquiry }
-      - { name: applied_date, label: Applied Date, type: date, required: true }
-      - { name: interview_date, label: Interview Date, type: datetime }
-      - { name: decision_date, label: Decision Date, type: date }
-      - { name: decision_by, label: Decision By, type: user_reference }
-      - { name: rejection_reason, label: Rejection Reason, type: textarea }
+      - { name: stage, label: Stage, type: enum, enum: admission_stage, required: true, default: Admitted }
+      - { name: applied_date, label: Admitted On, type: date, required: true }
+      - { name: placed_on, label: Placed On, type: date }
+      - { name: dropped_on, label: Dropped On, type: date }
+      - { name: drop_reason, label: Drop Reason, type: textarea }
+      - { name: final_grade, label: Final Grade, type: text, length: 10 }
+      - { name: attendance_rate, label: Attendance Rate, type: rollup,
+          rollup: { from: attendance, via: admission, function: percent,
+                    where: "status IN ('Present','Late')", of: "status <> 'Excused'" } }
       - { name: notes, label: Admission Notes, type: textarea,
           zoho: { api_name: Admission_Notes },
           note: "api_name is not 'Notes' -- Zoho reserves that keyword." }
+    constraints:
+      - { type: unique, name: uq_admission_student_course_term, fields: [student, course, term],
+          note: "One admission per subject per term. Zoho has no composite unique field --
+                 enforced by validation rule. See docs/zoho-mapping.md." }
 
   # =========================================================================
   # classes -- a SECTION: one course running in one term on a weekly pattern
@@ -399,7 +375,7 @@ entities:
       - { name: end_date, label: End Date, type: date, required: true }
       - { name: status, label: Status, type: enum, enum: class_status, required: true, default: Draft }
       - { name: enrolled_count, label: Enrolled, type: rollup,
-          rollup: { from: enrollments, via: class, function: count, where: "status = 'Active'" } }
+          rollup: { from: admissions, via: class, function: count, where: "stage = 'Placed'" } }
       - { name: sessions_count, label: Sessions, type: rollup,
           rollup: { from: class_sessions, via: class, function: count } }
     constraints:
@@ -446,46 +422,16 @@ entities:
       - { type: unique, name: uq_session_per_class_date, fields: [class, session_date, start_time] }
 
   # =========================================================================
-  # enrollments -- a student place in a section
+  # There is no enrollments entity, and that is deliberate.
+  #
+  # It joined a student to a class, and admissions was the pipeline before it.
+  # Two records for one fact: a student had an application for a term and,
+  # separately, a row per class they sat in, with nothing tying a place back to
+  # the subject it was granted for.
+  #
+  # An admission is now per course and carries the class, so the place and the
+  # permission to have it are one row. Attendance hangs off that row.
   # =========================================================================
-  - name: enrollments
-    label: Enrollment
-    plural_label: Enrollments
-    description: >
-      Joins a student to a class. `course` and `term` are intentionally
-      denormalized: Zoho COQL cannot join two hops, so "all enrollments in
-      Term 1" is only answerable if the term sits on this record. Both are
-      derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
-    zoho:
-      module: Enrollments
-      access_type: team_based
-      strategy: create
-      display_field: Name
-    fields:
-      - { name: name, label: Enrollment Name, type: text, length: 120, required: true,
-          zoho: { api_name: Name, stock: true },
-          note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from enrollment_no." }
-      - { name: enrollment_no, label: Enrollment No, type: autonumber, format: "ENR-{000000}", unique: true }
-      - { name: student, label: Student, type: reference, ref: students, required: true, on_delete: cascade }
-      - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade }
-      - { name: course, label: Course, type: reference, ref: courses, required: false, on_delete: set_null,
-          derived_from: "class.course" }
-      - { name: term, label: Term, type: reference, ref: terms, required: false, on_delete: set_null,
-          derived_from: "class.term" }
-      - { name: status, label: Status, type: enum, enum: enrollment_status, required: true, default: Pending }
-      - { name: enrolled_on, label: Enrolled On, type: date, required: true }
-      - { name: dropped_on, label: Dropped On, type: date }
-      - { name: drop_reason, label: Drop Reason, type: textarea }
-      - { name: fee_amount, label: Fee Amount, type: currency }
-      - { name: discount, label: Discount, type: currency, default: 0 }
-      - { name: payment_status, label: Payment Status, type: enum, enum: payment_status, default: Unpaid }
-      - { name: final_grade, label: Final Grade, type: text, length: 10 }
-      - { name: attendance_rate, label: Attendance Rate, type: rollup,
-          rollup: { from: attendance, via: enrollment, function: percent,
-                    where: "status IN ('Present','Late')", of: "status <> 'Excused'" } }
-    constraints:
-      - { type: unique, name: uq_enrollment_student_class, fields: [student, class],
-          note: "Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md." }
 
   # =========================================================================
   # allocations -- staff assigned to a section, or to a single session
@@ -528,8 +474,8 @@ entities:
     label: Attendance
     plural_label: Attendance
     description: >
-      One mark per enrolled student per session. `student` and `class` are
-      denormalized off the enrollment for the same COQL reason as enrollments.
+      One mark per admitted student per session. `student` and `class` are
+      denormalized off the admission for the same COQL reason admissions is.
       Highest-volume table: students x classes-each x sessions-per-term.
     zoho:
       module: Attendance
@@ -542,11 +488,11 @@ entities:
           note: "Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from attendance_no." }
       - { name: attendance_no, label: Attendance No, type: autonumber, format: "ATT-{0000000}", unique: true }
       - { name: class_session, label: Class Session, type: reference, ref: class_sessions, required: true, on_delete: cascade }
-      - { name: enrollment, label: Enrollment, type: reference, ref: enrollments, required: true, on_delete: cascade }
+      - { name: admission, label: Admission, type: reference, ref: admissions, required: true, on_delete: cascade }
       - { name: student, label: Student, type: reference, ref: students, required: true, on_delete: cascade,
-          derived_from: "enrollment.student" }
+          derived_from: "admission.student" }
       - { name: class, label: Class, type: reference, ref: classes, required: true, on_delete: cascade,
-          derived_from: "enrollment.class" }
+          derived_from: "admission.class" }
       - { name: status, label: Attendance, type: enum, enum: attendance_status, required: true, default: Present }
       - { name: minutes_late, label: Minutes Late, type: integer, default: 0 }
       - { name: marked_by, label: Marked By, type: reference, ref: teachers, required: false, on_delete: set_null,
@@ -554,7 +500,7 @@ entities:
       - { name: marked_at, label: Marked At, type: datetime }
       - { name: remarks, label: Remarks, type: textarea }
     constraints:
-      - { type: unique, name: uq_attendance_enrollment_session, fields: [enrollment, class_session],
+      - { type: unique, name: uq_attendance_admission_session, fields: [admission, class_session],
           note: "Zoho: enforced by validation rule, not a native composite unique." }
       - { type: check, name: attendance_minutes_late_nonneg, expr: "minutes_late >= 0" }
 
@@ -565,7 +511,7 @@ indexes:
   - { entity: class_sessions, fields: [class, session_date],      name: idx_session_class_date }
   - { entity: class_sessions, fields: [session_date],             name: idx_session_date }
   - { entity: students,       fields: [status],                   name: idx_student_status }
-  - { entity: enrollments,    fields: [term, status],             name: idx_enrollment_term_status }
+  - { entity: admissions,     fields: [term, stage],              name: idx_admission_term_stage }
   - { entity: attendance,     fields: [student, status],          name: idx_attendance_student_status }
   - { entity: attendance,     fields: [class_session, status],    name: idx_attendance_session_status }
   - { entity: admissions,     fields: [term, stage],              name: idx_admission_term_stage }

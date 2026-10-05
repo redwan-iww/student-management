@@ -30,7 +30,6 @@ erDiagram
         text full_name "required"
         autonumber student_code "unique"
         text student_ref "unique"
-        FK_programs program
         FK_households household "required"
         text first_name "required"
         text last_name "required"
@@ -40,6 +39,10 @@ erDiagram
         email email
         phone phone
         date enrollment_date
+        FK_terms signup_term
+        currency fee_total
+        currency fee_paid
+        enum payment_status "required"
         date exit_date
         text emergency_contact_name
         phone emergency_contact_phone
@@ -77,14 +80,6 @@ erDiagram
         enum kind "required"
         textarea notes
     }
-    PROGRAMS {
-        text name "required"
-        text program_code "required,unique"
-        textarea description
-        enum level
-        integer duration_terms
-        enum status "required"
-    }
     COURSES {
         text name "required"
         text course_code "required,unique"
@@ -95,32 +90,20 @@ erDiagram
         currency default_fee
         enum status "required"
     }
-    PROGRAM_COURSES {
-        text name "required"
-        FK_programs program "required"
-        FK_courses course "required"
-    }
     ADMISSIONS {
         text name "required"
         autonumber application_no "unique"
-        text applicant_first_name "required"
-        text applicant_last_name "required"
-        date applicant_date_of_birth
-        enum applicant_gender
-        text guardian_name
-        phone guardian_phone
-        email guardian_email
-        FK_households household
-        FK_students student
+        FK_students student "required"
+        FK_courses course "required"
         FK_terms term "required"
-        FK_programs program
+        FK_classes class
         enum source
         enum stage "required"
         date applied_date "required"
-        datetime interview_date
-        date decision_date
-        user_reference decision_by
-        textarea rejection_reason
+        date placed_on
+        date dropped_on
+        textarea drop_reason
+        text final_grade
         textarea notes
     }
     CLASSES {
@@ -153,22 +136,6 @@ erDiagram
         boolean attendance_taken
         datetime attendance_taken_at
     }
-    ENROLLMENTS {
-        text name "required"
-        autonumber enrollment_no "unique"
-        FK_students student "required"
-        FK_classes class "required"
-        FK_courses course
-        FK_terms term
-        enum status "required"
-        date enrolled_on "required"
-        date dropped_on
-        textarea drop_reason
-        currency fee_amount
-        currency discount
-        enum payment_status
-        text final_grade
-    }
     ALLOCATIONS {
         text name "required"
         autonumber allocation_no "unique"
@@ -185,7 +152,7 @@ erDiagram
         text name "required"
         autonumber attendance_no "unique"
         FK_class_sessions class_session "required"
-        FK_enrollments enrollment "required"
+        FK_admissions admission "required"
         FK_students student "required"
         FK_classes class "required"
         enum status "required"
@@ -195,29 +162,23 @@ erDiagram
         textarea remarks
     }
 
-    PROGRAMS |o--o{ STUDENTS : "program"
     HOUSEHOLDS ||--o{ STUDENTS : "household"
+    TERMS |o--o{ STUDENTS : "signup_term"
     TERMS |o--o{ HOLIDAYS : "term"
-    PROGRAMS ||--o{ PROGRAM_COURSES : "program"
-    COURSES ||--o{ PROGRAM_COURSES : "course"
-    HOUSEHOLDS |o--o{ ADMISSIONS : "household"
-    STUDENTS |o--o{ ADMISSIONS : "student"
+    STUDENTS ||--o{ ADMISSIONS : "student"
+    COURSES ||--o{ ADMISSIONS : "course"
     TERMS ||--o{ ADMISSIONS : "term"
-    PROGRAMS |o--o{ ADMISSIONS : "program"
+    CLASSES |o--o{ ADMISSIONS : "class"
     COURSES ||--o{ CLASSES : "course"
     TERMS ||--o{ CLASSES : "term"
     TEACHERS |o--o{ CLASSES : "primary_teacher"
     CLASSES ||--o{ CLASS_SESSIONS : "class"
     TEACHERS |o--o{ CLASS_SESSIONS : "teacher_taken"
-    STUDENTS ||--o{ ENROLLMENTS : "student"
-    CLASSES ||--o{ ENROLLMENTS : "class"
-    COURSES |o--o{ ENROLLMENTS : "course"
-    TERMS |o--o{ ENROLLMENTS : "term"
     TEACHERS ||--o{ ALLOCATIONS : "teacher"
     CLASSES ||--o{ ALLOCATIONS : "class"
     CLASS_SESSIONS |o--o{ ALLOCATIONS : "class_session"
     CLASS_SESSIONS ||--o{ ATTENDANCE : "class_session"
-    ENROLLMENTS ||--o{ ATTENDANCE : "enrollment"
+    ADMISSIONS ||--o{ ATTENDANCE : "admission"
     STUDENTS ||--o{ ATTENDANCE : "student"
     CLASSES ||--o{ ATTENDANCE : "class"
     TEACHERS |o--o{ ATTENDANCE : "marked_by"
@@ -231,10 +192,8 @@ erDiagram
 - **Term** (`terms`) — An academic term/session. Classes and enrollments are scoped to one.
 - **Holiday** (`holidays`) — A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.
 - **Course** (`courses`) — What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
-- **Program Course** (`program_courses`) — Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
-- **Admission** (`admissions`) — An application. Applicant details are held inline because no student row exists until the application is accepted; `student` is back-filled then.
+- **Admission** (`admissions`) — One student admitted to one course. Five courses chosen is five rows. This is the record a place in a class is made against, and it carries the class once the placement is made -- so one row is the whole life of "this person takes this subject": admitted, placed, marked, graded. It used to be an application made before any student existed, with the applicant's own name and guardian held inline. That is gone: a student signs up first (see students.signup_term and the fee fields on it), and only once the fee is settled is a row created here per course chosen. Holding applicant details here would have repeated one person's date of birth once per subject they take.
 - **Class** (`classes`) — A section/batch: course x term x weekly timetable. NOT a dated lesson -- that is `class_sessions`. Attendance never attaches here.
 - **Class Session** (`class_sessions`) — A single dated meeting of a class, generated from the weekly pattern on `classes`. teacher_taken records who actually ran it, which may differ from the class primary_teacher (substitutions).
-- **Enrollment** (`enrollments`) — Joins a student to a class. `course` and `term` are intentionally denormalized: Zoho COQL cannot join two hops, so "all enrollments in Term 1" is only answerable if the term sits on this record. Both are derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
 - **Allocation** (`allocations`) — Teacher assigned to a class. class_session is NULL for a whole-term allocation and set only for a one-off substitution on that date.
-- **Attendance** (`attendance`) — One mark per enrolled student per session. `student` and `class` are denormalized off the enrollment for the same COQL reason as enrollments. Highest-volume table: students x classes-each x sessions-per-term.
+- **Attendance** (`attendance`) — One mark per admitted student per session. `student` and `class` are denormalized off the admission for the same COQL reason admissions is. Highest-volume table: students x classes-each x sessions-per-term.

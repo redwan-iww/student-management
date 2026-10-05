@@ -57,17 +57,18 @@ enums:
 
   # ---- admissions ----------------------------------------------------------
 
+  # The life of one admission: a subject paid for, then a class to sit it in.
+  # The old values described an application pipeline -- Enquiry, Interview,
+  # Offered -- which happened before a student record existed. Sign-up is on
+  # the student now, and a row here is only created once the fee is settled,
+  # so the first state a row can be in is Admitted.
   admission_stage:
     label: Stage
     values:
-      - Enquiry
-      - Application Submitted
-      - Documents Pending
-      - Interview
-      - Offered
-      - Accepted
-      - Enrolled
-      - Rejected
+      - Admitted
+      - Placed
+      - Completed
+      - Dropped
       - Withdrawn
 
   admission_source:

@@ -15,13 +15,10 @@ drift check.
 | `teachers` | `Teachers` | create |  |
 | `terms` | `Terms` | create |  |
 | `holidays` | `Holidays` | create |  |
-| `programs` | `Academic_Programs` | create | Zoho rejects "Program"/"Programs" as a module name -- "You cannot have a module name that matches a system keyword" (hit 2026-09-19 creating this module in demo3). Both the labels and the api_name have to change, unlike Course_Catalog where only the api_name did. The canonical entity stays `programs` and SQL/TypeScript are unaffected. |
 | `courses` | `Course_Catalog` | create | api_name is Course_Catalog, not Courses: CustomModule2 already holds the Courses api_name. Audited 2026-09-14 and re-verified 2026-09-19 against demo3 (id 4731441000000553422) -- that module is status user_hidden and COQL returns NO_PERMISSION, so it can be neither read nor safely reused. User-facing labels stay Course / Courses. |
-| `program_courses` | `Program_Courses` | create |  |
 | `admissions` | `Admissions` | create |  |
 | `classes` | `Classes` | create |  |
 | `class_sessions` | `Class_Sessions` | create |  |
-| `enrollments` | `Enrollments` | create |  |
 | `allocations` | `Allocations` | create |  |
 | `attendance` | `Attendance` | create |  |
 
@@ -61,7 +58,6 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `full_name` | `Name` | text | ✓ |
 | `student_code` | `Student_Code` | autonumber |  |
 | `student_ref` | `Student_Ref` | text |  |
-| `program` | `Program` | lookup → `Academic_Programs` |  |
 | `household` | `Household` | lookup → `Contacts` |  |
 | `first_name` | `First_Name` | text |  |
 | `last_name` | `Last_Name` | text |  |
@@ -71,6 +67,10 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `email` | `Email` | email | ✓ |
 | `phone` | `Phone` | phone |  |
 | `enrollment_date` | `Enrollment_Date` | date |  |
+| `signup_term` | `Signup_Term` | lookup → `Terms` |  |
+| `fee_total` | `Fee_Total` | currency |  |
+| `fee_paid` | `Fee_Paid` | currency |  |
+| `payment_status` | `Payment_Status` | picklist |  |
 | `exit_date` | `Exit_Date` | date |  |
 | `emergency_contact_name` | `Emergency_Contact_Name` | text |  |
 | `emergency_contact_phone` | `Emergency_Contact_Phone` | phone |  |
@@ -118,18 +118,6 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `kind` | `Kind` | picklist |  |
 | `notes` | `Holiday_Notes` | textarea |  |
 
-### Academic_Programs — `programs`
-
-| Field | Zoho api_name | Zoho data_type | Stock? |
-|---|---|---|:-:|
-| `name` | `Name` | text | ✓ |
-| `program_code` | `Program_Code` | text |  |
-| `description` | `Description` | textarea |  |
-| `level` | `Level` | picklist |  |
-| `duration_terms` | `Duration_Terms` | integer |  |
-| `status` | `Status` | picklist |  |
-| `courses_count` | `Courses_Count` | rollup summary |  |
-
 ### Course_Catalog — `courses`
 
 | Field | Zoho api_name | Zoho data_type | Stock? |
@@ -143,38 +131,24 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `default_fee` | `Default_Fee` | currency |  |
 | `status` | `Status` | picklist |  |
 
-### Program_Courses — `program_courses`
-
-| Field | Zoho api_name | Zoho data_type | Stock? |
-|---|---|---|:-:|
-| `name` | `Name` | text | ✓ |
-| `program` | `Program` | lookup → `Academic_Programs` |  |
-| `course` | `Course` | lookup → `Course_Catalog` |  |
-
 ### Admissions — `admissions`
 
 | Field | Zoho api_name | Zoho data_type | Stock? |
 |---|---|---|:-:|
 | `name` | `Name` | text | ✓ |
 | `application_no` | `Application_No` | autonumber |  |
-| `applicant_first_name` | `Applicant_First_Name` | text |  |
-| `applicant_last_name` | `Applicant_Last_Name` | text |  |
-| `applicant_date_of_birth` | `Applicant_Date_Of_Birth` | date |  |
-| `applicant_gender` | `Applicant_Gender` | picklist |  |
-| `guardian_name` | `Guardian_Name` | text |  |
-| `guardian_phone` | `Guardian_Phone` | phone |  |
-| `guardian_email` | `Guardian_Email` | email |  |
-| `household` | `Household` | lookup → `Contacts` |  |
 | `student` | `Student` | lookup → `Students` |  |
+| `course` | `Course` | lookup → `Course_Catalog` |  |
 | `term` | `Term` | lookup → `Terms` |  |
-| `program` | `Program` | lookup → `Academic_Programs` |  |
+| `class` | `Class` | lookup → `Classes` |  |
 | `source` | `Source` | picklist |  |
 | `stage` | `Stage` | picklist |  |
 | `applied_date` | `Applied_Date` | date |  |
-| `interview_date` | `Interview_Date` | datetime |  |
-| `decision_date` | `Decision_Date` | date |  |
-| `decision_by` | `Decision_By` | userlookup |  |
-| `rejection_reason` | `Rejection_Reason` | textarea |  |
+| `placed_on` | `Placed_On` | date |  |
+| `dropped_on` | `Dropped_On` | date |  |
+| `drop_reason` | `Drop_Reason` | textarea |  |
+| `final_grade` | `Final_Grade` | text |  |
+| `attendance_rate` | `Attendance_Rate` | rollup summary |  |
 | `notes` | `Admission_Notes` | textarea |  |
 
 ### Classes — `classes`
@@ -217,26 +191,6 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `present_count` | `Present_Count` | rollup summary |  |
 | `absent_count` | `Absent_Count` | rollup summary |  |
 
-### Enrollments — `enrollments`
-
-| Field | Zoho api_name | Zoho data_type | Stock? |
-|---|---|---|:-:|
-| `name` | `Name` | text | ✓ |
-| `enrollment_no` | `Enrollment_No` | autonumber |  |
-| `student` | `Student` | lookup → `Students` |  |
-| `class` | `Class` | lookup → `Classes` |  |
-| `course` | `Course` | lookup → `Course_Catalog` |  |
-| `term` | `Term` | lookup → `Terms` |  |
-| `status` | `Status` | picklist |  |
-| `enrolled_on` | `Enrolled_On` | date |  |
-| `dropped_on` | `Dropped_On` | date |  |
-| `drop_reason` | `Drop_Reason` | textarea |  |
-| `fee_amount` | `Fee_Amount` | currency |  |
-| `discount` | `Discount` | currency |  |
-| `payment_status` | `Payment_Status` | picklist |  |
-| `final_grade` | `Final_Grade` | text |  |
-| `attendance_rate` | `Attendance_Rate` | rollup summary |  |
-
 ### Allocations — `allocations`
 
 | Field | Zoho api_name | Zoho data_type | Stock? |
@@ -259,7 +213,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `name` | `Name` | text | ✓ |
 | `attendance_no` | `Attendance_No` | autonumber |  |
 | `class_session` | `Class_Session` | lookup → `Class_Sessions` |  |
-| `enrollment` | `Enrollment` | lookup → `Enrollments` |  |
+| `admission` | `Admission` | lookup → `Admissions` |  |
 | `student` | `Student` | lookup → `Students` |  |
 | `class` | `Class` | lookup → `Classes` |  |
 | `status` | `Status` | picklist |  |
@@ -272,7 +226,8 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 
 - **Check** `Terms`.`term_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Holidays`.`holiday_dates_ordered` — `end_date IS NULL OR end_date >= start_date` — implement as a Zoho validation rule.
-- **Composite unique** `Program_Courses` (program + course) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
+- **Composite unique** `Admissions` (student + course + term) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
+- **Ratio rollup** `Admissions`.`Attendance_Rate` — Zoho rollups cannot divide. Create numerator and denominator count rollups plus a formula field.
 - **Check** `Classes`.`class_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Classes`.`class_capacity_positive` — `capacity > 0` — implement as a Zoho validation rule.
 - **Time-only field** `Classes`.`Start_Time` — stored as `HH:MM` text.
@@ -280,15 +235,11 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 - **Composite unique** `Class_Sessions` (class + session_date + start_time) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Time-only field** `Class_Sessions`.`Start_Time` — stored as `HH:MM` text.
 - **Time-only field** `Class_Sessions`.`End_Time` — stored as `HH:MM` text.
-- **Composite unique** `Enrollments` (student + class) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
-- **Ratio rollup** `Enrollments`.`Attendance_Rate` — Zoho rollups cannot divide. Create numerator and denominator count rollups plus a formula field.
-- **Denormalized field** `Enrollments`.`Course` — copied from `class.course`. Keep in step with a workflow field-update on create/edit.
-- **Denormalized field** `Enrollments`.`Term` — copied from `class.term`. Keep in step with a workflow field-update on create/edit.
 - **Check** `Allocations`.`allocation_dates_ordered` — `effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from` — implement as a Zoho validation rule.
-- **Composite unique** `Attendance` (enrollment + class_session) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
+- **Composite unique** `Attendance` (admission + class_session) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Check** `Attendance`.`attendance_minutes_late_nonneg` — `minutes_late >= 0` — implement as a Zoho validation rule.
-- **Denormalized field** `Attendance`.`Student` — copied from `enrollment.student`. Keep in step with a workflow field-update on create/edit.
-- **Denormalized field** `Attendance`.`Class` — copied from `enrollment.class`. Keep in step with a workflow field-update on create/edit.
+- **Denormalized field** `Attendance`.`Student` — copied from `admission.student`. Keep in step with a workflow field-update on create/edit.
+- **Denormalized field** `Attendance`.`Class` — copied from `admission.class`. Keep in step with a workflow field-update on create/edit.
 
 ## Build order
 
@@ -299,14 +250,11 @@ Contacts
   -> Teachers
   -> Terms
   -> Holidays
-  -> Academic_Programs
   -> Course_Catalog
-  -> Program_Courses
   -> Classes
   -> Class_Sessions
   -> Allocations
   -> Students
   -> Admissions
-  -> Enrollments
   -> Attendance
 ```

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader, ButtonBusy, useDelayed } from '../components/Loader';
-import { Avatar, Badge, Banner, Button, Card, Chip, EmptyState, Icon } from '../components/ui';
-import { allocationTone, classTone, programLabel, shortDays } from '../components/status';
-import { EnrollmentBoard, type Source } from '../components/EnrollmentBoard';
+import {
+  Avatar, Badge, Banner, Button, Card, Chip, DateField, Drawer, EmptyState, Icon, ToolbarSlotProvider,
+} from '../components/ui';
+import { GenerateSessions } from '../components/GenerateSessions';
+import { allocationTone, classTone, effectiveClassStatus, shortDays } from '../components/status';
+import { EnrollmentBoard } from '../components/EnrollmentBoard';
 import { PageNotice } from '../components/TabShell';
 import {
   ZOHO_MODULES,
@@ -13,10 +16,11 @@ import {
   createAllocation,
   describeError,
   endAllocation,
+  currentTerm,
   getActiveTerms,
+  getClassesThatHaveMet,
   getAllocationsForClass,
   getClassesForTerm,
-  getProgramCourses,
   getSessionsForClass,
   getTeachers,
   int,
@@ -34,7 +38,6 @@ const T = ZOHO_MODULES.terms.fields;
 const TE = ZOHO_MODULES.teachers.fields;
 const AL = ZOHO_MODULES.allocations.fields;
 const S = ZOHO_MODULES.class_sessions.fields;
-const PC = ZOHO_MODULES.program_courses.fields;
 
 /**
  * What one allocation covers.
@@ -60,14 +63,11 @@ export function ClassAllocation() {
   const [termId, setTermId] = useState<string>("");
   const [classes, setClasses] = useState<RawRecord[] | null>(null);
   const [teachers, setTeachers] = useState<RawRecord[]>([]);
-  // The course catalogue, read once: it is how a class reaches its programme,
+  // The course catalogue, read once.
   // and it does not change when the term does.
-  // Which programmes offer which course -- the junction, read whole.
-  const [offerings, setOfferings] = useState<RawRecord[]>([]);
   // Which department's classes to show. Empty means all of them. Lives here
   // rather than in the board because it sits beside the term picker and
   // narrows both views.
-  const [programId, setProgramId] = useState('');
   const [selectedClass, setSelectedClass] = useState<RawRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Active allocation count per class. The list showed only Primary_Teacher,
@@ -80,14 +80,13 @@ export function ClassAllocation() {
 
   useEffect(() => {
     let cancelled = false;
-    // The course catalogue itself is no longer read here: the programme walk
+    // The course catalogue itself is not read here: the programme walk once
     // goes through the junction, which already names both sides.
-    Promise.all([getActiveTerms(), getTeachers(), getProgramCourses()])
-      .then(([ts, teach, offers]) => {
+    Promise.all([getActiveTerms(), getTeachers()])
+      .then(([ts, teach]) => {
         if (cancelled) return;
         setTerms(ts);
         setTeachers(teach);
-        setOfferings(offers);
         if (ts.length > 0) setTermId(currentTerm(ts));
       })
       .catch((err: unknown) => {
@@ -99,12 +98,30 @@ export function ClassAllocation() {
     };
   }, []);
 
+  /* Bumped when lessons are generated, to re-read the classes: Sessions_Count
+     is a rollup, so the "No lessons yet" badge on every card the generator
+     touched is stale the moment it finishes. */
+  const [classesKey, setClassesKey] = useState(0);
+  /* Which classes have actually met -- see getClassesThatHaveMet. Empty until
+     it lands, which reads as "none have", so a card shows the stored status
+     for a moment and then corrects itself. The alternative is holding the
+     whole board back on a fact that only changes a badge. */
+  const [classesMet, setClassesMet] = useState<ReadonlySet<string>>(new Set());
+
   useEffect(() => {
     if (!termId) return;
     let cancelled = false;
     setLoadingClasses(true);
     setSelectedClass(null);
     setStaffCount(new Map());
+    // Independent of the classes and not worth waiting on: it only decides a
+    // badge, so it is fired alongside rather than chained after.
+    getClassesThatHaveMet()
+      .then((met) => { if (!cancelled) setClassesMet(met); })
+      // A failure here means every class falls back to its stored status,
+      // which is what the screen did before this existed.
+      .catch(() => {});
+
     getClassesForTerm(termId)
       .then(async (cs) => {
         if (cancelled) return;
@@ -132,7 +149,7 @@ export function ClassAllocation() {
     return () => {
       cancelled = true;
     };
-  }, [termId]);
+  }, [termId, classesKey]);
 
   const showClassSpinner = useDelayed(loadingClasses);
   const showTermsSpinner = useDelayed(terms === null);
@@ -141,9 +158,27 @@ export function ClassAllocation() {
   // and the part done under time pressure, while staffing a class is a handful
   // of decisions made once a term.
   const [view, setView] = useState<View>('enrollment');
-  // Which roll the enrolment board offers. Up here because its control sits
-  // in the toolbar; the board reads it as a prop.
-  const [source, setSource] = useState<Source>('admitted');
+
+  /* The node the board's Save bar is portalled into, published to it through
+     ToolbarSlotProvider below. A callback ref rather than useRef: the portal
+     needs a render once the node exists, and a ref object mutating would not
+     cause one.
+
+     Declared up here with the other hooks because this component returns early
+     for the staffing detail view, and a hook below that return would not run
+     on every render. */
+  const [toolbarEnd, setToolbarEnd] = useState<HTMLElement | null>(null);
+
+  /* The lesson generator, in a panel rather than on the page. Mounting it
+     costs a term fetch plus a session query per class -- 5-8 requests before
+     it can say anything -- so it stays unmounted until it is asked for, which
+     is what the disclosure on the attendance screen used to buy.
+
+     It lives here now. Generating a term's lessons is setup, done once by
+     whoever builds the timetable; the attendance screen is where a teacher
+     takes a register, and it had the one entry point to a task that is not
+     theirs -- reachable only by landing on a day that happened to be empty. */
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const selectedId = selectedClass?.id ?? null;
   // Stable identity, and a no-op when the count has not moved. ClassStaffing's
@@ -166,73 +201,6 @@ export function ClassAllocation() {
   // follow return before the render on the first pass -- leaving them down
   // there means the hook count changes between renders, which React treats
   // as a torn component and unmounts. That is what blanked the tab.
-  // Class -> programme, walked through the course: a class names its course
-  // but not its department, and COQL cannot join those two hops. A class whose
-  // course is missing from the catalogue keeps no programme rather than
-  // disappearing -- it still has to be staffable.
-  // Course -> the programmes offering it. Built from the same junction rows
-  // as the walk below, and handed to the board so the student panel can check
-  // a placement against the student's own programme.
-  const offeringsOf = useMemo(() => {
-    const m = new Map<string, { id: string; name: string }[]>();
-    for (const row of offerings) {
-      const courseId = refId(row[PC.course]);
-      const id = refId(row[PC.program]);
-      const name = refName(row[PC.program]);
-      if (!courseId || !id || !name) continue;
-      const list = m.get(courseId);
-      if (list) list.push({ id, name });
-      else m.set(courseId, [{ id, name }]);
-    }
-    return m;
-  }, [offerings]);
-
-  const { programOf, programs } = useMemo(() => {
-    // A course is offered by as many programmes as teach it, so this is a list
-    // per course, not a single programme. Built from the junction rather than
-    // a field on the course: a shared subject used to need a copy per
-    // programme, and the copies drifted.
-    const byCourse = new Map<string, { id: string; name: string }[]>();
-    for (const row of offerings) {
-      const courseId = refId(row[PC.course]);
-      const id = refId(row[PC.program]);
-      const name = refName(row[PC.program]);
-      if (!courseId || !id || !name) continue;
-      const list = byCourse.get(courseId);
-      if (list) list.push({ id, name });
-      else byCourse.set(courseId, [{ id, name }]);
-    }
-
-    const programOf = new Map<string, { id: string; name: string }[]>();
-    const seen = new Map<string, string>();
-    for (const k of classes ?? []) {
-      const courseId = refId(k[C.course]);
-      const found = courseId ? byCourse.get(courseId) : undefined;
-      if (!found || found.length === 0) continue;
-      programOf.set(k.id, found);
-      for (const pr of found) seen.set(pr.id, pr.name);
-    }
-
-    return {
-      programOf,
-      programs: [...seen.entries()]
-        .map(([id, name]) => ({ id, name }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    };
-  }, [classes, offerings]);
-
-  // Applied to the staffing table here and inside the board, so the one
-  // picker narrows whichever view is open.
-  const shownClasses = useMemo(
-    () =>
-      programId
-        ? (classes ?? []).filter((k) =>
-            (programOf.get(k.id) ?? []).some((pr) => pr.id === programId),
-          )
-        : (classes ?? []),
-    [classes, programId, programOf],
-  );
-
   if (error) return <Banner tone="error">{error}</Banner>;
   if (terms === null) return showTermsSpinner ? <Loader label="Loading terms…" /> : null;
   if (terms.length === 0)
@@ -257,6 +225,7 @@ export function ClassAllocation() {
         </Button>
         <ClassStaffing
           klass={selectedClass}
+          hasMet={classesMet.has(selectedClass.id)}
           teachers={teachers}
           onPrimaryChanged={(teacherId) => {
             const ref = pickRef(teachers, teacherId);
@@ -305,6 +274,23 @@ export function ClassAllocation() {
         </PageNotice>
       )}
 
+      {setupOpen && (
+        <Drawer
+          title="Set up lessons"
+          subtitle="Creates one dated lesson per class, per meeting, across a term — skipping holidays and anything already there."
+          onClose={() => setSetupOpen(false)}
+        >
+          {/* Opens on the term the board is showing. The picker inside still
+              offers the rest -- setting up next term from this one is a normal
+              thing to want -- but the term in front of you is the one you came
+              here about. */}
+          <GenerateSessions
+            initialTermId={termId}
+            onGenerated={() => setClassesKey((k) => k + 1)}
+          />
+        </Drawer>
+      )}
+
       <div className="toolbar toolbar-page">
         <label>
           <span className="bulk-label">Term</span>
@@ -316,23 +302,6 @@ export function ClassAllocation() {
             ))}
           </select>
         </label>
-
-        {/* Beside the term, because the two answer the same question: which
-            slice of the timetable am I looking at. Hidden when the term's
-            classes all sit in one department and there is nothing to choose. */}
-        {programs.length > 1 && (
-          <label>
-            <span className="bulk-label">Programme</span>
-            <select value={programId} onChange={(e) => setProgramId(e.target.value)}>
-              <option value="">All programmes</option>
-              {programs.map((pr) => (
-                <option key={pr.id} value={pr.id}>
-                  {pr.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
 
         {/* Named for the job, not the people. Both views list this term's
             classes -- one to put a teacher in front of each, the other to put
@@ -359,28 +328,15 @@ export function ClassAllocation() {
           </Button>
         </div>
 
-        {/* Which roll to place from -- the same kind of question as the term
-            and programme pickers beside it, so it belongs on this row rather
-            than down in the column it filters. Only the enrolment view has
-            a roll to choose. */}
-        {view === 'enrollment' && (
-          <div className="seg toolbar-end">
-            <Button
-              className={source === 'admitted' ? 'is-on' : undefined}
-              aria-pressed={source === 'admitted'}
-              onClick={() => setSource('admitted')}
-            >
-              Applied this term
-            </Button>
-            <Button
-              className={source === 'active' ? 'is-on' : undefined}
-              aria-pressed={source === 'active'}
-              onClick={() => setSource('active')}
-            >
-              All students
-            </Button>
-          </div>
-        )}
+        <Button onClick={() => setSetupOpen(true)} title="Create the dated lessons for a term's classes">
+          <Icon name="calendar" size={14} />
+          Set up lessons
+        </Button>
+
+        {/* Where the board's Save bar lands. Empty on the staffing view and on
+            a term with nothing staged, and .toolbar-end is margin-left: auto,
+            so an empty slot takes no room and changes nothing. */}
+        <div className="toolbar-end" ref={setToolbarEnd} />
       </div>
 
       {/* The board is given the class list rather than fetching its own, so it
@@ -391,17 +347,13 @@ export function ClassAllocation() {
         classes === null ? (
           showClassSpinner ? <Loader label="Loading classes…" /> : null
         ) : (
-          <EnrollmentBoard
-            term={selectedTerm}
-            classes={classes}
-            programOf={programOf}
-            programCount={programs.length}
-            programId={programId}
-            onClearProgram={() => setProgramId('')}
-            offeringsOf={offeringsOf}
-            source={source}
-            onSourceChange={setSource}
-          />
+          <ToolbarSlotProvider value={toolbarEnd}>
+            <EnrollmentBoard
+              term={selectedTerm}
+              classes={classes}
+              classesMet={classesMet}
+            />
+          </ToolbarSlotProvider>
         )
       )}
 
@@ -422,16 +374,7 @@ export function ClassAllocation() {
         />
       )}
 
-      {classes && classes.length > 0 && shownClasses.length === 0 && (
-        <EmptyState
-          icon="book"
-          title="No classes in this programme"
-          detail="This term runs classes, but none of them belong to the programme selected above."
-          className={loadingClasses ? 'stale' : undefined}
-        />
-      )}
-
-      {shownClasses.length > 0 && (
+      {(classes ?? []).length > 0 && (
         <Card>
         <table className={loadingClasses ? 'stale' : undefined}>
           <thead>
@@ -446,10 +389,12 @@ export function ClassAllocation() {
             </tr>
           </thead>
           <tbody>
-            {shownClasses.map((k) => {
+            {(classes ?? []).map((k) => {
               const primary = refName(k[C.primary_teacher]);
               const staff = staffCount.get(k.id);
-              const status = classTone(str(k[C.status]));
+              const status = classTone(
+                effectiveClassStatus(str(k[C.status]), classesMet.has(k.id)),
+              );
               return (
                 <tr key={k.id}>
                   <td>
@@ -460,10 +405,6 @@ export function ClassAllocation() {
                         <div className="cell-sub">
                           {str(k[C.class_code], "—")}
                           {str(k[C.section_label]) && <> · Section {str(k[C.section_label])}</>}
-                          {(() => {
-                            const p = programLabel(programOf.get(k.id) ?? [], programs.length);
-                            return p ? <span title={p.title}> · {p.text}</span> : null;
-                          })()}
                         </div>
                       </div>
                     </div>
@@ -582,31 +523,6 @@ function Occupancy({ enrolled, capacity }: { enrolled: number | null; capacity: 
   );
 }
 
-/**
- * The term to open on: the one running today.
- *
- * Was simply the first in the list, which is sorted by start date -- right
- * only by coincidence, and wrong the moment a past term sorts ahead of the
- * live one. Falls back to the next term due to start, then to the last, so
- * there is always a selection even between terms or after the last has ended.
- *
- * Compared in the school's timezone, not the browser's -- see ORG_TIME_ZONE.
- */
-function currentTerm(terms: RawRecord[]): string {
-  const today = orgToday();
-  const running = terms.find(
-    (t) => str(t[T.start_date]) <= today && today <= str(t[T.end_date]),
-  );
-  if (running) return running.id;
-
-  // terms arrive sorted by start date, so the first still ahead of today is
-  // the next one due
-  const next = terms.find((t) => str(t[T.start_date]) > today);
-  if (next) return next.id;
-
-  return terms[terms.length - 1]?.id ?? '';
-}
-
 function pickRef(teachers: RawRecord[], id: string | null) {
   if (!id) return null;
   const t = teachers.find((x) => x.id === id);
@@ -615,11 +531,14 @@ function pickRef(teachers: RawRecord[], id: string | null) {
 
 function ClassStaffing({
   klass,
+  hasMet,
   teachers,
   onPrimaryChanged,
   onStaffChanged,
 }: {
   klass: RawRecord;
+  /** Has a register been taken against a past lesson of this class? */
+  hasMet: boolean;
   teachers: RawRecord[];
   onPrimaryChanged: (teacherId: string | null) => void;
   onStaffChanged: (activeCount: number) => void;
@@ -765,7 +684,7 @@ function ClassStaffing({
     }
   }
 
-  const status = classTone(str(klass[C.status]));
+  const status = classTone(effectiveClassStatus(str(klass[C.status]), hasMet));
   const classCode = str(klass[C.class_code]);
 
   return (
@@ -866,10 +785,9 @@ function ClassStaffing({
 
           <label className="field">
             <span>From</span>
-            <input
-              type="date"
+            <DateField
               value={effectiveFrom}
-              onChange={(e) => setEffectiveFrom(e.target.value)}
+              onChange={setEffectiveFrom}
               disabled={busy}
             />
           </label>
@@ -879,11 +797,10 @@ function ClassStaffing({
                 case, and "End" on the row below closes one when the time
                 comes. This is for cover that is known to be fixed-term. */}
             <span>To (optional)</span>
-            <input
-              type="date"
+            <DateField
               value={effectiveTo}
               min={effectiveFrom || undefined}
-              onChange={(e) => setEffectiveTo(e.target.value)}
+              onChange={setEffectiveTo}
               disabled={busy}
             />
           </label>

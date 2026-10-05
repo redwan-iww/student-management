@@ -236,6 +236,12 @@ td.actions, th.actions { text-align: right; width: 1%; white-space: nowrap; }
 tr.dirty, tr.dirty:hover { background: var(--dirty); }
 tr.dirty td:first-child { box-shadow: inset 3px 0 0 var(--dirty-line); }
 
+/* Nobody has marked this student yet. An edge, not a fill: a register is read
+   top to bottom and the question is which rows are still blank, which is a
+   question about the left margin rather than about any one row. A fill would
+   also fight tr.dirty, and a row can be both -- marked, then cleared. */
+tr.unmarked td:first-child { box-shadow: inset 3px 0 0 var(--line-strong); }
+
 /* An ended allocation is history: still readable, clearly past. */
 tr.ended td { opacity: .55; }
 
@@ -656,13 +662,27 @@ select:hover, input:hover { border-color: var(--muted); }
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
 }
-.sheet-foot .spacer { flex: 1; }
+/* Pushes what follows to the far end of an action bar. Scoped to the two
+   bars that use one rather than made global, so a stray .spacer elsewhere
+   cannot quietly reflow something that never asked for it. */
+.sheet-foot .spacer,
+.modal-foot .spacer { flex: 1; }
 
 .saved-note {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
   color: var(--accent-dark);
+  font-size: .84rem;
+}
+
+/* Beside the Save button rather than at the far end with the saved note: it
+   qualifies what Save is about to do, so it belongs where the button is. */
+.unmarked-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--warn);
   font-size: .84rem;
 }
 
@@ -981,17 +1001,39 @@ textarea:focus-visible {
      unaffected -- their cards size to their own content either way. */
   align-items: stretch;
 
-  /* Grow into the rest of the window, never shrink below the content. Basis
-     auto, so a term with more classes than fit still sizes to them and the
-     page scrolls as before -- this only adds height, it never takes any. The
-     student roll picks the extra up through its own `flex: 1 1 0`. */
-  flex: 1 0 auto;
+  /* Take the window's leftover height, and no more than that. Basis 0 rather
+     than auto: at auto the board was as tall as its tallest column, so a term
+     with eighteen classes pushed the page past the window and the whole thing
+     scrolled -- headings, term picker, student roll and all. Each column now
+     scrolls inside itself instead, which is what keeps both of them on screen
+     at once, and the board is the only part of the page that is sized by the
+     window rather than by its contents.
+
+     min-height 0 so that actually binds. A flex item will not shrink below
+     its content without it, which would have left the basis meaning nothing. */
+  flex: 1 1 0;
+  min-height: 0;
 }
 @media (max-width: 62rem) {
   .board { grid-template-columns: minmax(0, 1fr); }
 }
 
-.board-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+/* min-height 0 for the same reason as the board: a grid item's automatic
+   minimum is its content, which would hand the scrolling back to the page. */
+.board-col { display: flex; flex-direction: column; gap: var(--s2); min-width: 0; min-height: 0; }
+
+/* The class grid's scroller. Same shape as .board-list on the other side --
+   basis 0 so it takes what the column has left rather than what its contents
+   want, a floor so one filtered class does not collapse it, and room on the
+   right for the scrollbar to sit beside the cards instead of over them. */
+.class-scroll {
+  flex: 1 1 0;
+  min-height: 20rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--s2);
+  margin-right: calc(var(--s2) * -1);
+}
 .board-col > .empty { flex: 1; }
 
 /* Each heading gets a rule that stops at its own column's edge. Without one
@@ -1043,6 +1085,10 @@ textarea:focus-visible {
    height, and the headers above them share one too. A class card grows past
    this only while a student is held, when it gains an action row. */
 .drop-card,
+/* The windowed list positions rows on a fixed pitch -- ROW_H in
+   EnrollmentBoard -- so the row has to fill it exactly. Two text lines and
+   padding fall short of it on their own now the avatar has gone, and a row
+   shorter than its slot leaves a gap under every card. */
 .pick-row { min-height: 60px; }
 
 /* A class, as somewhere a student can land. */
@@ -1050,9 +1096,11 @@ textarea:focus-visible {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--s3);
+  --card-pad-y: var(--s2);
+  --card-pad-x: var(--s3);
+  gap: var(--s2) var(--s3);
   align-items: center;
-  padding: var(--s3) var(--s4);
+  padding: var(--card-pad-y) var(--card-pad-x);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -1101,6 +1149,7 @@ textarea:focus-visible {
    nest, and opening the record has to be reachable without ticking the
    student -- so the toggle and the record button are siblings. */
 .pick-row {
+  position: relative;
   display: flex;
   align-items: center;
   background: var(--surface);
@@ -1110,8 +1159,40 @@ textarea:focus-visible {
   overflow: hidden;
   transition: border-color .12s ease, background .12s ease;
 }
+
+/* Whose card this is, as a colour. --person is set per row from the student's
+   name; see PersonCard.
+
+   An edge rather than a tint or a border. A tint would have to be pale enough
+   to read text through, and a dozen pale hues are a dozen shades of nearly
+   white -- which is no grouping at all. The border is already spoken for:
+   it turns green when the card is picked, and a stripe that disappears on
+   selection would vanish exactly when a set is being assembled.
+
+   6px, full height, under the card's own rounding because the row clips.
+   The checkbox clears it: its left margin is var(--s4). */
+.pick-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--person, transparent);
+}
+
+
+/* And a wash of the same colour behind the whole card -- 8% of it, which is
+   nothing to read text through but enough that two stacks of cards separate
+   when the page is scrolled past rather than studied. The stripe alone was
+   legible only if you looked at the left edge on purpose.
+
+   color-mix rather than a second hsl(): one source of truth for the hue, so
+   the wash cannot drift from the stripe. */
+.pick-row { background: color-mix(in srgb, var(--person, var(--surface)) 8%, var(--surface)); }
+.pick-row:hover { background: color-mix(in srgb, var(--person, var(--surface)) 14%, var(--surface)); }
 .pick-row:hover { border-color: var(--line-strong); }
-.pick-row:hover .pick-card:not(:disabled) { background: var(--surface-2); }
+.pick-row:hover .pick-card { background: none; }
 
 .pick-card {
   font: inherit;
@@ -1122,7 +1203,7 @@ textarea:focus-visible {
   flex: 1;
   min-width: 0;
   align-self: stretch;
-  padding: var(--s3) var(--s2) var(--s3) var(--s4);
+  padding: var(--s3) var(--s2);
   background: none;
   border: 0;
   /* pointer, not grab. The card was something you picked up and carried; now a
@@ -1132,10 +1213,31 @@ textarea:focus-visible {
   cursor: pointer;
   transition: background .12s ease;
 }
-.pick-card:disabled { opacity: .55; cursor: default; }
+
 .pick-card .cell-lines { flex: 1; min-width: 0; }
-.pick-card .cell-title,
 .pick-card .cell-sub { display: block; }
+
+/* Name and id on one line. The name takes the slack and truncates; the id is
+   fixed width and must not, or the thing that identifies the person is the
+   first thing to disappear. */
+.pick-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+}
+.pick-head .cell-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-id {
+  flex: none;
+  color: var(--faint);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Opens the record. Quiet until the row is hovered or it is focused: it is
    the secondary action on every one of a thousand rows. */
@@ -1459,23 +1561,19 @@ textarea:focus-visible {
 .select-bar > span:first-child { flex: 1; }
 
 /* The tick box on a student card. */
+/* A real checkbox, sitting outside the draggable card so the two gestures
+   cannot fight. Sized up from the browser default: it is the only way to
+   select without a pointer, and the default is a small target on a row this
+   tall. */
 .pick-check {
   flex: none;
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  background: var(--surface);
-  color: #fff;
+  width: 17px;
+  height: 17px;
+  margin: 0 0 0 var(--s4);
+  accent-color: var(--accent);
+  cursor: pointer;
 }
-.pick-row.is-picked .pick-check {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
+.pick-check:disabled { cursor: default; opacity: .5; }
 /* The drag image for a multi-student drag. Positioned off-screen because it
    only has to exist long enough for the browser to snapshot it. */
 .drag-ghost {
@@ -1521,11 +1619,19 @@ textarea:focus-visible {
   /* The card is a two-column grid; without this the strip would sit in the
      first column beside the chips instead of under everything. */
   grid-column: 1 / -1;
+  /* Above .drop-card-main::after, which is a stretched link covering the whole
+     card so its name is clickable anywhere. Without this lift that overlay
+     sits on top of the remove buttons here and silently eats every click --
+     the card opened instead, and nothing came off the strip. .drop-card-action
+     carries the same z-index for the same reason. */
+  position: relative;
+  z-index: 1;
   /* Bled out to the card's edges, so it reads as a band attached to the card
-     rather than a box floating inside it. The negative values are the card's
-     own padding -- var(--s3) var(--s4) -- and must track it. */
-  margin: var(--s2) calc(var(--s4) * -1) calc(var(--s3) * -1);
-  padding: var(--s2) var(--s4);
+     rather than a box floating inside it. The negatives are the card's own
+     padding, read off it rather than repeated, so tightening the card cannot
+     leave the band stopping short of the edge. */
+  margin: var(--s2) calc(var(--card-pad-x) * -1) calc(var(--card-pad-y) * -1);
+  padding: var(--s2) var(--card-pad-x);
   border-top: 1px solid var(--staged-line);
   background: var(--staged-soft);
   /* Matches the card's own corner, less its border width. */
@@ -1587,24 +1693,31 @@ textarea:focus-visible {
 .staged-remove:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
 .staged-remove:disabled { cursor: default; opacity: .5; }
 
-/* The one control that writes. Fixed, because the board is taller than the
-   screen and a Save placed after it would sit below the fold for most of the
-   work.
+/* The one control that writes. It sits at the end of the page toolbar, which
+   it reaches by portal -- see ToolbarEnd.
+
+   It used to be fixed to the bottom of the window, because the board ran past
+   the fold and a Save placed after it would have been below it for most of the
+   work. The columns scroll inside themselves now, so the toolbar is the one
+   strip that is always on screen and never moves. That is what the fixed pill
+   was buying, and the toolbar gives it without a bar hovering over the bottom
+   row of cards for the whole session.
 
    Near-black, not white. A white pill on a near-white page announced nothing:
    it was the single most important control on the screen and the easiest to
-   miss. Dark, it is the only object of its kind on the page, and the one
-   thing that cannot be mistaken for part of the board. */
+   miss. Dark, it is the only object of its kind on the page, and the one thing
+   that cannot be mistaken for part of the board.
+
+   Shorter now than when it floated: it shares a row with the term picker and
+   the view switch, so its padding is theirs rather than a pill's, and the
+   shadow drops to a rim. A drop shadow says "above the page", which it no
+   longer is. */
 .save-bar {
-  position: fixed;
-  left: 50%;
-  bottom: var(--s5);
-  z-index: 20;
   display: flex;
   align-items: center;
-  gap: var(--s3);
-  max-width: calc(100vw - var(--s5) * 2);
-  padding: var(--s3) var(--s3) var(--s3) var(--s5);
+  gap: var(--s2);
+  min-width: 0;
+  padding: 5px 5px 5px var(--s3);
   border-radius: var(--r-pill);
   background: var(--ink);
   color: #fff;
@@ -1612,17 +1725,15 @@ textarea:focus-visible {
      the counter for them and not a generic notification. */
   box-shadow:
     0 0 0 1px var(--staged),
-    0 0 0 5px rgba(91, 75, 214, .22),
-    0 8px 18px rgba(16, 24, 40, .22),
-    0 20px 48px rgba(16, 24, 40, .26);
-  /* Rises into place, so it is noticed arriving rather than found later. */
+    0 0 0 4px rgba(91, 75, 214, .2);
+  /* Arrives rather than appearing, so it is noticed when the first placement
+     is made rather than found later. */
   animation: save-bar-in .22s cubic-bezier(.2, .8, .3, 1);
 }
 @keyframes save-bar-in {
-  from { opacity: 0; transform: translate(-50%, 12px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.save-bar { transform: translateX(-50%); }
 @media (prefers-reduced-motion: reduce) {
   .save-bar { animation: none; }
   .save-bar-dot { animation: none; }
@@ -1645,24 +1756,39 @@ textarea:focus-visible {
   0%, 100% { box-shadow: 0 0 0 0 rgba(91, 75, 214, .7); }
   70% { box-shadow: 0 0 0 7px rgba(91, 75, 214, 0); }
 }
+/* A size down from when the bar floated: it now shares a row with the term
+   picker and the view switch, and reading larger than both made the sentence
+   the loudest thing on the page rather than the button beside it. */
 .save-bar-count {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: .92rem;
+  font-size: .84rem;
   color: rgba(255, 255, 255, .78);
 }
 .save-bar-count strong { color: #fff; font-weight: 650; }
 
 /* On ink, the ghost button needs its own treatment -- the default is tuned
-   for a light surface and comes out invisible here. */
+   for a light surface and comes out invisible here.
+
+   Outlined rather than bare. A ghost button works on a page because the page
+   is mostly empty and the word stands out of it; inside a dark pill the word
+   sits an inch from another word that is a button, and nothing but the hover
+   said which of the two things you could press. Discard throws work away, so
+   it is the last control that should have to be discovered by hovering. */
 .save-bar .btn-ghost {
-  color: rgba(255, 255, 255, .78);
+  color: #fff;
   background: none;
+  border-color: rgba(255, 255, 255, .4);
 }
+/* colour restated, not inherited. .btn-ghost's own hover sets it to var(--fg)
+   -- near-black, which is right on a white page and invisible on this pill.
+   Every property the generic hover touches has to be answered here or it
+   lands. */
 .save-bar .btn-ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, .12);
+  background: rgba(255, 255, 255, .14);
+  border-color: rgba(255, 255, 255, .72);
   color: #fff;
 }
 .save-bar .btn-primary {
@@ -1683,11 +1809,19 @@ textarea:focus-visible {
    it. An icon carries the distinction at a glance and the rule closes the
    band off.
 
-   Not sticky, though it would be useful to keep the shift named while you
-   scroll through it: the column is not its own scroll container -- the page
-   scrolls -- so a sticky band would pin itself to the top of the window and
-   sit over the toolbar rather than over its own cards. */
+   Sticky, now that .class-scroll is the scroll container and the band pins to
+   the top of the column rather than to the top of the window. It could not be
+   before: with the page scrolling it would have parked itself over the CRM
+   toolbar instead of over its own cards. Scrolling into the evening classes
+   used to leave eighteen cards with nothing saying which shift they were on.
+
+   Opaque, and padded to the column's edges, or the cards would slide visibly
+   under a transparent band. */
 .shift-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
   display: flex;
   align-items: center;
   gap: var(--s2);
@@ -1739,15 +1873,113 @@ textarea:focus-visible {
 
 .class-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  /* 18rem, not 16. A card's first line is a code and a timetable sharing one
+     row, and at 16rem the timetable was clipping mid-time -- "09:00-10:3..."
+     -- which is the worst place to cut it: a half-read time looks like a
+     whole one. 18rem fits the longest code beside both days and a full time
+     range. The room still clips on the longest of them and keeps its text in
+     the line's tooltip; fitting that too wanted 20rem, which costs a column
+     at most widths for the least-consulted part of the line. */
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
   gap: var(--s2);
   align-content: start;
+  /* Each card is its own height. Grid items stretch by default, so one card
+     carrying a staged strip -- or a "No lessons" badge wrapping to a second
+     line -- dragged every card beside it to the same height, and a row of
+     two-line cards sat in boxes sized for a four-line one. */
+  align-items: start;
 }
 
-/* In a grid cell the card has no room for a side column, so the seats and
-   status move under the title instead of beside it. */
-.class-grid .drop-card { grid-template-columns: minmax(0, 1fr); }
-.class-grid .drop-card-side { justify-content: flex-start; }
+/* A class card is two short lines and a number. Default line-height is set
+   for paragraphs, and on a card this short it is most of the height:
+   tightening it here -- and nowhere else -- is what lets the grid show more
+   classes at once. */
+.class-grid .drop-card { line-height: 1.3; }
+.class-grid .drop-card .cell-title { font-size: .92rem; }
+.class-grid .drop-card .cell-sub { font-size: .78rem; }
+.class-grid .drop-card .cell-lines { line-height: 1.35; }
+
+
+/* The seats sit to the right of the title, not under it.
+
+   They used to drop below: the side column once carried the lesson count and
+   the status badge as well, and three chips had no room beside a title in a
+   grid cell this narrow. One chip does. The card keeps the two columns it is
+   built with, so nothing here has to override them.
+
+   Aligned to the top rather than centred, so the number lines up with the
+   class it counts instead of floating between the two lines of text.
+
+   Two rows, not two columns: the class and when it meets on the first, the
+   badges on the second. Beside the text they had to be narrow enough not to
+   squeeze it, which is what kept forcing the room number onto its own line;
+   given the full width they simply sit in a row and the text gets all of it.
+
+   Left-aligned under the text rather than pushed right, so the card reads
+   top-to-bottom down one edge instead of zig-zagging. */
+.class-grid .drop-card {
+  grid-template-columns: minmax(0, 1fr);
+  /* No floor. The shared min-height exists so the student list and the class
+     list keep step when read across as two parallel columns -- but these are
+     a wrapping grid of cards, which cannot line up with anything anyway. It
+     was holding every card at 60px and centring ~47px of content inside it,
+     which looked exactly like a gap between the two rows. */
+  min-height: 0;
+  --card-pad-y: var(--s2);
+  --card-pad-x: var(--s3);
+  /* Small, not nothing. The two rows are one card rather than two things
+     stacked, so the gap only has to separate them -- but squeezed to zero
+     against zero padding the card read as cramped rather than compact. */
+  row-gap: 2px;
+}
+.class-grid .drop-card-side {
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--s1);
+}
+
+/* Name and timetable on one line. The name takes only the width it needs and
+   the when-and-where fills what is left, clipping first: on a grid of
+   near-identical codes -- ECON101-2026T3-A against -B -- a clipped name is the
+   one thing that would make a card unusable. The clipped half keeps its full
+   text in a tooltip. */
+.class-grid .drop-card .cell-lines {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.class-grid .drop-card .cell-title { flex: none; }
+.class-grid .drop-card .cell-sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Smaller here than elsewhere. Two or three of these share one line in a
+   narrow grid cell, and a badge sized for a table row is most of the card's
+   width -- at that size they pushed the title into wrapping. The same Badge
+   in the attendance table and the class drawer keeps its normal size. */
+.class-grid .drop-card-side .badge,
+.class-grid .drop-card-side .chip {
+  justify-content: center;
+  padding: 2px 7px;
+  font-size: .72rem;
+  line-height: 1.45;
+}
+
+/* No dot here. At the grid's narrowest column the card has 230px of content
+   and three badges want about 245 -- and a dot costs 10px of that, the mark
+   plus the gap after it. Dropping both buys 20px, which is the difference
+   between one row and two.
+
+   Nothing is lost by it: the dot repeated what the fill colour already said.
+   It earns its place in a table row, where badges sit in a column of mostly
+   white and the mark is what catches the eye; on a card with two or three
+   of them side by side the colours do that on their own. */
+.class-grid .drop-card-side .badge .dot { display: none; }
 
 /* ---------------------------------------------------------------------------
    Roster rows, and the record panel behind a name
@@ -2002,8 +2234,13 @@ select.field { cursor: pointer; }
   overflow: hidden;
 }
 
+/* The seven columns are set once and every row that has to line up with them
+   quotes it -- the weekday header, the date row, and each shift band's days.
+   A week is no longer one grid, because the shift headings sit between the
+   rows and would otherwise have to be grid items pretending to span. */
 .cal-head,
-.cal-week {
+.cal-dates,
+.cal-band-days {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
@@ -2023,6 +2260,49 @@ select.field { cursor: pointer; }
 
 .cal-week + .cal-week { border-top: 1px solid var(--line); }
 
+/* The date row: the numbers once per week, above both bands. Repeating them
+   over the evening band would be the same seven numbers twice. */
+.cal-datecell { padding: var(--s2) var(--s2) var(--s1); min-width: 0; }
+.cal-datecell + .cal-datecell { border-left: 1px solid var(--line); }
+
+/* One shift, across the whole week. The heading is a band rather than a label
+   because it is now spanning seven columns rather than sitting inside one --
+   at that width a quiet label floats, and the rule under it is what makes the
+   shift boundary a straight line you can see all the way across. */
+.cal-band-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s3);
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: .68rem;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The icon carries the distinction and the word stays plain -- the same
+   division of labour as the headings on the allocation board, same two hues. */
+.cal-band.shift-morning .cal-band-head svg { color: #b8860b; }
+.cal-band.shift-evening .cal-band-head svg { color: #5b6bb5; }
+
+/* Where the 13:00 line actually falls, said once rather than guessed at.
+   Pushed to the far end so it never competes with the shift's name. */
+.cal-band-note {
+  margin-left: auto;
+  font-size: .66rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+}
+
+/* The evening band's days are shorter than the morning's and that is fine --
+   they are separate rows now, so nothing has to match anything. */
+.cal-band-days .cal-day { min-height: 3.5rem; }
+
 .cal-day {
   display: flex;
   flex-direction: column;
@@ -2031,6 +2311,12 @@ select.field { cursor: pointer; }
   min-width: 0;
   padding: var(--s2);
 }
+/* A day with nothing on this shift is still a column, so the one beside it
+   does not slide across. */
+.cal-day-empty { min-height: 3.5rem; }
+
+/* Only when the week is stacked -- see the media query at the end. */
+.cal-day-label { display: none; }
 .cal-day + .cal-day { border-left: 1px solid var(--line); }
 
 /* A day outside the month or term the label names. Shown rather than blanked
@@ -2040,6 +2326,8 @@ select.field { cursor: pointer; }
 .cal-dim .cal-date { color: var(--faint); }
 
 .cal-today { background: var(--accent-soft); }
+
+
 
 .cal-date {
   display: flex;
@@ -2099,10 +2387,426 @@ select.field { cursor: pointer; }
 /* Below a phone's width seven columns are 45px each, which fits nothing. The
    calendar becomes a stack of days, which is the vertical list again -- but
    only where the horizontal one genuinely cannot work. */
+/* Stacked: one day under the next, still grouped under their shift.
+
+   The date row goes with it rather than stacking into seven loose numbers --
+   each day carries its own label here instead -- and a day with nothing on
+   this shift is dropped entirely. Across the week an empty column holds the
+   grid's shape; in a list it is a blank row saying nothing. */
 @media (max-width: 52rem) {
-  .cal-head { display: none; }
-  .cal-week { grid-template-columns: minmax(0, 1fr); }
+  .cal-head,
+  .cal-dates { display: none; }
+  .cal-band-days { grid-template-columns: minmax(0, 1fr); }
   .cal-day + .cal-day { border-left: 0; border-top: 1px solid var(--line); }
   .cal-day { min-height: 0; }
-  .cal-date::after { content: ' ' attr(data-weekday); }
+  .cal-day-empty { display: none; }
+  .cal-day-label {
+    display: block;
+    font-size: .72rem;
+    font-weight: 650;
+    color: var(--muted);
+  }
 }
+
+/* ---------------------------------------------------------------------------
+   DateField -- a date in day/month/year, whatever the browser's locale says
+   --------------------------------------------------------------------------- */
+
+/* The box is the wrapper, not the text input inside it, so the calendar button
+   sits within the same border rather than beside it. The input therefore gives
+   up its own frame -- two nested borders is the usual way this goes wrong. */
+.datefield {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+.datefield:hover { border-color: var(--muted); }
+
+/* Typed, but not yet a date. Not an error -- it is what every date looks like
+   halfway through being entered -- so it marks the field without shouting. */
+.datefield.is-bad { border-color: var(--warn-line); background: var(--dirty); }
+.datefield.is-bad:focus-within { border-color: var(--warn); box-shadow: none; }
+.datefield:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+.datefield > input[type="text"] {
+  width: 9.5em;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.datefield > input[type="text"]:hover { border-color: transparent; }
+.datefield > input[type="text"]:focus { outline: none; box-shadow: none; }
+
+.datefield-pick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.datefield-pick:hover:not(:disabled) { background: var(--neutral-soft); color: var(--fg); }
+.datefield-pick:disabled { cursor: default; opacity: .5; }
+
+/* Present for its calendar and nothing else. Not display:none -- a hidden
+   input cannot be asked to open its picker -- so it is given no size instead
+   and pinned to the field it belongs to, which is where the picker anchors. */
+.datefield-native {
+  position: absolute;
+  width: 0;
+  height: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.datefield { position: relative; }
+
+/* A field inside the editable-fact row has the row's own sizing. */
+.datefield.field { width: auto; }
+
+/* The subject a card is admitted to. It decides which classes will take the
+   card, so it is the line under the name rather than a detail after it. */
+.pick-course { color: var(--fg); font-weight: 550; }
+
+/* ---------------------------------------------------------------------------
+   The lesson generator, inside the setup drawer
+   --------------------------------------------------------------------------- */
+
+.gen { display: flex; flex-direction: column; gap: var(--s4); }
+.gen-intro { margin: 0; font-size: .86rem; line-height: 1.5; }
+.gen-term select { width: 100%; }
+
+/* The courses, as a list that is already open. */
+.gen-courses {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.gen-courses-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+/* How much is outstanding, at the end of the heading rather than above the
+   list: it describes the list, so it belongs on its label. */
+.gen-courses-note {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.gen-course {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  padding: var(--s2) var(--s3);
+  background: none;
+  border: 0;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.gen-course + .gen-course { border-top: 1px solid var(--line); }
+.gen-course:hover { background: var(--surface-2); }
+.gen-course:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* The chosen one. A fill rather than a tick in the margin: this is a radio
+   group wearing a list's clothes, and the row itself is the only thing that
+   can say which one is live without adding a column. */
+.gen-course.is-on {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+
+.gen-course-name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  flex: 1;
+  font-size: .88rem;
+}
+/* How many classes, beside the name rather than under it: one short line is
+   cheaper than two, and eleven rows of two lines is a scroll. */
+.gen-course-sub {
+  flex: none;
+  color: var(--faint);
+  font-size: .74rem;
+  font-weight: 500;
+}
+
+/* Set up, or short by this many. The tick is quiet and the count is not --
+   the rows you have to do something about are the point of the list. */
+.gen-course-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: .74rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.gen-course-state.is-short { color: var(--warn); }
+
+.gen-foot { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
+.gen-foot .preview { margin: 0; font-size: .82rem; line-height: 1.5; }
+
+/* ---------------------------------------------------------------------------
+   Modal -- one question, answered and dismissed
+   --------------------------------------------------------------------------- */
+
+/* Above the drawer, which is 30: the only thing that opens a modal in this app
+   is a control inside a drawer, so underneath it would be invisible. */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s4);
+  background: rgba(16, 24, 40, .4);
+  animation: scrim-in .15s ease-out;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  /* Tall enough for three months of calendar, capped so it can never run off
+     the screen -- the body scrolls instead and the footer stays put. */
+  width: min(32rem, 100%);
+  max-height: min(44rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  /* The footer has its own background and sits flush against the bottom edge,
+     so without this it paints straight over the two rounded corners and the
+     dialog ends square. */
+  overflow: hidden;
+  animation: drawer-in .18s ease-out;
+  outline: none;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.modal-body { flex: 1; overflow-y: auto; padding: var(--s4); }
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+/* The generator's date summary: a count and the way in to change it. */
+.gen-dates {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.gen-dates-label {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.gen-dates-count { margin-left: auto; font-size: .82rem; color: var(--muted); }
+
+/* The date picker itself, inside that modal. */
+.gen-cal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+/* One month, stepped with arrows. Nothing scrolls: a scrollbar under the
+   grid was doing two jobs badly -- saying there were other months, and being
+   the way to reach them -- and it put a second scroll direction inside a
+   dialog that already had one. */
+.gen-month { min-width: 0; }
+
+/* The arrows sit either side of the month's name, so stepping reads as moving
+   the thing between them rather than as two unrelated buttons. */
+.gen-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+}
+.gen-nav h4 {
+  flex: 1;
+  margin: 0;
+  text-align: center;
+  font-size: .88rem;
+  font-weight: 620;
+}
+/* Fixed width, or the two arrows sit at different distances from a short
+   month and a long one, and stepping makes them jump. */
+.gen-nav .btn { flex: none; padding: 4px 8px; }
+
+.gen-nav-of {
+  margin: 0 0 var(--s2);
+  text-align: center;
+  font-size: .7rem;
+  color: var(--faint);
+}
+
+.gen-cal-note { font-size: .78rem; }
+
+/* Seven equal columns, and capped rather than filling the dialog.
+
+   The cells are square, so their width sets the month's height: across the
+   full 32rem of the modal a day came out 65px and six rows ran past the
+   bottom, which is what put a second scrollbar beside the sideways one. At
+   17rem a day is ~36px and a whole month fits with the legend under it.
+
+   Centred, because a narrow grid pinned to the left of a wide column reads as
+   a mistake rather than as a choice. */
+.gen-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  max-width: 17rem;
+  margin: 0 auto;
+}
+
+.gen-dow {
+  text-align: center;
+  font-size: .62rem;
+  font-weight: 650;
+  color: var(--faint);
+  padding-bottom: 2px;
+}
+
+.gen-cell {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--faint);
+  font-size: .76rem;
+  font-variant-numeric: tabular-nums;
+}
+.gen-cell.is-blank { visibility: hidden; }
+
+/* A day with nothing planned on it is still printed -- the grid is a calendar
+   and a calendar with holes is not readable -- but it is the quietest thing
+   on it. */
+.gen-cell.is-taken {
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  opacity: .55;
+}
+.gen-cell.is-closed {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+/* A day the plan would create. Filled, because these are the subject of the
+   screen and everything else on the grid is context for them. */
+.gen-cell.is-plan {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.gen-cell.is-plan:hover { background: #2b2d31; }
+/* Turned off: an outline where the fill was, so the day still reads as one of
+   the plan's days rather than as an ordinary empty square. */
+.gen-cell.is-plan.is-off {
+  background: none;
+  border-color: var(--line-strong);
+  color: var(--muted);
+  font-weight: 500;
+}
+.gen-cell.is-plan:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Two lessons on one day, when a course runs two sections.
+
+   Inside the cell, not hung off its corner. At a 3px gap a badge bled onto
+   the day beside it and looked like it belonged to that one -- on a grid
+   where every square is a separate decision, a marker that can be read
+   against the wrong square is worse than no marker. */
+.gen-cell-n {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 11px;
+  padding: 0 1px;
+  border-radius: var(--r-pill);
+  background: var(--staged);
+  color: #fff;
+  font-size: .52rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 11px;
+  text-align: center;
+}
+
+.gen-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  font-size: .7rem;
+  color: var(--muted);
+}
+.gen-key-item { display: inline-flex; align-items: center; gap: var(--s1); }
+.gen-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+}
+.gen-swatch.is-plan { background: var(--ink); }
+.gen-swatch.is-off { border-color: var(--line-strong); }
+.gen-swatch.is-taken { background: var(--accent-soft); border-color: var(--accent-line); }
+.gen-swatch.is-closed { background: var(--danger-soft); border-color: var(--danger-line); }

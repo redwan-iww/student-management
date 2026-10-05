@@ -152,25 +152,17 @@ export const ACADEMIC_LEVEL_VALUES: readonly AcademicLevel[] = [
 ] as const;
 
 export type AdmissionStage =
-  | 'Enquiry'
-  | 'Application Submitted'
-  | 'Documents Pending'
-  | 'Interview'
-  | 'Offered'
-  | 'Accepted'
-  | 'Enrolled'
-  | 'Rejected'
+  | 'Admitted'
+  | 'Placed'
+  | 'Completed'
+  | 'Dropped'
   | 'Withdrawn';
 
 export const ADMISSION_STAGE_VALUES: readonly AdmissionStage[] = [
-  'Enquiry',
-  'Application Submitted',
-  'Documents Pending',
-  'Interview',
-  'Offered',
-  'Accepted',
-  'Enrolled',
-  'Rejected',
+  'Admitted',
+  'Placed',
+  'Completed',
+  'Dropped',
   'Withdrawn',
 ] as const;
 
@@ -370,7 +362,6 @@ export interface Student {
   full_name: string;
   student_code?: string;
   student_ref?: string;
-  program?: ZohoRef;
   household: ZohoRef;
   first_name: string;
   last_name: string;
@@ -380,6 +371,10 @@ export interface Student {
   email?: string;
   phone?: string;
   enrollment_date?: string;
+  signup_term?: ZohoRef;
+  fee_total?: number;
+  fee_paid?: number;
+  payment_status: PaymentStatus;
   exit_date?: string;
   emergency_contact_name?: string;
   emergency_contact_phone?: string;
@@ -437,17 +432,6 @@ export interface Holiday {
   notes?: string;
 }
 
-export interface Program {
-  id: string;
-  name: string;
-  program_code: string;
-  description?: string;
-  level?: AcademicLevel;
-  duration_terms?: number;
-  status: CatalogStatus;
-  readonly courses_count?: number;
-}
-
 /**
  * What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
  * Zoho module: Course_Catalog
@@ -465,43 +449,26 @@ export interface Course {
 }
 
 /**
- * Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
- * Zoho module: Program_Courses
- */
-export interface ProgramCourse {
-  id: string;
-  name: string;
-  program: ZohoRef;
-  course: ZohoRef;
-}
-
-/**
- * An application. Applicant details are held inline because no student row exists until the application is accepted; `student` is back-filled then.
+ * One student admitted to one course. Five courses chosen is five rows. This is the record a place in a class is made against, and it carries the class once the placement is made -- so one row is the whole life of "this person takes this subject": admitted, placed, marked, graded. It used to be an application made before any student existed, with the applicant's own name and guardian held inline. That is gone: a student signs up first (see students.signup_term and the fee fields on it), and only once the fee is settled is a row created here per course chosen. Holding applicant details here would have repeated one person's date of birth once per subject they take.
  * Zoho module: Admissions
  */
 export interface Admission {
   id: string;
   name: string;
   application_no?: string;
-  applicant_first_name: string;
-  applicant_last_name: string;
-  applicant_date_of_birth?: string;
-  applicant_gender?: Gender;
-  guardian_name?: string;
-  guardian_phone?: string;
-  guardian_email?: string;
-  household?: ZohoRef;
-  student?: ZohoRef;
+  student: ZohoRef;
+  course: ZohoRef;
   term: ZohoRef;
-  program?: ZohoRef;
+  class?: ZohoRef;
   source?: AdmissionSource;
   stage: AdmissionStage;
   applied_date: string;
-  interview_date?: string;
-  decision_date?: string;
-  decision_by?: string;
-  rejection_reason?: string;
+  placed_on?: string;
+  dropped_on?: string;
+  drop_reason?: string;
+  final_grade?: string;
   notes?: string;
+  readonly attendance_rate?: number;
 }
 
 /**
@@ -551,29 +518,6 @@ export interface ClassSession {
 }
 
 /**
- * Joins a student to a class. `course` and `term` are intentionally denormalized: Zoho COQL cannot join two hops, so "all enrollments in Term 1" is only answerable if the term sits on this record. Both are derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
- * Zoho module: Enrollments
- */
-export interface Enrollment {
-  id: string;
-  name: string;
-  enrollment_no?: string;
-  student: ZohoRef;
-  class: ZohoRef;
-  course?: ZohoRef;
-  term?: ZohoRef;
-  status: EnrollmentStatus;
-  enrolled_on: string;
-  dropped_on?: string;
-  drop_reason?: string;
-  fee_amount?: number;
-  discount?: number;
-  payment_status?: PaymentStatus;
-  final_grade?: string;
-  readonly attendance_rate?: number;
-}
-
-/**
  * Teacher assigned to a class. class_session is NULL for a whole-term allocation and set only for a one-off substitution on that date.
  * Zoho module: Allocations
  */
@@ -592,7 +536,7 @@ export interface Allocation {
 }
 
 /**
- * One mark per enrolled student per session. `student` and `class` are denormalized off the enrollment for the same COQL reason as enrollments. Highest-volume table: students x classes-each x sessions-per-term.
+ * One mark per admitted student per session. `student` and `class` are denormalized off the admission for the same COQL reason admissions is. Highest-volume table: students x classes-each x sessions-per-term.
  * Zoho module: Attendance
  */
 export interface Attendance {
@@ -600,7 +544,7 @@ export interface Attendance {
   name: string;
   attendance_no?: string;
   class_session: ZohoRef;
-  enrollment: ZohoRef;
+  admission: ZohoRef;
   student: ZohoRef;
   class: ZohoRef;
   status: AttendanceStatus;
@@ -662,7 +606,6 @@ export const ZOHO_MODULES = {
       full_name: 'Name',
       student_code: 'Student_Code',
       student_ref: 'Student_Ref',
-      program: 'Program',
       household: 'Household',
       first_name: 'First_Name',
       last_name: 'Last_Name',
@@ -672,6 +615,10 @@ export const ZOHO_MODULES = {
       email: 'Email',
       phone: 'Phone',
       enrollment_date: 'Enrollment_Date',
+      signup_term: 'Signup_Term',
+      fee_total: 'Fee_Total',
+      fee_paid: 'Fee_Paid',
+      payment_status: 'Payment_Status',
       exit_date: 'Exit_Date',
       emergency_contact_name: 'Emergency_Contact_Name',
       emergency_contact_phone: 'Emergency_Contact_Phone',
@@ -723,19 +670,6 @@ export const ZOHO_MODULES = {
       notes: 'Holiday_Notes',
     },
   },
-  programs: {
-    module: 'Academic_Programs',
-    displayField: 'Name',
-    fields: {
-      name: 'Name',
-      program_code: 'Program_Code',
-      description: 'Description',
-      level: 'Level',
-      duration_terms: 'Duration_Terms',
-      status: 'Status',
-      courses_count: 'Courses_Count',
-    },
-  },
   courses: {
     module: 'Course_Catalog',
     displayField: 'Name',
@@ -750,39 +684,24 @@ export const ZOHO_MODULES = {
       status: 'Status',
     },
   },
-  program_courses: {
-    module: 'Program_Courses',
-    displayField: 'Name',
-    fields: {
-      name: 'Name',
-      program: 'Program',
-      course: 'Course',
-    },
-  },
   admissions: {
     module: 'Admissions',
     displayField: 'Name',
     fields: {
       name: 'Name',
       application_no: 'Application_No',
-      applicant_first_name: 'Applicant_First_Name',
-      applicant_last_name: 'Applicant_Last_Name',
-      applicant_date_of_birth: 'Applicant_Date_Of_Birth',
-      applicant_gender: 'Applicant_Gender',
-      guardian_name: 'Guardian_Name',
-      guardian_phone: 'Guardian_Phone',
-      guardian_email: 'Guardian_Email',
-      household: 'Household',
       student: 'Student',
+      course: 'Course',
       term: 'Term',
-      program: 'Program',
+      class: 'Class',
       source: 'Source',
       stage: 'Stage',
       applied_date: 'Applied_Date',
-      interview_date: 'Interview_Date',
-      decision_date: 'Decision_Date',
-      decision_by: 'Decision_By',
-      rejection_reason: 'Rejection_Reason',
+      placed_on: 'Placed_On',
+      dropped_on: 'Dropped_On',
+      drop_reason: 'Drop_Reason',
+      final_grade: 'Final_Grade',
+      attendance_rate: 'Attendance_Rate',
       notes: 'Admission_Notes',
     },
   },
@@ -828,27 +747,6 @@ export const ZOHO_MODULES = {
       absent_count: 'Absent_Count',
     },
   },
-  enrollments: {
-    module: 'Enrollments',
-    displayField: 'Name',
-    fields: {
-      name: 'Name',
-      enrollment_no: 'Enrollment_No',
-      student: 'Student',
-      class: 'Class',
-      course: 'Course',
-      term: 'Term',
-      status: 'Status',
-      enrolled_on: 'Enrolled_On',
-      dropped_on: 'Dropped_On',
-      drop_reason: 'Drop_Reason',
-      fee_amount: 'Fee_Amount',
-      discount: 'Discount',
-      payment_status: 'Payment_Status',
-      final_grade: 'Final_Grade',
-      attendance_rate: 'Attendance_Rate',
-    },
-  },
   allocations: {
     module: 'Allocations',
     displayField: 'Name',
@@ -872,7 +770,7 @@ export const ZOHO_MODULES = {
       name: 'Name',
       attendance_no: 'Attendance_No',
       class_session: 'Class_Session',
-      enrollment: 'Enrollment',
+      admission: 'Admission',
       student: 'Student',
       class: 'Class',
       status: 'Status',
@@ -893,13 +791,10 @@ export interface EntityTypes {
   teachers: Teacher;
   terms: Term;
   holidays: Holiday;
-  programs: Program;
   courses: Course;
-  program_courses: ProgramCourse;
   admissions: Admission;
   classes: Class;
   class_sessions: ClassSession;
-  enrollments: Enrollment;
   allocations: Allocation;
   attendance: Attendance;
 }

@@ -89,17 +89,17 @@
       "_entity_field": "class_session"
     },
     {
-      "field_label": "Enrollment",
-      "api_name": "Enrollment",
+      "field_label": "Admission",
+      "api_name": "Admission",
       "data_type": "lookup",
       "lookup": {
         "module": {
-          "api_name": "Enrollments"
+          "api_name": "Admissions"
         },
         "display_label": "Attendance"
       },
       "system_mandatory": true,
-      "_entity_field": "enrollment"
+      "_entity_field": "admission"
     },
     {
       "field_label": "Student",

@@ -20,7 +20,7 @@
       "api_name": "Student_Ref",
       "tooltip": {
         "name": "info_icon",
-        "value": "The readable identity: <programme>-<term>-<application serial>, taken from the student's FIRST admission, so it never changes as they move between programmes in later terms. Composed on write, not autonumbered: student_code is an autonumber and Zoho silen"
+        "value": "The readable identity: STU-<term>-<application serial>, taken from the student's FIRST admission, so it says when they joined and never changes afterwards. The prefix used to be the programme they were admitted to; this school has no majors -- a student i"
       },
       "data_type": "text",
       "length": 32,
@@ -133,6 +133,74 @@
       "_entity_field": "enrollment_date"
     },
     {
+      "field_label": "Fee Total",
+      "api_name": "Fee_Total",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "What the chosen courses come to. Charged per sign-up, not per course -- the admissions rows are only created once this is settled."
+      },
+      "data_type": "currency",
+      "length": 16,
+      "decimal_place": 2,
+      "currency": {
+        "precision": "2",
+        "rounding_option": "normal"
+      },
+      "_entity_field": "fee_total"
+    },
+    {
+      "field_label": "Fee Paid",
+      "api_name": "Fee_Paid",
+      "data_type": "currency",
+      "length": 16,
+      "decimal_place": 2,
+      "currency": {
+        "precision": "2",
+        "rounding_option": "normal"
+      },
+      "default_value": "0",
+      "_entity_field": "fee_paid"
+    },
+    {
+      "field_label": "Payment Status",
+      "api_name": "Payment_Status",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Admissions rows are created when this reaches Paid or Waived. Before that the student has chosen courses but is not admitted to any of them."
+      },
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Unpaid",
+          "actual_value": "Unpaid",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Partially Paid",
+          "actual_value": "Partially Paid",
+          "sequence_number": 2
+        },
+        {
+          "display_value": "Paid",
+          "actual_value": "Paid",
+          "sequence_number": 3
+        },
+        {
+          "display_value": "Waived",
+          "actual_value": "Waived",
+          "sequence_number": 4
+        },
+        {
+          "display_value": "Refunded",
+          "actual_value": "Refunded",
+          "sequence_number": 5
+        }
+      ],
+      "system_mandatory": true,
+      "default_value": "Unpaid",
+      "_entity_field": "payment_status"
+    },
+    {
       "field_label": "Exit Date",
       "api_name": "Exit_Date",
       "data_type": "date",
@@ -164,22 +232,6 @@
   ],
   "lookup_fields": [
     {
-      "field_label": "Program",
-      "api_name": "Program",
-      "tooltip": {
-        "name": "info_icon",
-        "value": "The programme the student is admitted to, chosen once and fixed -- student_ref is built from it. Not required at the schema level only because the record can exist before the decision; the rule is enforced when admitting."
-      },
-      "data_type": "lookup",
-      "lookup": {
-        "module": {
-          "api_name": "Academic_Programs"
-        },
-        "display_label": "Students"
-      },
-      "_entity_field": "program"
-    },
-    {
       "field_label": "Household",
       "api_name": "Household",
       "data_type": "lookup",
@@ -191,6 +243,22 @@
       },
       "system_mandatory": true,
       "_entity_field": "household"
+    },
+    {
+      "field_label": "Signed Up For",
+      "api_name": "Signup_Term",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "The term this student signed up for. The sign-up lives on the student rather than in a module of its own: one person signing up once, for one term, paying once."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Terms"
+        },
+        "display_label": "Students"
+      },
+      "_entity_field": "signup_term"
     }
   ],
   "relabel_stock_fields": [

@@ -107,60 +107,10 @@
       }
     },
     {
-      "_entity": "programs",
-      "singular_label": "Academic Program",
-      "plural_label": "Academic Programs",
-      "api_name": "Academic_Programs",
-      "access_type": "team_based",
-      "profiles": [
-        {
-          "id": "4731441000031826001",
-          "_name": "Admins"
-        },
-        {
-          "id": "4731441000031826002",
-          "_name": "Managers"
-        },
-        {
-          "id": "4731441000031826003",
-          "_name": "Members"
-        },
-        {
-          "id": "4731441000031826004",
-          "_name": "Participants"
-        },
-        {
-          "id": "4731441000031826005",
-          "_name": "Requesters"
-        }
-      ],
-      "_team_space": "(unconfirmed)",
-      "private_profile": {
-        "name": "Admins"
-      }
-    },
-    {
       "_entity": "courses",
       "singular_label": "Course",
       "plural_label": "Courses",
       "api_name": "Course_Catalog",
-      "access_type": "org_based",
-      "profiles": [
-        {
-          "id": "4731441000000026011",
-          "_name": "Administrator"
-        },
-        {
-          "id": "4731441000000026014",
-          "_name": "Standard"
-        }
-      ]
-    },
-    {
-      "_entity": "program_courses",
-      "singular_label": "Program Course",
-      "plural_label": "Program Courses",
-      "api_name": "Program_Courses",
       "access_type": "org_based",
       "profiles": [
         {
@@ -277,39 +227,6 @@
       "singular_label": "Admission",
       "plural_label": "Admissions",
       "api_name": "Admissions",
-      "access_type": "team_based",
-      "profiles": [
-        {
-          "id": "4731441000031826001",
-          "_name": "Admins"
-        },
-        {
-          "id": "4731441000031826002",
-          "_name": "Managers"
-        },
-        {
-          "id": "4731441000031826003",
-          "_name": "Members"
-        },
-        {
-          "id": "4731441000031826004",
-          "_name": "Participants"
-        },
-        {
-          "id": "4731441000031826005",
-          "_name": "Requesters"
-        }
-      ],
-      "_team_space": "(unconfirmed)",
-      "private_profile": {
-        "name": "Admins"
-      }
-    },
-    {
-      "_entity": "enrollments",
-      "singular_label": "Enrollment",
-      "plural_label": "Enrollments",
-      "api_name": "Enrollments",
       "access_type": "team_based",
       "profiles": [
         {

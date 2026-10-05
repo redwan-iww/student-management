@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+// Aliased: the DOM KeyboardEvent is used below for a window listener, and an
+// unaliased React import would shadow it.
+import type { ButtonHTMLAttributes, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 
 // Presentational primitives.
 //
@@ -10,6 +13,36 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 // The set is deliberately small. There is no <Table>: the four tables in the
 // app share no columns, no sorting and no pagination, so an abstraction over
 // them would cost more than the .card wrapper and the element-level CSS.
+
+/* -------------------------------------------------------------------------- */
+/* Toolbar slot                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The far end of the page toolbar, published by whichever screen draws one.
+ *
+ * Null until that screen has mounted and handed over its node, which is why
+ * ToolbarEnd guards rather than assumes.
+ */
+const ToolbarSlot = createContext<HTMLElement | null>(null);
+
+export const ToolbarSlotProvider = ToolbarSlot.Provider;
+
+/**
+ * Puts its children at the end of the page toolbar, from anywhere below it.
+ *
+ * The same trick PageNotice plays on the shell's header, one level down: a
+ * control that belongs in the toolbar row but whose state lives deep inside
+ * the screen cannot get there by nesting, because the toolbar is drawn above
+ * its own children. Rendering it where the state is and portalling the markup
+ * keeps the two together -- the alternative is lifting the state up to the
+ * toolbar, which means the screen owning a board's worth of edits it never
+ * looks at.
+ */
+export function ToolbarEnd({ children }: { children: ReactNode }) {
+  const host = useContext(ToolbarSlot);
+  return host ? createPortal(children, host) : null;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Icons                                                                      */
@@ -136,14 +169,17 @@ export type Tone = 'positive' | 'pending' | 'neutral' | 'critical';
 export function Badge({
   tone,
   dot = false,
+  title,
   children,
 }: {
   tone: Tone;
   dot?: boolean;
+  /** The long form, for a badge whose label had to be short to fit. */
+  title?: string;
   children: ReactNode;
 }) {
   return (
-    <span className={`badge badge-${tone}`}>
+    <span className={`badge badge-${tone}`} title={title}>
       {dot && <i className="dot" aria-hidden="true" />}
       {children}
     </span>
@@ -171,14 +207,28 @@ function initialsOf(name: string): string {
 }
 
 /**
- * A stable hue per name, so the same teacher is the same colour everywhere and
+ * A stable hue per name, so the same person is the same colour everywhere and
  * across reloads. Saturation and lightness are fixed rather than hashed: white
  * text has to stay legible on every hue the hash can produce.
+ *
+ * Exported because the avatar is no longer the only thing wearing it -- the
+ * board marks a student's cards with the same colour -- and a person who is
+ * teal in one place and amber in another is worse than no colour at all.
  */
-function hueOf(name: string): number {
+/**
+ * Eleven hues, not 360. A hash over the whole wheel gave neighbours like 142
+ * and 151 -- different numbers, the same green to anyone glancing at a list --
+ * and dropped names into the muddy 60-80 band where everything reads olive.
+ * Landing on a fixed set means two people are either the same colour or
+ * obviously not, with no almost-the-same in between. Spaced to stay apart at
+ * 6px wide, which is all the stripe on a student card ever is.
+ */
+const HUES = [4, 28, 45, 88, 135, 168, 196, 220, 258, 292, 325];
+
+export function hueOf(name: string): number {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return h;
+  return HUES[h % HUES.length] ?? 0;
 }
 
 /**
@@ -353,6 +403,168 @@ export function Toast({
 }
 
 /* -------------------------------------------------------------------------- */
+/* DateField                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** yyyy-MM-dd -> dd/mm/yyyy. '' for anything that is not a full ISO date. */
+function toUk(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+
+/**
+ * dd/mm/yyyy -> yyyy-MM-dd, or '' if it is not a real date.
+ *
+ * Separator-agnostic and happy with single digits, because people type
+ * 1/9/2026 and a field that rejects it is a field that argues. The round trip
+ * through Date catches 31/02, which passes every regex and is not a day.
+ */
+function fromUk(text: string): string {
+  const m = /^(\d{1,2})\s*[/\-. ]\s*(\d{1,2})\s*[/\-. ]\s*(\d{4})$/.exec(text.trim());
+  if (!m) return '';
+  const [, d, mo, y] = m;
+  const iso = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const back = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(back.getTime()) || back.toISOString().slice(0, 10) !== iso ? '' : iso;
+}
+
+/** Whether this browser can be asked to open a date picker on demand. */
+const CAN_PICK =
+  typeof HTMLInputElement !== 'undefined' &&
+  typeof HTMLInputElement.prototype.showPicker === 'function';
+
+/**
+ * A date field that reads and writes day/month/year.
+ *
+ * A native `<input type="date">` cannot be told what order to show its parts
+ * in -- it follows the browser's own locale, and neither the `lang` attribute
+ * nor CSS reaches it -- so an en-US browser rendered every date in this app as
+ * mm/dd/yyyy. 09/07/2026 then means two different days to two people reading
+ * the same screen, which for a register is not cosmetic.
+ *
+ * So the visible control is a text box this code formats, and the native input
+ * stays only to supply the calendar: hidden, and opened by the button beside
+ * the box. The value crossing the boundary is always ISO, so callers are
+ * unchanged and nothing downstream has to know this exists.
+ *
+ * Typing is authoritative and parsing is forgiving: 1/9/2026, 01-09-2026 and
+ * 01.09.2026 all land on the same day. A half-typed date is kept as typed and
+ * simply not emitted -- clearing the field as you type is how a date field
+ * becomes unusable.
+ */
+export function DateField({
+  value,
+  onChange,
+  min,
+  max,
+  disabled,
+  required,
+  id,
+  className,
+  autoFocus,
+  'aria-label': ariaLabel,
+  onKeyDown,
+}: {
+  /** yyyy-MM-dd, or '' for empty. */
+  value: string;
+  onChange: (iso: string) => void;
+  min?: string;
+  max?: string;
+  disabled?: boolean;
+  required?: boolean;
+  id?: string;
+  className?: string;
+  autoFocus?: boolean;
+  'aria-label'?: string;
+  onKeyDown?: (e: ReactKeyboardEvent<HTMLInputElement>) => void;
+}) {
+  const native = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState(() => toUk(value));
+
+  // Follow the value when it is changed from outside -- a step, a picker, a
+  // reset -- but not while it is being typed, which would fight the caret.
+  const [lastValue, setLastValue] = useState(value);
+  if (value !== lastValue) {
+    setLastValue(value);
+    setText(toUk(value));
+  }
+
+  const typed = (next: string) => {
+    setText(next);
+    const iso = fromUk(next);
+    if (iso) onChange(iso);
+    else if (next.trim() === '') onChange('');
+  };
+
+  // Half a date is not emitted -- the value stays as it was -- so without
+  // something on screen the field looks edited while holding the old day, and
+  // Enter would commit that old day without a word.
+  const malformed = text.trim() !== '' && fromUk(text) === '';
+
+  return (
+    <span
+      className={['datefield', malformed ? 'is-bad' : '', className]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder="dd/mm/yyyy"
+        value={text}
+        disabled={disabled}
+        required={required}
+        autoFocus={autoFocus}
+        aria-label={ariaLabel}
+        aria-invalid={malformed || undefined}
+        onChange={(e) => typed(e.target.value)}
+        /* Snap back to the last good value rather than leaving half a date
+           on screen pretending to be one. */
+        onBlur={() => setText(toUk(value))}
+        onKeyDown={onKeyDown}
+      />
+
+      {CAN_PICK && (
+        <button
+          type="button"
+          className="datefield-pick"
+          disabled={disabled}
+          aria-label="Open the calendar"
+          title="Open the calendar"
+          onClick={() => {
+            try {
+              native.current?.showPicker();
+            } catch {
+              // Chrome throws if the call is not treated as user-activated.
+              // The text box still works, so there is nothing to recover.
+            }
+          }}
+        >
+          <Icon name="calendar" size={15} />
+        </button>
+      )}
+
+      {/* The calendar, and nothing else. Hidden from layout and from the tab
+          order: it is the button above that is the control. */}
+      <input
+        ref={native}
+        type="date"
+        className="datefield-native"
+        tabIndex={-1}
+        aria-hidden="true"
+        value={value}
+        min={min}
+        max={max}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Drawer                                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -390,6 +602,81 @@ function lockScroll() {
 function unlockScroll() {
   scrollLocks = Math.max(0, scrollLocks - 1);
   if (scrollLocks === 0) document.body.style.overflow = scrollWas;
+}
+
+/**
+ * A dialog in the middle of the screen, with its own footer.
+ *
+ * The drawer's sibling rather than a variant of it: a drawer is a place you
+ * work -- it has a scroll of its own and you come back to it -- while this is
+ * one question answered and dismissed. It sits above the drawer deliberately,
+ * since the only thing that opens one here is a control inside one.
+ *
+ * Shares the drawer's scroll lock, which is counted precisely so that closing
+ * the modal does not unlock the page while the drawer behind it is still open.
+ */
+export function Modal({
+  title,
+  subtitle,
+  footer,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  /** Buttons along the bottom. Pinned, so a long body cannot push them away. */
+  footer?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Stopped, or the drawer underneath takes the same Escape and both
+      // close at once -- which loses the work the modal was collecting.
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    lockScroll();
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      unlockScroll();
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        ref={panel}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="modal-head">
+          <div className="drawer-head-text">
+            <h2>{title}</h2>
+            {subtitle && <p className="muted">{subtitle}</p>}
+          </div>
+          <Button variant="ghost" small onClick={onClose} aria-label="Close">
+            <Icon name="close" />
+          </Button>
+        </header>
+        <div className="modal-body">{children}</div>
+        {footer && <footer className="modal-foot">{footer}</footer>}
+      </div>
+    </div>
+  );
 }
 
 export function Drawer({

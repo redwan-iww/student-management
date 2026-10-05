@@ -332,6 +332,36 @@ export async function getActiveTerms(): Promise<RawRecord[]> {
   return recs.sort((a, b) => str(a[fields.start_date]).localeCompare(str(b[fields.start_date])));
 }
 
+/**
+ * The term to open on: the one running today.
+ *
+ * Was simply the first in the list, which getActiveTerms sorts by start date
+ * -- right only by coincidence, and wrong the moment a past term sorts ahead
+ * of the live one. Falls back to the next term due to start, then to the last,
+ * so there is always a selection even between terms or after the last ended.
+ *
+ * Compared in the school's timezone, not the browser's -- see ORG_TIME_ZONE.
+ *
+ * Lives here rather than on the screen that first needed it, next to the call
+ * whose result it picks from: two screens were choosing a default term and
+ * only one of them was choosing it correctly.
+ */
+export function currentTerm(terms: RawRecord[]): string {
+  const { fields } = ZOHO_MODULES.terms;
+  const today = orgToday();
+  const running = terms.find(
+    (t) => str(t[fields.start_date]) <= today && today <= str(t[fields.end_date]),
+  );
+  if (running) return running.id;
+
+  // terms arrive sorted by start date, so the first still ahead of today is
+  // the next one due
+  const next = terms.find((t) => str(t[fields.start_date]) > today);
+  if (next) return next.id;
+
+  return terms[terms.length - 1]?.id ?? '';
+}
+
 export async function getClassesForTerm(termId: string): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.classes;
   const recs = await search(module, `(${fields.term}:equals:${termId})`);
@@ -472,7 +502,7 @@ export async function setPrimaryTeacher(
  * written as
  * `((Session_Date:greater_equal:a)and(Session_Date:less_equal:b))` is rejected
  * outright with "INVALID_QUERY: Invalid query formed: (field: Session_Date)",
- * the same way `not_equal:null` on a lookup is -- see getProgramCourses.
+ * the same way `not_equal:null` on a lookup is.
  *
  * So one day searches, and anything wider reads the module and filters here.
  * That sounds worse than it is: the whole table is under 400 rows, which is
@@ -510,6 +540,40 @@ export async function getSessionsBetween(
   );
 }
 
+/**
+ * The classes that have actually met: a lesson in the past with its register
+ * taken.
+ *
+ * This is the one fact in the system that proves a class is running rather
+ * than planned. You cannot take a register without students, a teacher and a
+ * room, so a taken register answers the whole go/no-go at once -- and unlike
+ * the Status field on the class, nobody has to remember to set it.
+ *
+ * Read in full and filtered here, like the week and month views: Session_Date
+ * cannot be searched as a range -- `greater_equal` is rejected with
+ * INVALID_QUERY -- and a boolean criterion on Attendance_Taken is not worth
+ * betting the screen on when the same read already serves.
+ */
+export async function getClassesThatHaveMet(): Promise<Set<string>> {
+  const { module, fields } = ZOHO_MODULES.class_sessions;
+  const today = orgToday();
+  const recs = await pageThrough(`all ${module}`, (page) =>
+    zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
+  );
+
+  const met = new Set<string>();
+  for (const r of recs) {
+    // A register taken against a future date is somebody marking ahead, not a
+    // lesson that happened. yyyy-MM-dd is fixed width, so string order is date
+    // order.
+    if (str(r[fields.session_date]) > today) continue;
+    if (r[fields.attendance_taken] !== true) continue;
+    const id = refId(r[fields.class]);
+    if (id) met.add(id);
+  }
+  return met;
+}
+
 export async function getClassSession(sessionId: string): Promise<RawRecord | null> {
   const { module } = ZOHO_MODULES.class_sessions;
   const res = await zoho().CRM.API.getRecord({ Entity: module, RecordID: sessionId });
@@ -524,39 +588,47 @@ export async function getClassSession(sessionId: string): Promise<RawRecord | nu
  * them showed "No students enrolled" over a class that ran all term and has a
  * register for every session of it.
  */
-export const PLACED_STATUSES = ['Active', 'Completed'] as const;
+export const PLACED_STAGES = ['Placed', 'Completed'] as const;
 
-export async function getEnrollmentsForClass(
+/**
+ * The admissions sitting in one class -- its roster.
+ *
+ * An admission names a course; the class is filled in when the student is put
+ * into a run of it. So "who is in this class" is "which admissions point at
+ * it", and a student who was admitted to the subject but never placed simply
+ * has no class to be found by.
+ */
+export async function getAdmissionsForClass(
   classId: string,
   /**
    * The register wants the students it should be marking -- or, on a finished
    * class, reviewing -- so this defaults to true. The duplicate guard wants
-   * every row, because a Dropped enrollment still occupies the (student,
-   * class) pair that uq_enrollment_student_class is supposed to keep unique.
+   * every row, because a Dropped admission still holds the place its student
+   * had, and re-placing them must not make a second one.
    */
   placedOnly = true,
 ): Promise<RawRecord[]> {
-  const { module, fields } = ZOHO_MODULES.enrollments;
+  const { module, fields } = ZOHO_MODULES.admissions;
   const related = await relatedRecords(ZOHO_MODULES.classes.module, classId, [
     module,
     fields.class,
   ]);
   const placed = (r: RawRecord) =>
-    (PLACED_STATUSES as readonly string[]).includes(str(r[fields.status]));
+    (PLACED_STAGES as readonly string[]).includes(str(r[fields.stage]));
 
-  // The related list carries every enrollment, so the status filter that the
+  // The related list carries every admission, so the stage filter that the
   // search criteria applied server-side is applied here instead.
   if (related) return placedOnly ? related.filter(placed) : related;
 
   return placedOnly
     ? search(
         module,
-        `((${fields.class}:equals:${classId})and((${fields.status}:equals:Active)or(${fields.status}:equals:Completed)))`,
+        `((${fields.class}:equals:${classId})and((${fields.stage}:equals:Placed)or(${fields.stage}:equals:Completed)))`,
       )
     : search(module, `(${fields.class}:equals:${classId})`);
 }
 
-/** Attendance already recorded for a session, keyed by enrollment id. */
+/** Attendance already recorded for a session, keyed by admission id. */
 export async function getAttendanceForSession(sessionId: string): Promise<Map<string, RawRecord>> {
   const { module, fields } = ZOHO_MODULES.attendance;
   // Read-after-write: saveMark upserts against this map, so a stale read
@@ -566,16 +638,16 @@ export async function getAttendanceForSession(sessionId: string): Promise<Map<st
       module,
       fields.class_session,
     ])) ?? (await search(module, `(${fields.class_session}:equals:${sessionId})`));
-  const byEnrollment = new Map<string, RawRecord>();
+  const byAdmission = new Map<string, RawRecord>();
   for (const rec of recs) {
-    const enrollmentId = refId(rec[fields.enrollment]);
-    if (enrollmentId) byEnrollment.set(enrollmentId, rec);
+    const admissionId = refId(rec[fields.admission]);
+    if (admissionId) byAdmission.set(admissionId, rec);
   }
-  return byEnrollment;
+  return byAdmission;
 }
 
 export interface AttendanceMark {
-  enrollmentId: string;
+  admissionId: string;
   studentId: string;
   classId: string;
   status: AttendanceStatus;
@@ -587,7 +659,7 @@ export interface AttendanceMark {
 
 /**
  * Writes one mark. Upsert by hand because the composite key
- * (enrollment, class_session) is not a native Zoho unique constraint -- see
+ * (admission, class_session) is not a native Zoho unique constraint -- see
  * build/zoho/validations.json.
  */
 export async function saveMark(
@@ -603,7 +675,7 @@ export async function saveMark(
     // there is no natural title. Omitting it fails with MANDATORY_NOT_FOUND.
     [fields.name]: `${mark.studentName} - ${sessionLabel}`,
     [fields.class_session]: { id: sessionId },
-    [fields.enrollment]: { id: mark.enrollmentId },
+    [fields.admission]: { id: mark.admissionId },
     [fields.student]: { id: mark.studentId },
     [fields.class]: { id: mark.classId },
     [fields.status]: mark.status,
@@ -746,23 +818,28 @@ export async function getClosedDates(termId: string): Promise<Map<string, string
 // ---------------------------------------------------------------------------
 
 /**
- * Applications for one term that have a student record behind them.
+ * Every admission in one term -- one row per student per subject.
  *
- * An application only back-fills `student` once it is accepted, so anything
- * still earlier in the pipeline has nobody to place. Rejected and Withdrawn
- * are dropped for the obvious reason. Everything else -- Offered, Accepted,
- * Enrolled -- is someone the office may still be assigning to classes, since
- * "Enrolled" means admitted to the school, not placed in a section.
+ * This is what the enrolment board's left panel lists: a student admitted to
+ * five courses is five cards, each waiting for a class of its own course. The
+ * grain is the point. The old version was one row per applicant, which could
+ * say who to place but never what to place them in.
+ *
+ * Withdrawn and Dropped are left out: the first never took the subject, the
+ * second has stopped. Both would otherwise sit on the board forever as work
+ * that cannot be done.
  */
 export async function getAdmissionsForTerm(termId: string): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.admissions;
   const recs = await search(module, `(${fields.term}:equals:${termId})`);
   const out = recs.filter((r) => {
     const stage = str(r[fields.stage]);
-    return stage !== 'Rejected' && stage !== 'Withdrawn' && Boolean(refId(r[fields.student]));
+    return stage !== 'Withdrawn' && stage !== 'Dropped' && Boolean(refId(r[fields.student]));
   });
-  return out.sort((a, b) =>
-    refName(a[fields.student]).localeCompare(refName(b[fields.student])),
+  return out.sort(
+    (a, b) =>
+      refName(a[fields.student]).localeCompare(refName(b[fields.student])) ||
+      refName(a[fields.course]).localeCompare(refName(b[fields.course])),
   );
 }
 
@@ -780,146 +857,147 @@ export async function getActiveStudents(): Promise<RawRecord[]> {
 }
 
 /**
- * Every enrollment across a set of classes.
+ * Every placement across a set of classes.
  *
  * One query per class, through the relationship -- deliberately, and at the
- * cost of N calls instead of the single term-wide search that
- * `enrollments.term` was denormalized to make possible.
+ * cost of N calls instead of a single term-wide search.
  *
  * That search is backed by an index which does not yet contain a row written
- * moments ago. The enrollment board both writes rows and derives its seat
- * counts from this read, so a lagging index there shows a drop that visibly
- * did nothing -- while the duplicate guard, which does read through the
+ * moments ago. The board both writes placements and derives its seat counts
+ * from this read, so a lagging index there shows a placement that visibly did
+ * nothing -- while the duplicate guard, which does read through the
  * relationship, refuses the retry. The N calls buy consistency between the
  * two, and the staffing view already fans out this way for its staff counts.
  */
-export async function getEnrollmentsForClasses(classIds: string[]): Promise<RawRecord[]> {
-  const lists = await Promise.all(classIds.map((id) => getEnrollmentsForClass(id, false)));
+export async function getAdmissionsForClasses(classIds: string[]): Promise<RawRecord[]> {
+  const lists = await Promise.all(classIds.map((id) => getAdmissionsForClass(id, false)));
   return lists.flat();
 }
 
-export interface NewEnrollment {
-  studentId: string;
+/** One admission being put into a class. */
+export interface Placement {
+  admissionId: string;
   classId: string;
-  /** Student name and class code, used to compose the mandatory Name field. */
+  /** Student name and class code, for the message when it fails. */
   studentLabel: string;
   classLabel: string;
-  /** Copied off the class so the two-hop queries work -- see below. */
-  courseId?: string;
-  termId?: string;
 }
 
 /**
- * Puts one student in one class.
+ * Puts one admission into a class.
  *
- * Two things here are not obvious.
+ * An update, not an insert. The row already exists -- it was created when the
+ * fee was settled, naming the subject the student is admitted to -- and
+ * placing them only answers *which run of it*. Creating a second record here
+ * would mean the permission to take a subject and the seat taken for it could
+ * disagree, which is the shape the old enrollments module had.
  *
- * `course` and `term` are written explicitly even though the schema marks them
- * `derived_from: class.course` / `class.term` and says a Zoho workflow keeps
- * them in step. That workflow is not something this client can verify exists,
- * and every COQL question worth asking -- "who is in this term", "who is on
- * this course" -- reads those two fields. Writing them costs nothing and a
- * missing workflow would otherwise produce rows that no query can find.
- *
- * Status is `Active`, not the schema default of `Pending`. Enrolling from the
- * board is a deliberate placement, and the register reads Active only
- * (getEnrollmentsForClass) -- a Pending row would leave the student invisible
- * to the teacher who has to mark them present.
+ * Stage goes to Placed, which is what the register reads
+ * (getAdmissionsForClass) -- leaving it at Admitted would hide the student
+ * from the teacher who has to mark them present.
  */
-function enrollmentPayload(e: NewEnrollment): Record<string, unknown> {
-  const { fields } = ZOHO_MODULES.enrollments;
-  const payload: Record<string, unknown> = {
-    // Mandatory on every custom module in this model, join-like ones included.
-    [fields.name]: `${e.studentLabel} - ${e.classLabel}`,
-    [fields.student]: { id: e.studentId },
-    [fields.class]: { id: e.classId },
-    [fields.status]: 'Active',
-    [fields.enrolled_on]: orgToday(),
-  };
-  if (e.courseId) payload[fields.course] = { id: e.courseId };
-  if (e.termId) payload[fields.term] = { id: e.termId };
-  return payload;
+export async function placeAdmission(place: Placement): Promise<void> {
+  const { module, fields } = ZOHO_MODULES.admissions;
+  await updateOne(
+    module,
+    place.admissionId,
+    {
+      [fields.class]: { id: place.classId },
+      [fields.stage]: 'Placed',
+      [fields.placed_on]: orgToday(),
+    },
+    'placement',
+  );
 }
 
-export async function createEnrollment(e: NewEnrollment): Promise<string> {
-  const { module } = ZOHO_MODULES.enrollments;
-  const res = await zoho().CRM.API.insertRecord({
-    Entity: module,
-    APIData: enrollmentPayload(e),
-    Trigger: [],
-  });
-  return assertWrote(res, 'enrollment');
-}
-
-/** One student's outcome in a bulk enrolment. */
-export interface EnrollmentFailure {
+/** One student's outcome in a bulk placement. */
+export interface PlacementFailure {
   studentLabel: string;
   reason: string;
 }
 
 /**
- * Enrols many students in one class, in a single request.
+ * Places many admissions, one request each, issued together.
  *
- * `insertRecord` takes an array as well as a single record, so 40 placements
- * cost one round trip rather than 40. The response carries **one status row
- * per record**, so every row is checked -- reading only `data[0]` would report
- * a wholly failed batch as a success whenever its first row happened to land.
+ * Not one request for the batch: `updateRecord` addresses a single RecordID,
+ * and the bulk form `insertRecord` offers has no update counterpart in the
+ * widget SDK. Forty placements are therefore forty requests rather than one --
+ * the cost of the admission row being the thing updated instead of a new row
+ * being written.
  *
  * Partial success is the normal outcome and is reported rather than thrown:
  * one rejected row should not discard the thirty-nine that went in.
  */
-export async function createEnrollmentBatch(
-  rows: NewEnrollment[],
-): Promise<{ ok: { row: NewEnrollment; id: string }[]; failed: EnrollmentFailure[] }> {
+export async function placeAdmissionBatch(
+  rows: Placement[],
+): Promise<{ ok: Placement[]; failed: PlacementFailure[] }> {
   if (rows.length === 0) return { ok: [], failed: [] };
-  if (rows.length > BULK_LIMIT) {
-    throw new Error(`batch of ${rows.length} exceeds Zoho's limit of ${BULK_LIMIT}`);
+
+  const results = await Promise.all(
+    rows.map((row) =>
+      placeAdmission(row).then(
+        () => ({ row, error: null as string | null }),
+        (err: unknown) => ({ row, error: describeError(err) }),
+      ),
+    ),
+  );
+
+  const ok: Placement[] = [];
+  const failed: PlacementFailure[] = [];
+  for (const { row, error } of results) {
+    if (error === null) ok.push(row);
+    else failed.push({ studentLabel: row.studentLabel, reason: error });
   }
-
-  const { module } = ZOHO_MODULES.enrollments;
-  const res = await zoho().CRM.API.insertRecord({
-    Entity: module,
-    APIData: rows.map(enrollmentPayload),
-    Trigger: [],
-  });
-
-  const statuses = (res.data ?? []) as Array<{
-    code?: string;
-    message?: string;
-    details?: { id?: string };
-  }>;
-
-  const ok: { row: NewEnrollment; id: string }[] = [];
-  const failed: EnrollmentFailure[] = [];
-  rows.forEach((row, i) => {
-    const status = statuses[i];
-    // The id comes back per row, and the caller needs it: a placement it
-    // cannot address is one it cannot undo until the next full read.
-    if (status?.code === 'SUCCESS' && status.details?.id) {
-      ok.push({ row, id: status.details.id });
-    } else {
-      failed.push({
-        studentLabel: row.studentLabel,
-        reason: status?.code ? `${status.code}: ${status.message ?? 'rejected'}` : 'no response row',
-      });
-    }
-  });
   return { ok, failed };
+}
+
+/**
+ * Takes an admission back out of its class, without un-admitting it.
+ *
+ * The distinction the old module could not make: deleting a placement used to
+ * delete the only record that the student was entitled to the subject at all.
+ * Here the row stays, the class is cleared, and the student goes back to the
+ * board's left panel waiting to be placed somewhere else.
+ */
+export async function unplaceAdmission(admissionId: string): Promise<void> {
+  const { module, fields } = ZOHO_MODULES.admissions;
+  await updateOne(
+    module,
+    admissionId,
+    { [fields.class]: null, [fields.stage]: 'Admitted', [fields.placed_on]: null },
+    'unplace',
+  );
+}
+
+/** Ends an admission: the student has left the subject, not just the class. */
+export async function dropAdmission(admissionId: string, reason: string): Promise<void> {
+  const { module, fields } = ZOHO_MODULES.admissions;
+  await updateOne(
+    module,
+    admissionId,
+    {
+      [fields.stage]: 'Dropped',
+      [fields.dropped_on]: orgToday(),
+      [fields.drop_reason]: reason,
+    },
+    'drop',
+  );
 }
 
 /**
  * Is this student already in this class?
  *
- * `uq_enrollment_student_class` is in build/zoho/validations.json as a custom
- * function and is *not deployed* -- Zoho has no composite unique field -- so
- * nothing server-side stops a duplicate. This read is the only guard, and it
- * goes through the relationship rather than search for the reason spelled out
- * on relatedRecords: a row written seconds ago is not in the search index yet,
- * and a dedupe check that cannot see it will cheerfully write it twice.
+ * `uq_admission_student_course_term` is in build/zoho/validations.json as a
+ * custom function and is *not deployed* -- Zoho has no composite unique field
+ * -- so nothing server-side stops a duplicate. This read is the only guard,
+ * and it goes through the relationship rather than search for the reason
+ * spelled out on relatedRecords: a row written seconds ago is not in the
+ * search index yet, and a dedupe check that cannot see it will cheerfully
+ * write it twice.
  */
-export async function isAlreadyEnrolled(classId: string, studentId: string): Promise<boolean> {
-  const { fields } = ZOHO_MODULES.enrollments;
-  const existing = await getEnrollmentsForClass(classId, false);
+export async function isAlreadyPlaced(classId: string, studentId: string): Promise<boolean> {
+  const { fields } = ZOHO_MODULES.admissions;
+  const existing = await getAdmissionsForClass(classId, false);
   return existing.some((r) => refId(r[fields.student]) === studentId);
 }
 
@@ -948,17 +1026,6 @@ export async function getCourses(): Promise<RawRecord[]> {
  * A course belongs to as many programmes as offer it -- Mathematics 101 is one
  * course taught in several streams, not a copy per stream.
  */
-export async function getProgramCourses(): Promise<RawRecord[]> {
-  const { module } = ZOHO_MODULES.program_courses;
-  // Every row, so this reads the module rather than searching it: a search
-  // needs criteria and there is no criterion meaning "all". `not_equal:null`
-  // on a lookup is not one -- Zoho rejects it with
-  // "INVALID_QUERY: Invalid query formed: (field: Course)".
-  // The table is small: one row per programme that offers a course.
-  return pageThrough(`all ${module}`, (page) =>
-    zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
-  );
-}
 
 /**
  * Removes an enrolment outright.
@@ -969,33 +1036,6 @@ export async function getProgramCourses(): Promise<RawRecord[]> {
  * `Dropped` is for a student who genuinely left partway through; this is for a
  * placement that should never have existed.
  */
-/**
- * Ends a placement without erasing it.
- *
- * The distinction from deleteEnrollment matters and is not cosmetic.
- * `attendance.enrollment` is `on_delete: cascade`, so deleting the row of a
- * student who has been marked present takes the register with it -- it unmakes
- * the record that they attended. A student who leaves mid-term *did* attend,
- * so their enrolment is closed rather than removed: Dropped, dated, with the
- * reason kept on the row.
- *
- * Delete stays for the other case only -- a placement made in error, which has
- * no attendance behind it and should never have existed.
- */
-export async function dropEnrollment(enrollmentId: string, reason: string): Promise<void> {
-  const { module, fields } = ZOHO_MODULES.enrollments;
-  await updateOne(
-    module,
-    enrollmentId,
-    {
-      [fields.status]: 'Dropped',
-      [fields.dropped_on]: orgToday(),
-      [fields.drop_reason]: reason,
-    },
-    'enrollment drop',
-  );
-}
-
 /**
  * A wall-clock time in the org's timezone, as Zoho wants it written.
  *
@@ -1075,19 +1115,18 @@ export async function updateHousehold(
 }
 
 /**
- * Every class one student has been put in, across every term.
+ * Every subject one student has been admitted to, across every term.
  *
  * Not scoped to the selected term on purpose: the question this answers is
  * "what has this child taken", and the answer runs backwards through terms
- * that are over. Course and term are denormalized onto the enrolment -- the
- * `derived_from` pair -- so one read carries the subject and the term with it
- * and no second hop is needed.
+ * that are over. The course and the class are both on the row, so one read
+ * carries the subject, the run of it, and the term together.
  *
  * Read through the relationship first, which sees a placement made moments
  * ago; the search index does not.
  */
-export async function getEnrollmentsForStudent(studentId: string): Promise<RawRecord[]> {
-  const { module, fields } = ZOHO_MODULES.enrollments;
+export async function getAdmissionsForStudent(studentId: string): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.admissions;
   const recs =
     (await relatedRecords(ZOHO_MODULES.students.module, studentId, [module, fields.student])) ??
     (await search(module, `(${fields.student}:equals:${studentId})`));
@@ -1095,7 +1134,7 @@ export async function getEnrollmentsForStudent(studentId: string): Promise<RawRe
   // Newest first: the term they are in now matters more than the one they
   // finished a year ago.
   return recs.sort((a, b) =>
-    str(b[fields.enrolled_on]).localeCompare(str(a[fields.enrolled_on])),
+    str(b[fields.applied_date]).localeCompare(str(a[fields.applied_date])),
   );
 }
 
@@ -1123,16 +1162,10 @@ export async function getStudent(studentId: string): Promise<RawRecord | null> {
   return rows(res)[0] ?? null;
 }
 
-export async function deleteEnrollment(enrollmentId: string): Promise<void> {
-  const { module } = ZOHO_MODULES.enrollments;
-  const res = await zoho().CRM.API.deleteRecord({ Entity: module, RecordID: enrollmentId });
-  assertWrote(res, 'enrollment delete');
-}
-
 /**
- * Attendance marks per enrolment, for one class.
+ * Attendance marks per admission, for one class.
  *
- * `attendance.class` is denormalized off the enrolment precisely so this is one
+ * `attendance.class` is denormalized off the admission precisely so this is one
  * query instead of one per student -- the same two-hop limit that shaped
  * `enrollments.course`/`term`.
  *
@@ -1159,7 +1192,7 @@ export async function getAttendanceStatsForClass(
 
   const stats = new Map<string, AttendanceStats>();
   for (const rec of recs) {
-    const id = refId(rec[fields.enrollment]);
+    const id = refId(rec[fields.admission]);
     if (!id) continue;
     const row = stats.get(id) ?? { marks: 0, present: 0, eligible: 0 };
     const status = str(rec[fields.status]);
@@ -1174,7 +1207,7 @@ export async function getAttendanceStatsForClass(
 /**
  * Attendance rate as a whole percent, or null when nothing counts yet.
  *
- * `enrollments.attendance_rate` is a rollup in the schema, but the field was
+ * `admissions.attendance_rate` is a rollup in the schema, but the field was
  * never created in the CRM -- selecting Attendance_Rate fails with an invalid
  * column. So it is computed here from the marks already being read for the
  * delete guard, to the rollup's own definition: Present or Late over

@@ -19,31 +19,34 @@
     {
       "_entity": "students",
       "module": "Students",
-      "field_label": "Active Enrollments",
+      "field_label": "Courses Taken",
       "api_name": "Active_Enrollments_Count",
       "data_type": "integer",
       "rollup_summary": {
         "based_on": {
-          "api_name": "Enrollments"
+          "api_name": "Admissions"
         },
         "linking_field": "Student",
         "function": "count",
-        "_criteria_note": "status = 'Active'"
+        "_criteria_note": "stage = 'Placed'"
       }
     },
     {
-      "_entity": "programs",
-      "module": "Academic_Programs",
-      "field_label": "Courses",
-      "api_name": "Courses_Count",
-      "data_type": "integer",
+      "_entity": "admissions",
+      "module": "Admissions",
+      "field_label": "Attendance Rate",
+      "api_name": "Attendance_Rate",
+      "data_type": "percent",
       "rollup_summary": {
         "based_on": {
-          "api_name": "Program_Courses"
+          "api_name": "Attendance"
         },
-        "linking_field": "Program",
-        "function": "count"
-      }
+        "linking_field": "Admission",
+        "function": "count",
+        "_criteria_note": "status IN ('Present','Late')",
+        "_denominator_note": "status <> 'Excused'"
+      },
+      "_manual": "Zoho rollup summaries cannot express a ratio. Create two count rollups (numerator, denominator) and a formula field dividing them."
     },
     {
       "_entity": "classes",
@@ -53,11 +56,11 @@
       "data_type": "integer",
       "rollup_summary": {
         "based_on": {
-          "api_name": "Enrollments"
+          "api_name": "Admissions"
         },
         "linking_field": "Class",
         "function": "count",
-        "_criteria_note": "status = 'Active'"
+        "_criteria_note": "stage = 'Placed'"
       }
     },
     {
@@ -103,23 +106,6 @@
         "function": "count",
         "_criteria_note": "status = 'Absent'"
       }
-    },
-    {
-      "_entity": "enrollments",
-      "module": "Enrollments",
-      "field_label": "Attendance Rate",
-      "api_name": "Attendance_Rate",
-      "data_type": "percent",
-      "rollup_summary": {
-        "based_on": {
-          "api_name": "Attendance"
-        },
-        "linking_field": "Enrollment",
-        "function": "count",
-        "_criteria_note": "status IN ('Present','Late')",
-        "_denominator_note": "status <> 'Excused'"
-      },
-      "_manual": "Zoho rollup summaries cannot express a ratio. Create two count rollups (numerator, denominator) and a formula field dividing them."
     }
   ]
 }

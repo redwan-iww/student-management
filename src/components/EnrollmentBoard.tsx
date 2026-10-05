@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import {
   BILLING_STATUS_VALUES,
   CONTACT_METHOD_VALUES,
@@ -7,44 +7,40 @@ import {
   ZOHO_MODULES,
 } from '../generated/types';
 import { Loader, useDelayed } from './Loader';
-import { Avatar, Badge, Banner, Button, Chip, Drawer, EmptyState, Icon, Toast } from './ui';
-import { classTone, programLabel, shiftOf, shortDays } from './status';
 import {
-  createEnrollmentBatch,
-  BULK_LIMIT,
-  deleteEnrollment,
+  Avatar, Badge, Banner, Button, Chip, DateField, Drawer, EmptyState, hueOf, Icon, Toast, ToolbarEnd,
+} from './ui';
+import { classTone, effectiveClassStatus, shiftOf, shortDays } from './status';
+import {
+  placeAdmissionBatch,
+  unplaceAdmission,
   describeError,
-  getActiveStudents,
   getAllocationsForClass,
   attendanceRate,
-  dropEnrollment,
+  dropAdmission,
   getAttendanceForStudent,
   getAttendanceStatsForClass,
   getClassesByIds,
-  getEnrollmentsForStudent,
+  getAdmissionsForStudent,
   getHousehold,
   getStudent,
-  localDateTime,
-  orgDateTime,
   getAdmissionsForTerm,
-  getEnrollmentsForClass,
-  getEnrollmentsForClasses,
+  getActiveStudents,
+  getAdmissionsForClass,
   int,
   orgToday,
   refId,
   refName,
   str,
   strList,
-  updateAdmission,
   updateHousehold,
   updateStudent,
   type AttendanceStats,
-  type NewEnrollment,
+  type Placement,
   type RawRecord,
 } from '../zoho/client';
 
 const C = ZOHO_MODULES.classes.fields;
-const E = ZOHO_MODULES.enrollments.fields;
 const A = ZOHO_MODULES.admissions.fields;
 const ST = ZOHO_MODULES.students.fields;
 const AL = ZOHO_MODULES.allocations.fields;
@@ -53,45 +49,49 @@ const H = ZOHO_MODULES.households.fields;
 const AT = ZOHO_MODULES.attendance.fields;
 
 /**
- * Whether an enrolment means the student is, or was, in that class.
+ * Whether an admission means the student is, or was, in that class.
  *
- * Active and Completed both do. A finished term's enrolments are Completed --
+ * Placed and Completed both do. A finished term's admissions are Completed --
  * the seat was taken, the register was kept, a grade came out of it -- so a
- * class that ran to the end is not an empty class. Dropped and Transferred do
- * not: that is the whole point of dropping rather than deleting. Pending is
- * not a placement yet.
+ * class that ran to the end is not an empty class. Dropped does not: that is
+ * the whole point of dropping rather than un-placing. Admitted is not a
+ * placement yet -- it is a card still waiting on the left.
  *
  * Seats, the per-student class count and the drawer's roster all read this,
- * so they cannot disagree. They used to: seats counted Active alone while the
- * student's chip counted every status, so a completed term showed "0 / 18" on
- * the class beside a student card reading "3 classes".
+ * so they cannot disagree.
+ *
+ * It tested  until the admission model landed, which is a stage that
+ * no longer exists: every seat count on the board read zero while the classes
+ * behind them were full.
  */
-function holdsPlace(status: string): boolean {
-  return status === 'Active' || status === 'Completed';
+function holdsPlace(stage: string): boolean {
+  return stage === 'Placed' || stage === 'Completed';
 }
 
 /** Where the right-hand column gets its people from. */
-export type Source = 'admitted' | 'active';
 
-/** A person to place, flattened from either an Admission or a Student row. */
+/**
+ * One admission waiting for a class -- a card on the left of the board.
+ *
+ * The card is a person *and a subject*, not a person. A student admitted to
+ * five courses is five cards, each of which can only go into a class of its
+ * own course. That is the whole reason the board can check a drop at all: the
+ * card already says what the student is entitled to sit.
+ */
 interface Candidate {
+  /** The admission row. The identity of the card, and what placing updates. */
+  admissionId: string;
   studentId: string;
   name: string;
-  /** Application number and stage, or the student code -- whatever names them. */
+  courseId: string;
+  courseName: string;
+  /** The student's readable id, for telling two people of a name apart. */
   detail: string;
-  /**
-   * The programme they are in: off the application on the Applied roll, off
-   * the student record on the All students roll. Empty when the record does
-   * not say -- students.program is not required, and the rows that predate it
-   * have none -- which means "unknown", never "no programme", so a check
-   * against it has to let an empty value pass rather than refuse it.
-   */
-  programId: string;
 }
 
-/** One enrolment as the class drawer shows it. */
+/** One placed admission, as the class drawer shows it. */
 interface RosterRow {
-  enrollmentId: string;
+  admissionId: string;
   studentId: string;
   name: string;
   /** Recorded at the end of the class; empty until then. */
@@ -117,11 +117,13 @@ interface RosterRow {
  * without going back to the roll, which may have been filtered since.
  */
 interface Staged {
+  /** The admission being placed -- what Save updates. */
+  admissionId: string;
   classId: string;
   classLabel: string;
   studentId: string;
   name: string;
-  programId: string;
+  courseName: string;
 }
 
 type DrawerEntry =
@@ -142,13 +144,7 @@ type DrawerEntry =
 export function EnrollmentBoard({
   term,
   classes,
-  programOf,
-  programCount,
-  programId,
-  onClearProgram,
-  offeringsOf,
-  source,
-  onSourceChange,
+  classesMet,
 }: {
   /**
    * The whole record, not just its id: the board needs the enrolment window
@@ -157,26 +153,12 @@ export function EnrollmentBoard({
   term: RawRecord;
   classes: RawRecord[];
   /**
-   * Class id -> its department, resolved by the page: a class names its course
-   * but not its programme, and the mapping is shared with the staffing view.
+   * Classes with a register taken against a past lesson -- the proof that a
+   * class is running rather than merely planned. Read by the screen above and
+   * handed down, because the staffing table needs the same answer and it is
+   * one read of the sessions module for both.
    */
-  programOf: Map<string, { id: string; name: string }[]>;
-  /** How many programmes the term has at all. A class offered by every one of
-   *  them is labelled as such rather than listed -- see `programLabel`. */
-  programCount: number;
-  /** The department chosen in the toolbar. Empty means all of them. */
-  programId: string;
-  /** Clears that choice. The picker lives in the toolbar, so this is the only
-   *  way a panel down here can offer a way out of a filter that emptied it. */
-  onClearProgram: () => void;
-  /** Course id -> the programmes offering it. The student panel checks a
-   *  placement against the student's own programme with this. */
-  offeringsOf: Map<string, { id: string; name: string }[]>;
-  /** Which roll to offer. Owned by the page -- its control sits up in the
-   *  toolbar with the term and programme pickers, which are the same kind of
-   *  question: which slice of the school am I looking at. */
-  source: Source;
-  onSourceChange: (next: Source) => void;
+  classesMet: ReadonlySet<string>;
 }) {
   const termId = term.id;
   const termLabel = str(term[T.name], 'this term');
@@ -185,23 +167,21 @@ export function EnrollmentBoard({
   // the time the board renders, so the filter is applied here.
   const [studentQuery, setStudentQuery] = useState('');
   const [classQuery, setClassQuery] = useState('');
-  // Drop students who already have a class in whatever is currently in view.
-  const [hidePlaced, setHidePlaced] = useState(false);
-  // Three independent reads, deliberately not one call:
+  // One read, where there were three.
   //
-  //   admissions   change with the term
-  //   enrollments  change with the term and its classes
-  //   students     change with neither -- the roll is not term-scoped at all
-  //
-  // They used to be fetched together, keyed on all three dependencies at once,
-  // so flipping Admitted/All active re-read the enrolments of every class --
-  // the most expensive request on the screen, and nothing to do with which
-  // list of people is showing.
-  const [admissions, setAdmissions] = useState<RawRecord[] | null>(null);
-  const [enrollments, setEnrollments] = useState<RawRecord[] | null>(null);
-  // Stays null until the roll is actually asked for: most visits never leave
-  // Admitted, and this is the one read that never needs repeating.
-  const [students, setStudents] = useState<RawRecord[] | null>(null);
+  // There used to be admissions (who applied), enrollments (who sits where)
+  // and students (the whole roll), kept apart because they changed on
+  // different things. An admission now names the subject *and* carries the
+  // class, so all three questions are asked of this one list: a row without a
+  // class is a card still waiting, a row with one is a place taken, and the
+  // student is on every row either way.
+  const [admissionsRaw, setAdmissionsRaw] = useState<RawRecord[] | null>(null);
+  // Student id by student. An admission's Student lookup carries only an id
+  // and a name, and the card wants the readable id -- STU-2026T3-026 -- which
+  // lives on the student record. One read of the roll for the whole list,
+  // rather than a hop per card. It carries no term, so changing term is not a
+  // reason to re-read it.
+  const [refOf, setRefOf] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   // A set, not one student. With a hundred to place across eleven classes,
@@ -210,6 +190,9 @@ export function EnrollmentBoard({
   // a class in one go. Dragging still works and simply means "just this one".
   const [selected, setSelected] = useState<Candidate[]>([]);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // The class column's scroller, so a drag held near its edge can move it.
+  const classScroll = useRef<HTMLDivElement>(null);
+  useDragAutoScroll(classScroll);
   // The drawers that are open, oldest first -- a class opened from the board,
   // a student opened from that class's roll, a class of theirs opened from the
   // student's record, and so on. Closing one returns to the one behind it
@@ -242,176 +225,133 @@ export function EnrollmentBoard({
   // deserve a toast: it is a state the page already shows.
   const [announcement, setAnnouncement] = useState('');
 
-  // Student id by student, so the Applied list can show it even though an
-  // application record does not carry one.
-  const refOf = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of students ?? []) {
-      const ref = str(r[ST.student_ref]);
-      if (ref) m.set(r.id, ref);
-    }
-    return m;
-  }, [students]);
-
-  // Derived, not fetched. Switching source is instant: both lists are built
-  // from reads that have already happened.
+  /**
+   * The cards: admissions with no class, and none staged for one.
+   *
+   * Both halves matter. A placed admission is done. A staged one is spoken
+   * for -- it is sitting on a class card in the Adding-on-save strip, and
+   * leaving a copy here would offer a subject that already has somewhere to
+   * go, with no second class to put it in: one admission is one course is one
+   * seat. Take it off the strip and it comes back.
+   *
+   * Neither is filtered out of `admissionsRaw`, where the seat counts and the
+   * rosters read them.
+   */
   const candidates = useMemo((): Candidate[] | null => {
-    if (source === 'admitted') {
-      if (admissions === null) return null;
-      return admissions
-        .map((r): Candidate => ({
-          studentId: refId(r[A.student]) ?? '',
-          name: refName(r[A.student]),
-          detail: [
-            // The id already ends in the application's serial -- ENG-2026T3-057
-            // is APP-57 -- so showing both would say the same thing twice.
-            refOf.get(refId(r[A.student]) ?? '') || str(r[A.application_no]),
-            str(r[A.stage]),
-          ].filter(Boolean).join(' · '),
-          programId: refId(r[A.program]) ?? '',
-        }))
-        .filter((c) => c.studentId);
-    }
-    if (students === null) return null;
-    return students.map((r): Candidate => ({
-      studentId: r.id,
-      name: str(r[ST.full_name], r.id),
-      detail: str(r[ST.student_ref]) || str(r[ST.student_code], '—'),
-      programId: refId(r[ST.program]) ?? '',
-    }));
-  }, [source, admissions, students, refOf]);
-
-  // Who has an application for this term, needed by the warnings whichever
-  // list is on screen.
-  const admittedIds = useMemo(
-    () =>
-      admissions === null
-        ? null
-        : new Set(
-            admissions.map((r) => refId(r[A.student])).filter((id): id is string => Boolean(id)),
-          ),
-    [admissions],
-  );
+    if (admissionsRaw === null) return null;
+    const spokenFor = new Set(staged.map((row) => row.admissionId));
+    return admissionsRaw
+      .filter((r) => !refId(r[A.class]) && !spokenFor.has(r.id))
+      .map((r): Candidate => ({
+        admissionId: r.id,
+        studentId: refId(r[A.student]) ?? '',
+        name: refName(r[A.student]),
+        courseId: refId(r[A.course]) ?? '',
+        courseName: refName(r[A.course]) || 'No course',
+        // The student's id, not the admission's. APP-182 is this row's own
+        // autonumber -- it names a subject-for-a-person and means nothing off
+        // this screen; STU-2026T3-014 is the person, which is what a register
+        // or a letter would carry.
+        detail: refOf.get(refId(r[A.student]) ?? '') ?? '',
+      }))
+      .filter((c) => c.studentId && c.courseId);
+  }, [admissionsRaw, staged, refOf]);
 
   // The two columns settle independently, so they say so independently.
-  const selectedIds = useMemo(() => new Set(selected.map((c) => c.studentId)), [selected]);
+  // Keyed on the admission, not the student. One person is several cards --
+  // one per subject -- and ticking their maths card must not tick their
+  // physics one.
+  const selectedIds = useMemo(() => new Set(selected.map((c) => c.admissionId)), [selected]);
 
   const toggle = useCallback((who: Candidate) => {
     setSelected((prev) =>
-      prev.some((c) => c.studentId === who.studentId)
-        ? prev.filter((c) => c.studentId !== who.studentId)
+      prev.some((c) => c.admissionId === who.admissionId)
+        ? prev.filter((c) => c.admissionId !== who.admissionId)
         : [...prev, who],
     );
   }, []);
 
-  const loading = enrollments === null;
+  const loading = admissionsRaw === null;
   const peopleLoading = candidates === null;
   const showSpinner = useDelayed(loading);
   const showPeopleSpinner = useDelayed(peopleLoading);
 
-  // Depended on instead of `classes` itself. The prop is a fresh array on
-  // every parent render, so an effect keyed on it would refetch forever --
-  // the same loop the staffing view's memoised callback exists to avoid.
-  const classKey = classes.map((k) => k.id).join(',');
-
-  // Applications for this term.
+  // One read for the whole board. Where there were three -- applications,
+  // enrolments per class, the roll -- there is now one term-wide search, and
+  // the cards, the seat counts and the rosters are all derived from it.
   useEffect(() => {
     let cancelled = false;
-    setAdmissions(null);
+    setAdmissionsRaw(null);
+    setSelected([]);
     setError(null);
     getAdmissionsForTerm(termId)
-      .then((recs) => { if (!cancelled) setAdmissions(recs); })
+      .then((recs) => { if (!cancelled) setAdmissionsRaw(recs); })
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(describeError(err));
-        setAdmissions([]);
+        setAdmissionsRaw([]);
       });
     return () => { cancelled = true; };
   }, [termId]);
 
   // Staged placements name classes of the term on screen, so they cannot
   // survive a change of term -- the ids would point at classes no longer
-  // loaded. Cleared with the enrolments they were going to join.
+  // loaded.
   useEffect(() => { setStaged([]); }, [termId]);
 
-  // Seat counts and who is already placed. One request per class, so this is
-  // keyed as narrowly as it can be.
+  // Read once, on mount. A missing ref leaves the line blank rather than
+  // failing the board: the card is still perfectly usable without it, and the
+  // roll is a separate read that may legitimately be slower than the
+  // admissions it annotates.
   useEffect(() => {
-    let cancelled = false;
-    setEnrollments(null);
-    setSelected([]);
-    getEnrollmentsForClasses(classes.map((k) => k.id))
-      .then((recs) => { if (!cancelled) setEnrollments(recs); })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(describeError(err));
-        setEnrollments([]);
-      });
-    return () => { cancelled = true; };
-    // classKey stands in for classes here, compared by value not identity.
-  }, [termId, classKey]);
-
-  // The roll, read once per mount whichever list is showing: an application
-  // names the student but does not carry their id, so the Applied list needs
-  // this too. It used to wait until somebody switched to All students; the
-  // cost of reading it up front buys the id on every row and makes the switch
-  // instant. It carries no term, so changing term is not a reason to re-read.
-  useEffect(() => {
-    if (students !== null) return;
     let cancelled = false;
     getActiveStudents()
-      .then((recs) => { if (!cancelled) setStudents(recs); })
-      .catch((err: unknown) => {
+      .then((recs) => {
         if (cancelled) return;
-        setError(describeError(err));
-        setStudents([]);
-      });
+        const m = new Map<string, string>();
+        for (const r of recs) {
+          const ref = str(r[ST.student_ref]);
+          if (ref) m.set(r.id, ref);
+        }
+        setRefOf(m);
+      })
+      .catch(() => { /* the id is a nicety; the board works without it */ });
     return () => { cancelled = true; };
-  }, [students]);
+  }, []);
 
-  // Which classes each student is already in, and how full each class is.
-  // Both come off the one term-wide fetch rather than a query per class --
-  // which is exactly what enrollments.term is denormalized for.
-  const { classesOf, pairsOf, countOf } = useMemo(() => {
-    // Classes the student actually holds -- what the chip and the seat counts
-    // describe.
-    const classesOf = new Map<string, Set<string>>();
-    // Every (student, class) pair ever written, whatever became of it. A
-    // dropped enrolment still occupies the pair that
-    // uq_enrollment_student_class keeps unique, so re-enrolling would be a
-    // duplicate even though the student is no longer in the class.
+  // Who is already in which class, and how full each class is. Both come off
+  // the one term-wide read -- a placed admission names its class, so nothing
+  // further has to be asked.
+  const { pairsOf, countOf } = useMemo(() => {
+    // Every (student, class) pair, whatever became of it. A dropped admission
+    // still names the class it was dropped from, so putting the student back
+    // in has to be a change to that row rather than a second one.
     const pairsOf = new Map<string, Set<string>>();
+    // Seats taken, per class.
     const countOf = new Map<string, number>();
-    const add = (m: Map<string, Set<string>>, k: string, v: string) => {
-      let set = m.get(k);
-      if (!set) m.set(k, (set = new Set()));
-      set.add(v);
-    };
-    for (const e of enrollments ?? []) {
-      const studentId = refId(e[E.student]);
-      const classId = refId(e[E.class]);
+    for (const e of admissionsRaw ?? []) {
+      const studentId = refId(e[A.student]);
+      const classId = refId(e[A.class]);
       if (!studentId || !classId) continue;
-      add(pairsOf, studentId, classId);
-      if (holdsPlace(str(e[E.status]))) {
+      let seen = pairsOf.get(studentId);
+      if (!seen) pairsOf.set(studentId, (seen = new Set()));
+      seen.add(classId);
+      if (holdsPlace(str(e[A.stage]))) {
         countOf.set(classId, (countOf.get(classId) ?? 0) + 1);
-        add(classesOf, studentId, classId);
       }
     }
-    return { classesOf, pairsOf, countOf };
-  }, [enrollments]);
+    return { pairsOf, countOf };
+  }, [admissionsRaw]);
 
   const shownClasses = useMemo(() => {
     const q = classQuery.trim().toLowerCase();
     return classes.filter((k) => {
-      if (programId && !(programOf.get(k.id) ?? []).some((pr) => pr.id === programId)) {
-        return false;
-      }
       if (!q) return true;
       return `${str(k[C.name])} ${str(k[C.class_code])} ${str(k[C.room])}`
         .toLowerCase()
         .includes(q);
     });
-  }, [classes, classQuery, programId, programOf]);
+  }, [classes, classQuery]);
 
   /**
    * The classes on screen, in shift order.
@@ -472,147 +412,71 @@ export function EnrollmentBoard({
     return m;
   }, [staged]);
 
-  /** Every (student, class) pair held on the board, saved or staged. One set,
-   *  so the duplicate guard cannot be told a different story by each half. */
+  /** The admissions already staged. One admission can only be placed once --
+   *  it has one class -- so its own id is the whole key. */
   const stagedPairs = useMemo(
-    () => new Set(staged.map((row) => `${row.studentId}:${row.classId}`)),
+    () => new Set(staged.map((row) => row.admissionId)),
     [staged],
   );
 
   const classesFiltered = shownClasses.length !== classes.length;
 
-  // The programme narrows the intake as well as the classes: an application
-  // is made *for* a programme in a term, so "who did we admit into Science"
-  // is a real question. It cannot narrow the All active source -- those people
-  // are reached through the student record, which carries no programme.
-  // How many classes each student holds *within the current view*: with a
-  // programme selected that means classes of that department, otherwise every
-  // class in the term.
-  //
-  // Both the card's chip and the "already placed" checkbox read this, so they
-  // cannot disagree. They used to: the chip counted every class in the term
-  // while the checkbox counted only the filtered ones, so a student filtered
-  // to English could show "1 class" for a maths class they were in.
-  //
-  // Staged placements count too. They are not in the CRM, but they are on the
-  // board, and a chip reading "1 class" beside a student you have just put
-  // into three contradicts the three cards showing their name. The chip
-  // describes the term as it will be once saved, which is what the rest of
-  // the board already shows.
-  const classesInView = useMemo(() => {
-    const inView = (classId: string) =>
-      !programId || (programOf.get(classId) ?? []).some((pr) => pr.id === programId);
-
-    const counts = new Map<string, number>();
-    for (const [studentId, classIds] of classesOf) {
-      let n = 0;
-      for (const classId of classIds) if (inView(classId)) n += 1;
-      if (n > 0) counts.set(studentId, n);
-    }
-    for (const row of staged) {
-      if (!inView(row.classId)) continue;
-      counts.set(row.studentId, (counts.get(row.studentId) ?? 0) + 1);
-    }
-    return counts;
-  }, [classesOf, programId, programOf, staged]);
-
-  // Everything except the placed filter, so the checkbox can say how many it
-  // would remove without the count circling back on itself.
-  //
-  // A student belongs to the selected programme if their application says so
-  // *or* they already hold one of its classes. An application records a single
-  // programme, but a pupil sits in classes from several -- a science-stream
-  // child still takes English. Without the second clause the roster and the
-  // list disagreed: ENG204 showed three enrolled while the list beside it
-  // showed one, because the other two were admitted into Science.
+  /**
+   * The cards on screen: the whole list, narrowed only by the search box.
+   *
+   * There used to be a "Hide N placed" filter here as well, counting the
+   * classes each *student* held. On a list of students that was useful. On a
+   * list of subjects it is wrong twice over: every card here is unplaced by
+   * construction, so there is nothing for it to hide, and the test it applied
+   * -- does this student hold any class -- would have hidden Anika's maths and
+   * physics because her chemistry was placed. The work still to do was what it
+   * took off the screen.
+   */
   const eligiblePeople = useMemo(() => {
     const q = studentQuery.trim().toLowerCase();
     return (candidates ?? []).filter((c) => {
-      if (
-        programId &&
-        source === 'admitted' &&
-        c.programId !== programId &&
-        !classesInView.has(c.studentId)
-      ) {
-        return false;
-      }
       if (!q) return true;
       return `${c.name} ${c.detail}`.toLowerCase().includes(q);
     });
-  }, [candidates, studentQuery, programId, source, classesInView]);
+  }, [candidates, studentQuery]);
 
-  const placedCount = eligiblePeople.filter((c) => classesInView.has(c.studentId)).length;
-
-  const shownPeople = useMemo(
-    () => (hidePlaced ? eligiblePeople.filter((c) => !classesInView.has(c.studentId)) : eligiblePeople),
-    [eligiblePeople, hidePlaced, classesInView],
-  );
+  const shownPeople = eligiblePeople;
 
   const peopleNarrowed = shownPeople.length !== (candidates?.length ?? 0);
 
-  // Applications with the programme field left blank. They cannot match any
-  // programme filter, so an empty result has two quite different causes --
-  // "nobody applied for this department" and "nobody recorded a department" --
-  // and saying the first when the second is true sends you looking for the
-  // wrong problem.
-  const untagged = useMemo(
-    () => (candidates ?? []).filter((c) => !c.programId).length,
-    [candidates],
-  );
-  const filteringByProgram = programId !== '' && source === 'admitted';
-
-  // Applications for this term shut before it began. Placing someone now is
-  // legitimate -- a pupil transferring in mid-term, say -- but it is worth
-  // saying out loud, because the date is on the term record and nothing else
-  // in the app ever reads it.
-
-  // The house rule: a student is admitted for each term they attend, so an
-  // enrolment without an application for *this* term is not allowed. It can
-  // only arise on the All active source -- every candidate on the Admitted
-  // source has one by definition.
-  //
-  // Not enforced anywhere else: the schema has no link from an enrolment to an
-  // application, and no validation behind it, so this screen is the only place
-  // the rule exists. Someone working in the CRM module directly can still do
-  // it. Worth knowing before trusting the data.
-  const blockedBySelection = useMemo(
-    () =>
-      admittedIds === null ? [] : selected.filter((c) => !admittedIds.has(c.studentId)),
-    [selected, admittedIds],
-  );
 
   /**
    * The class's people, split by whether they are still in it.
    *
-   * A dropped enrolment is not gone -- that is the whole point of dropping
-   * rather than deleting -- so it is shown, separately, with its reason. The
-   * seat counts elsewhere on the board keep counting Active only.
+   * A dropped admission is not gone -- that is the whole point of dropping
+   * rather than un-placing -- so it is shown, separately, with its reason. The
+   * seat counts elsewhere on the board keep counting placed only.
    */
   const openRoster = useMemo(() => {
     const empty = { active: [] as RosterRow[], dropped: [] as RosterRow[] };
     if (!openClass) return empty;
     const out = { active: [] as RosterRow[], dropped: [] as RosterRow[] };
     const seen = new Set<string>();
-    for (const e of enrollments ?? []) {
-      if (refId(e[E.class]) !== openClass.id) continue;
-      const status = str(e[E.status]);
-      const studentId = refId(e[E.student]);
+    for (const e of admissionsRaw ?? []) {
+      if (refId(e[A.class]) !== openClass.id) continue;
+      const stage = str(e[A.stage]);
+      const studentId = refId(e[A.student]);
       if (!studentId) continue;
       const row: RosterRow = {
-        enrollmentId: e.id,
+        admissionId: e.id,
         studentId,
-        name: refName(e[E.student]) || '—',
-        grade: str(e[E.final_grade]),
-        droppedOn: str(e[E.dropped_on]),
-        dropReason: str(e[E.drop_reason]),
+        name: refName(e[A.student]) || '—',
+        grade: str(e[A.final_grade]),
+        droppedOn: str(e[A.dropped_on]),
+        dropReason: str(e[A.drop_reason]),
       };
-      if (holdsPlace(status)) {
+      if (holdsPlace(stage)) {
         // One row per student: a duplicate pair would otherwise be counted
         // twice against the seats.
         if (seen.has(studentId)) continue;
         seen.add(studentId);
         out.active.push(row);
-      } else if (status === 'Dropped' || status === 'Transferred') {
+      } else if (stage === 'Dropped') {
         out.dropped.push(row);
       }
     }
@@ -620,17 +484,30 @@ export function EnrollmentBoard({
     out.active.sort(byName);
     out.dropped.sort(byName);
     return out;
-  }, [openClass, enrollments]);
+  }, [openClass, admissionsRaw]);
 
+  /**
+   * Takes a student back out of a class, leaving them admitted to the subject.
+   *
+   * Not a delete. The row records that they are entitled to sit this course,
+   * which is still true -- only the question of which run of it has been
+   * unanswered. They reappear on the left panel as a card waiting to be
+   * placed, which is exactly where they were before the mistake.
+   */
   const removeEnrollment = useCallback(
-    async (enrollmentId: string, name: string) => {
+    async (admissionId: string, name: string) => {
       try {
-        await deleteEnrollment(enrollmentId);
-        // Dropped locally rather than re-read, for the same reason a new row is
-        // appended rather than re-read: the term-wide reads would not reflect
-        // it yet, and every count on the board derives from this list.
-        setEnrollments((prev) => (prev ?? []).filter((e) => e.id !== enrollmentId));
-        setToast({ tone: 'positive', message: `Removed ${name} from this class.` });
+        await unplaceAdmission(admissionId);
+        // Patched locally rather than re-read: the term-wide read lags a
+        // write, and every count on the board derives from this list.
+        setAdmissionsRaw((prev) =>
+          (prev ?? []).map((e) =>
+            e.id === admissionId
+              ? { ...e, [A.class]: null, [A.stage]: 'Admitted', [A.placed_on]: null }
+              : e,
+          ),
+        );
+        setToast({ tone: 'positive', message: `${name} taken out of this class.` });
       } catch (err) {
         setToast({ tone: 'warn', message: describeError(err) });
       }
@@ -639,53 +516,27 @@ export function EnrollmentBoard({
   );
 
   const dropStudent = useCallback(
-    async (enrollmentId: string, name: string, reason: string) => {
+    async (admissionId: string, name: string, reason: string) => {
       try {
-        await dropEnrollment(enrollmentId, reason);
-        // Patched in place rather than re-read, for the same reason the
-        // removal filters locally: the term-wide reads lag a write, and every
-        // seat count on this board derives from this list.
-        setEnrollments((prev) =>
+        await dropAdmission(admissionId, reason);
+        setAdmissionsRaw((prev) =>
           (prev ?? []).map((e) =>
-            e.id === enrollmentId
+            e.id === admissionId
               ? {
                   ...e,
-                  [E.status]: 'Dropped',
-                  [E.dropped_on]: orgToday(),
-                  [E.drop_reason]: reason,
+                  [A.stage]: 'Dropped',
+                  [A.dropped_on]: orgToday(),
+                  [A.drop_reason]: reason,
                 }
               : e,
           ),
         );
-        setToast({ tone: 'positive', message: `${name} dropped from this class.` });
+        setToast({ tone: 'positive', message: `${name} dropped from this course.` });
       } catch (err) {
         setToast({ tone: 'warn', message: describeError(err) });
       }
     },
     [],
-  );
-
-  /**
-   * May this student go in this class?
-   *
-   * Two ways to not know, and both have to pass rather than refuse. An empty
-   * programme on the student means the record does not say -- students.program
-   * is not required and the rows that predate it have none -- not that they
-   * belong to none. An empty list on the class means the course is in no
-   * programme's catalogue, which is a gap in program_courses rather than a
-   * rule that nobody may take it.
-   *
-   * The card and the write both ask this, so what a class says it will accept
-   * and what it actually accepts cannot drift apart.
-   */
-  const fitsProgramme = useCallback(
-    (classId: string, studentProgramId: string) => {
-      if (studentProgramId === '') return true;
-      const offered = programOf.get(classId) ?? [];
-      if (offered.length === 0) return true;
-      return offered.some((pr) => pr.id === studentProgramId);
-    },
-    [programOf],
   );
 
   /**
@@ -695,58 +546,61 @@ export function EnrollmentBoard({
    * Save, so the answer arrives while the student is still in your hand. Save
    * re-checks the one thing that can change underneath you -- somebody else
    * enrolling the same student -- against a fresh read.
+   *
+   * The rule that matters is the course. A card is an admission to one
+   * subject, so it can only go into a class that runs that subject --
+   * dropping "Adnan / Biology 101" onto a maths class is not a judgement call,
+   * it is a mistake, and the card itself carries everything needed to say so.
    */
   const stage = useCallback(
     (klass: RawRecord) => {
       if (selected.length === 0) return;
       const classLabel = str(klass[C.class_code], str(klass[C.name], klass.id));
 
+      const classCourse = refId(klass[C.course]) ?? '';
       const add: Staged[] = [];
       let already = 0;
-      let notAdmitted = 0;
-      let offProgramme = 0;
+      let wrongCourse = 0;
       let dup = 0;
 
       for (const who of selected) {
-        if (admittedIds !== null && !admittedIds.has(who.studentId)) {
-          notAdmitted += 1;
-          continue;
-        }
-        // The programme picker narrows what is on screen; it does not narrow
-        // what may be done. Clearing it, or switching roll, puts every student
-        // next to every class, and nothing used to stop a Commerce student
-        // being dropped into a Life Sciences class.
-        if (!fitsProgramme(klass.id, who.programId)) {
-          offProgramme += 1;
+        if (who.courseId !== classCourse) {
+          wrongCourse += 1;
           continue;
         }
         if (pairsOf.get(who.studentId)?.has(klass.id)) {
           already += 1;
           continue;
         }
-        if (stagedPairs.has(who.studentId + ':' + klass.id)) {
+        if (stagedPairs.has(who.admissionId)) {
           dup += 1;
           continue;
         }
         add.push({
+          admissionId: who.admissionId,
           classId: klass.id,
           classLabel,
           studentId: who.studentId,
           name: who.name,
-          programId: who.programId,
+          courseName: who.courseName,
         });
       }
 
-      if (add.length > 0) setStaged((prev) => [...prev, ...add]);
+      if (add.length > 0) {
+        setStaged((prev) => [...prev, ...add]);
+        // What was placed leaves the selection. A card is one admission to one
+        // subject, so once it has a class there is nowhere else for it to go
+        // -- keeping it selected would leave a tick on a row that is no longer
+        // in the list. Whatever was refused stays held, which is what makes a
+        // mixed drop recoverable: drop again on a class that will take it.
+        const done = new Set(add.map((row) => row.admissionId));
+        setSelected((prev) => prev.filter((c) => !done.has(c.admissionId)));
+      }
 
-      // The selection deliberately survives a drop. A student takes five
-      // subjects, so placing the same one in five classes is the common move,
-      // not the rare one; Escape and Clear still put them down.
       const notes = [
-        already > 0 ? already + ' already enrolled' : '',
+        already > 0 ? already + ' already in it' : '',
         dup > 0 ? dup + ' already added' : '',
-        notAdmitted > 0 ? notAdmitted + ' without an application' : '',
-        offProgramme > 0 ? offProgramme + ' not on a programme that offers it' : '',
+        wrongCourse > 0 ? wrongCourse + ' admitted to a different course' : '',
       ].filter(Boolean);
 
       setAnnouncement(
@@ -765,14 +619,12 @@ export function EnrollmentBoard({
         });
       }
     },
-    [selected, admittedIds, fitsProgramme, pairsOf, stagedPairs],
+    [selected, pairsOf, stagedPairs],
   );
 
   /** Take one staged placement back off a card. */
-  const unstage = useCallback((classId: string, studentId: string) => {
-    setStaged((prev) =>
-      prev.filter((row) => !(row.classId === classId && row.studentId === studentId)),
-    );
+  const unstage = useCallback((admissionId: string) => {
+    setStaged((prev) => prev.filter((row) => row.admissionId !== admissionId));
   }, []);
 
   /**
@@ -781,7 +633,7 @@ export function EnrollmentBoard({
    * Grouped by class because the duplicate guard is a per-class read: one
    * request per class touched, not one per placement.
    *
-   * What landed, and what turned out to be already enrolled, leaves the
+   * What landed, and what turned out to be in the class already, leaves the
    * staging area. What failed stays, so pressing Save again retries exactly
    * the remainder instead of re-sending rows that already worked.
    */
@@ -798,74 +650,75 @@ export function EnrollmentBoard({
     }
 
     const settled = new Set<string>();
-    const landed: RawRecord[] = [];
+    const placed: { admissionId: string; classId: string; classLabel: string }[] = [];
     const failed: { studentLabel: string; reason: string }[] = [];
     let alreadyThere = 0;
 
     try {
       for (const [classId, group] of byClass) {
-        const klass = classes.find((k) => k.id === classId);
         const classLabel = group[0]?.classLabel ?? classId;
 
         // Through the relationship, so it sees rows written moments ago.
-        // Nothing server-side enforces the (student, class) pair.
-        const existing = await getEnrollmentsForClass(classId, false);
+        // Nothing server-side enforces one place per student per class.
+        const existing = await getAdmissionsForClass(classId, false);
         const already = new Set(
-          existing.map((r) => refId(r[E.student])).filter((id): id is string => Boolean(id)),
+          existing.map((r) => refId(r[A.student])).filter((id): id is string => Boolean(id)),
         );
 
-        const rows: NewEnrollment[] = [];
+        const rows: Placement[] = [];
         for (const row of group) {
           if (already.has(row.studentId)) {
             alreadyThere += 1;
-            settled.add(row.studentId + ':' + classId);
+            settled.add(row.admissionId);
             continue;
           }
           rows.push({
-            studentId: row.studentId,
+            admissionId: row.admissionId,
             classId,
             studentLabel: row.name,
             classLabel,
-            courseId: klass ? refId(klass[C.course]) ?? undefined : undefined,
-            termId,
           });
         }
 
-        // Zoho takes 100 rows per request; a bigger batch is chunked.
-        for (let i = 0; i < rows.length; i += BULK_LIMIT) {
-          const batch = await createEnrollmentBatch(rows.slice(i, i + BULK_LIMIT));
-          for (const { row, id } of batch.ok) {
-            settled.add(row.studentId + ':' + row.classId);
-            landed.push({
-              id,
-              [E.student]: { id: row.studentId, name: row.studentLabel },
-              [E.class]: { id: row.classId, name: classLabel },
-              [E.term]: { id: termId },
-              [E.status]: 'Active',
-            });
-          }
-          failed.push(...batch.failed);
+        const batch = await placeAdmissionBatch(rows);
+        for (const row of batch.ok) {
+          settled.add(row.admissionId);
+          placed.push({ admissionId: row.admissionId, classId, classLabel });
         }
+        failed.push(...batch.failed);
       }
 
-      if (landed.length > 0) {
-        // Appended, not re-read -- the term-wide reads would not show these
-        // yet, and every count on the board derives from this list.
-        setEnrollments((prev) => [...(prev ?? []), ...landed]);
+      if (placed.length > 0) {
+        // Patched, not re-read -- the term-wide read would not show these yet,
+        // and every count on the board derives from this list.
+        const byId = new Map(placed.map((row) => [row.admissionId, row]));
+        setAdmissionsRaw((prev) =>
+          (prev ?? []).map((rec) => {
+            const hit = byId.get(rec.id);
+            return hit
+              ? {
+                  ...rec,
+                  [A.class]: { id: hit.classId, name: hit.classLabel },
+                  [A.stage]: 'Placed',
+                  [A.placed_on]: orgToday(),
+                }
+              : rec;
+          }),
+        );
       }
-      setStaged((prev) => prev.filter((row) => !settled.has(row.studentId + ':' + row.classId)));
+      setStaged((prev) => prev.filter((row) => !settled.has(row.admissionId)));
       if (settled.size > 0) setSelected([]);
 
       const notes = [
-        alreadyThere > 0 ? alreadyThere + ' already enrolled' : '',
+        alreadyThere > 0 ? alreadyThere + ' already in it' : '',
         failed.length > 0 ? failed.length + ' rejected' : '',
       ].filter(Boolean);
 
       setToast({
         tone: failed.length > 0 ? 'warn' : 'positive',
         message:
-          landed.length +
-          ' enrolled across ' +
+          placed.length +
+          ' placed across ' +
           byClass.size +
           ' class' +
           (byClass.size === 1 ? '' : 'es') +
@@ -881,7 +734,7 @@ export function EnrollmentBoard({
     } finally {
       setSaving(false);
     }
-  }, [staged, saving, classes, termId]);
+  }, [staged, saving]);
 
 
   // Clears itself, because nothing else in this flow would. The timer is keyed
@@ -896,7 +749,6 @@ export function EnrollmentBoard({
   // Changing roll empties the selection: the people in it may not appear in
   // the list being switched to, and enrolling someone you can no longer see is
   // how a misplacement happens.
-  useEffect(() => { setSelected([]); }, [source]);
 
   // Escape puts the card back down, the same as it would cancel a drag.
   useEffect(() => {
@@ -921,10 +773,17 @@ export function EnrollmentBoard({
       )}
 
       {/* Everything placed but not written, and the one control that writes
-          it. Fixed to the bottom of the window rather than placed after the
-          board: the board is taller than the screen, and a Save you have to
-          go looking for is a Save that gets forgotten. */}
+          it -- portalled up into the page toolbar, beside the term picker and
+          the view switch.
+
+          It used to float, fixed to the bottom of the window, because the
+          board ran past the fold and a Save placed after it would have been
+          below it for most of the work. The columns scroll inside themselves
+          now, so the toolbar row is the one strip that is always on screen and
+          never moves -- which is what the fixed bar was buying, without a pill
+          hovering over the bottom row of cards. */}
       {staged.length > 0 && (
+        <ToolbarEnd>
         <div className="save-bar" role="region" aria-label="Unsaved placements">
           <i className="save-bar-dot" aria-hidden="true" />
           <span className="save-bar-count">
@@ -938,6 +797,7 @@ export function EnrollmentBoard({
             {saving ? 'Saving…' : 'Save to CRM'}
           </Button>
         </div>
+        </ToolbarEnd>
       )}
 
       {openDrawer !== null && openDrawer.kind === 'student' && (
@@ -948,21 +808,9 @@ export function EnrollmentBoard({
           key={openDrawer.studentId}
           studentId={openDrawer.studentId}
           name={openDrawer.name}
-          /* The term's applications are already in memory. A student reached
-             from the roll of all students may have no application for this
-             term at all, which the panel says rather than hiding the section. */
-          admission={
-            (admissions ?? []).find((a) => refId(a[A.student]) === openDrawer.studentId) ?? null
-          }
           termLabel={termLabel}
-          offeringsOf={offeringsOf}
           onOpenClass={(klass) => pushDrawer({ kind: 'class', klass })}
           onDropEnrolment={dropStudent}
-          onAdmissionPatched={(id, patch) =>
-            setAdmissions((prev) =>
-              (prev ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a)),
-            )
-          }
           onClose={popDrawer}
         />
       )}
@@ -971,7 +819,7 @@ export function EnrollmentBoard({
         <ClassDetails
           key={openDrawer.klass.id}
           klass={openDrawer.klass}
-          programs={programOf.get(openDrawer.klass.id) ?? []}
+          hasMet={classesMet.has(openDrawer.klass.id)}
           /* Null when the class is not in the term on screen: its roster is
              not in `enrollments` and the drawer must read its own. */
           roster={
@@ -1001,17 +849,6 @@ export function EnrollmentBoard({
                 : (candidates?.length ?? 0)}
             </span>
           </h2>
-
-          {!peopleLoading && placedCount > 0 && (
-            <label className="board-toggle">
-              <input
-                type="checkbox"
-                checked={hidePlaced}
-                onChange={(e) => setHidePlaced(e.target.checked)}
-              />
-              Hide {placedCount} placed
-            </label>
-          )}
 
           {!peopleLoading && selected.length === 0 && shownPeople.length > 0 && (
             <Button
@@ -1060,70 +897,25 @@ export function EnrollmentBoard({
           </div>
         )}
 
-        {!peopleLoading && filteringByProgram && untagged > 0 && shownPeople.length > 0 && (
-          <p className="muted board-count">
-            {untagged} application{untagged === 1 ? '' : 's'} with no programme
-            recorded {untagged === 1 ? 'is' : 'are'} not shown.
-          </p>
-        )}
-
-        {!peopleLoading && programId && source === 'active' && (
-          <p className="muted board-count">
-            Showing the whole roll — a programme is recorded on an application,
-            so it cannot narrow this list.
-          </p>
-        )}
-
         {peopleLoading && showPeopleSpinner && <Loader label="Loading students…" />}
 
         {!peopleLoading && candidates?.length === 0 && (
           <EmptyState
             icon="users"
-            title={source === 'admitted' ? 'Nobody applied for this term' : 'No active students'}
-            detail={
-              source === 'admitted'
-                ? 'Anyone who applied for this term lands here once accepted, with a student record behind them.'
-                : 'Add them in the Students module, or admit them through Admissions.'
-            }
-          >
-            {/* The prose used to tell you to switch lists. Better to offer it:
-                an existing pupil not in this term's intake is the commonest
-                reason for this panel to be showing at all. */}
-            {source === 'admitted' && (
-              <Button small onClick={() => onSourceChange('active')}>
-                Show all students
-              </Button>
-            )}
-          </EmptyState>
+            title="Nobody to place"
+            detail="Every subject admitted for this term already has a class. A student appears here once their fee is settled and their courses are recorded in Admissions."
+          />
         )}
 
         {!peopleLoading && (candidates?.length ?? 0) > 0 && shownPeople.length === 0 && (
           <EmptyState
-            icon={studentQuery.trim() !== '' ? 'users' : 'slash'}
-            title={
-              studentQuery.trim() !== ''
-                ? 'No match'
-                : untagged === (candidates?.length ?? 0)
-                  ? 'No programme recorded'
-                  : 'Nobody in this programme'
-            }
-            detail={
-              studentQuery.trim() !== ''
-                ? `No student here matches “${studentQuery}”.`
-                : untagged === (candidates?.length ?? 0)
-                  ? `${untagged === 1 ? 'The one application' : `All ${untagged} applications`} for this term ${untagged === 1 ? 'has' : 'have'} no programme against ${untagged === 1 ? 'it' : 'them'}.`
-                  : 'Nobody applied into this programme for this term.'
-            }
+            icon="users"
+            title="No match"
+            detail={`No student here matches “${studentQuery}”.`}
           >
-            {studentQuery.trim() !== '' ? (
-              <Button small onClick={() => setStudentQuery('')}>
-                Clear search
-              </Button>
-            ) : (
-              <Button small onClick={onClearProgram}>
-                Show all programmes
-              </Button>
-            )}
+            <Button small onClick={() => setStudentQuery('')}>
+              Clear search
+            </Button>
           </EmptyState>
         )}
 
@@ -1131,7 +923,6 @@ export function EnrollmentBoard({
           <>
             <StudentList
               people={shownPeople}
-              classesInView={classesInView}
               selectedIds={selectedIds}
               disabled={saving}
               onToggle={(who) => {
@@ -1139,7 +930,7 @@ export function EnrollmentBoard({
                 // Whatever went wrong last time was about the last attempt.
                 setError(null);
                 setAnnouncement(
-                  selectedIds.has(who.studentId)
+                  selectedIds.has(who.admissionId)
                     ? `${who.name} removed from the selection.`
                     : `${who.name} selected.`,
                 );
@@ -1176,23 +967,6 @@ export function EnrollmentBoard({
 
         {error && <Banner tone="error">{error}</Banner>}
 
-        {!loading && blockedBySelection.length > 0 && (
-          <Banner tone="warn" icon="user">
-            {blockedBySelection.length === 1 ? (
-              <>
-                <strong>{blockedBySelection[0]?.name}</strong> did not apply for{' '}
-              </>
-            ) : (
-              <>
-                <strong>{blockedBySelection.length} of the selected students</strong> did
-                not apply for{' '}
-              </>
-            )}
-            <strong>{termLabel}</strong>, and will be skipped. Add an application in
-            the Admissions module first — a student applies for each term they attend.
-          </Banner>
-        )}
-
         {loading && showSpinner && <Loader label="Loading the board…" />}
 
         {!loading && classes.length === 0 && (
@@ -1210,21 +984,24 @@ export function EnrollmentBoard({
             detail={
               classQuery.trim() !== ''
                 ? `No class here matches “${classQuery}”.`
-                : 'This term runs classes, but none in the programme selected above.'
+                : 'Nothing is scheduled to teach in this term yet.'
             }
           >
-            {classQuery.trim() !== '' ? (
+            {classQuery.trim() !== '' && (
               <Button small onClick={() => setClassQuery('')}>
                 Clear search
-              </Button>
-            ) : (
-              <Button small onClick={onClearProgram}>
-                Show all programmes
               </Button>
             )}
           </EmptyState>
         )}
 
+        {/* The classes scroll inside the column, the way the roll already did
+            on the other side. A term with eighteen classes made the column
+            taller than the window, which scrolled the whole page -- taking the
+            student roll, both headings and the term picker off the top, so a
+            drag had to be aimed at a class while the thing being dragged was
+            somewhere above the fold. */}
+        <div className="class-scroll" ref={classScroll}>
         {!loading && classGroups.map((group) => (
           <section key={group.shift} className={`shift-group shift-${group.shift || 'none'}`}>
             <h4 className="shift-head">
@@ -1238,18 +1015,30 @@ export function EnrollmentBoard({
           <ClassDrop
             key={k.id}
             klass={k}
+            hasMet={classesMet.has(k.id)}
             seats={countOf.get(k.id) ?? 0}
             selected={selected}
-            program={programLabel(programOf.get(k.id) ?? [], programCount)}
-            alreadyIn={selected.filter((c) => pairsOf.get(c.studentId)?.has(k.id)).length}
-            /* Counted among those not already in it, so the two numbers do
-               not both claim the same student. */
-            offProgramme={
-              selected.filter(
-                (c) =>
-                  !pairsOf.get(c.studentId)?.has(k.id) && !fitsProgramme(k.id, c.programId),
-              ).length
-            }
+            /* Why each held card cannot go in, counted once each. They have to
+               be one split of the selection rather than three separate tests:
+               a card can be both the wrong subject AND its student already
+               staged here, and counting it twice drove `placeable` negative,
+               which read as "placeable" and put the Add button back on a class
+               that was refusing the drop. First reason wins. */
+            {...(() => {
+              const classCourse = refId(k[C.course]) ?? '';
+              const stagedHere = new Set(
+                (stagedOf.get(k.id) ?? []).map((row) => row.admissionId),
+              );
+              let wrongCourse = 0;
+              let alreadyIn = 0;
+              let alreadyStaged = 0;
+              for (const c of selected) {
+                if (c.courseId !== classCourse) wrongCourse += 1;
+                else if (pairsOf.get(c.studentId)?.has(k.id)) alreadyIn += 1;
+                else if (stagedHere.has(c.admissionId)) alreadyStaged += 1;
+              }
+              return { wrongCourse, alreadyIn, alreadyStaged };
+            })()}
             staged={stagedOf.get(k.id) ?? []}
             disabled={saving}
             dragOver={dragOver === k.id}
@@ -1262,6 +1051,7 @@ export function EnrollmentBoard({
             </div>
           </section>
         ))}
+        </div>
       </div>
     </div>
   );
@@ -1277,7 +1067,7 @@ export function EnrollmentBoard({
  */
 function ClassDetails({
   klass,
-  programs,
+  hasMet,
   roster,
   dropped,
   onRemove,
@@ -1286,9 +1076,8 @@ function ClassDetails({
   onClose,
 }: {
   klass: RawRecord;
-  /** Every programme offering this class's course. Listed in full below --
-   *  this is the panel, so there is room the card does not have. */
-  programs: { id: string; name: string }[];
+  /** Has a register been taken against a past lesson of this class? */
+  hasMet: boolean;
   /**
    * The roster as the board already knows it, or null when this class is not
    * in the term on screen -- a class opened from a student's record can be
@@ -1297,8 +1086,8 @@ function ClassDetails({
   roster: RosterRow[] | null;
   /** Enrolments that ended early. Shown, not hidden -- see openRoster. */
   dropped: RosterRow[];
-  onRemove: (enrollmentId: string, name: string) => Promise<void>;
-  onDrop: (enrollmentId: string, name: string, reason: string) => Promise<void>;
+  onRemove: (admissionId: string, name: string) => Promise<void>;
+  onDrop: (admissionId: string, name: string, reason: string) => Promise<void>;
   onOpenStudent: (who: { studentId: string; name: string }) => void;
   onClose: () => void;
 }) {
@@ -1309,17 +1098,17 @@ function ClassDetails({
   useEffect(() => {
     if (roster !== null) { setOwnRoster(null); return; }
     let cancelled = false;
-    getEnrollmentsForClass(klass.id, false)
+    getAdmissionsForClass(klass.id, false)
       .then((recs) => {
         if (cancelled) return;
         setOwnRoster(
           recs
-            .filter((e) => holdsPlace(str(e[E.status])))
+            .filter((e) => holdsPlace(str(e[A.stage])))
             .map((e) => ({
-              enrollmentId: e.id,
-              studentId: refId(e[E.student]) ?? '',
-              name: refName(e[E.student]) || '—',
-              grade: str(e[E.final_grade]),
+              admissionId: e.id,
+              studentId: refId(e[A.student]) ?? '',
+              name: refName(e[A.student]) || '—',
+              grade: str(e[A.final_grade]),
               droppedOn: '',
               dropReason: '',
             }))
@@ -1371,7 +1160,7 @@ function ClassDetails({
   const sessions = int(klass[C.sessions_count]);
   const days = strList(klass[C.meeting_days]);
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
-  const status = classTone(str(klass[C.status]));
+  const status = classTone(effectiveClassStatus(str(klass[C.status]), hasMet));
 
   return (
     <Drawer
@@ -1386,11 +1175,6 @@ function ClassDetails({
       <dl className="facts">
         <dt>Course</dt>
         <dd>{refName(klass[C.course]) || '—'}</dd>
-
-        {/* In full here. The card outside only has room for a summary, so this
-            is the one place the whole list is readable without a tooltip. */}
-        <dt>Programme</dt>
-        <dd>{programs.length > 0 ? programs.map((pr) => pr.name).join(', ') : '—'}</dd>
 
         <dt>Term</dt>
         <dd>{refName(klass[C.term]) || '—'}</dd>
@@ -1414,9 +1198,7 @@ function ClassDetails({
 
         <dt>Lessons</dt>
         <dd>
-          {sessions === null ? (
-            '—'
-          ) : sessions === 0 ? (
+          {(sessions ?? 0) === 0 ? (
             <span className="warn-text">
               <Icon name="alert" size={14} />
               None generated yet
@@ -1467,12 +1249,12 @@ function ClassDetails({
         ) : (
           <ul className="roster">
             {shown.map((r) => {
-              const st = stats?.get(r.enrollmentId);
+              const st = stats?.get(r.admissionId);
               const marks = st?.marks ?? 0;
               const rate = attendanceRate(st);
-              const mode = acting?.id === r.enrollmentId ? acting.mode : null;
+              const mode = acting?.id === r.admissionId ? acting.mode : null;
               return (
-                <li key={r.enrollmentId}>
+                <li key={r.admissionId}>
                   <Avatar name={r.name} small />
                   <span className="cell-lines">
                     <button
@@ -1509,14 +1291,14 @@ function ClassDetails({
                         variant="primary"
                         disabled={working !== null || reason.trim() === ''}
                         onClick={async () => {
-                          setWorking(r.enrollmentId);
-                          await onDrop(r.enrollmentId, r.name, reason.trim());
+                          setWorking(r.admissionId);
+                          await onDrop(r.admissionId, r.name, reason.trim());
                           setWorking(null);
                           setActing(null);
                           setReason('');
                         }}
                       >
-                        {working === r.enrollmentId ? 'Dropping…' : 'Drop'}
+                        {working === r.admissionId ? 'Dropping…' : 'Drop'}
                       </Button>
                       <Button
                         small
@@ -1534,13 +1316,13 @@ function ClassDetails({
                         variant="primary"
                         disabled={working !== null}
                         onClick={async () => {
-                          setWorking(r.enrollmentId);
-                          await onRemove(r.enrollmentId, r.name);
+                          setWorking(r.admissionId);
+                          await onRemove(r.admissionId, r.name);
                           setWorking(null);
                           setActing(null);
                         }}
                       >
-                        {working === r.enrollmentId ? 'Removing…' : 'Remove'}
+                        {working === r.admissionId ? 'Removing…' : 'Remove'}
                       </Button>
                       <Button small variant="ghost" onClick={() => setActing(null)}>
                         Cancel
@@ -1555,7 +1337,7 @@ function ClassDetails({
                         small
                         variant="ghost"
                         title={`${r.name} left the class — keeps the enrolment, the register and the reason`}
-                        onClick={() => { setActing({ id: r.enrollmentId, mode: 'drop' }); setReason(''); }}
+                        onClick={() => { setActing({ id: r.admissionId, mode: 'drop' }); setReason(''); }}
                       >
                         Drop
                       </Button>
@@ -1568,7 +1350,7 @@ function ClassDetails({
                           variant="ghost"
                           className="roster-delete"
                           title="Put here by mistake — erases the enrolment entirely"
-                          onClick={() => setActing({ id: r.enrollmentId, mode: 'remove' })}
+                          onClick={() => setActing({ id: r.admissionId, mode: 'remove' })}
                         >
                           Delete
                         </Button>
@@ -1587,7 +1369,7 @@ function ClassDetails({
           <h3>Left this class ({dropped.length})</h3>
           <ul className="roster">
             {dropped.map((r) => (
-              <li key={r.enrollmentId} className="roster-past">
+              <li key={r.admissionId} className="roster-past">
                 <Avatar name={r.name} small />
                 <span className="cell-lines">
                   <button
@@ -1621,11 +1403,12 @@ function ClassDetails({
  */
 function ClassDrop({
   klass,
+  hasMet,
   seats,
   selected,
-  program,
   alreadyIn,
-  offProgramme,
+  wrongCourse,
+  alreadyStaged,
   staged,
   disabled,
   dragOver,
@@ -1635,16 +1418,16 @@ function ClassDrop({
   onOpen,
 }: {
   klass: RawRecord;
+  /** Has a register been taken against a past lesson of this class? */
+  hasMet: boolean;
   seats: number;
   selected: Candidate[];
-  /** The programmes offering it, already summarised for one line by
-   *  `programLabel`, with the full list in `title`. Null when it has none. */
-  program: { text: string; lead: string; title: string } | null;
-  /** How many of the selection are already in this class. */
+  /** Why each held card cannot go in, as one disjoint split of the selection:
+   *  whichever reason comes first is the only one it is counted under, so the
+   *  three always sum to at most `selected.length`. */
   alreadyIn: number;
-  /** How many of the rest are on a programme this course is not offered by.
-   *  Disjoint from `alreadyIn`, so the two can be subtracted together. */
-  offProgramme: number;
+  wrongCourse: number;
+  alreadyStaged: number;
   /** Placed here but not written yet. Listed on the card so the board shows
    *  the term as it will be, with a way to take each one back. */
   staged: Staged[];
@@ -1652,12 +1435,16 @@ function ClassDrop({
   dragOver: boolean;
   onDragOver: (id: string | null) => void;
   onAdd: (klass: RawRecord) => void;
-  onRemoveStaged: (classId: string, studentId: string) => void;
+  /** Takes one staged placement back off. Keyed on the admission, which is
+   *  the identity of the card -- a (class, student) pair would not be, since
+   *  the same student can hold several subjects. */
+  onRemoveStaged: (admissionId: string) => void;
   onOpen: (klass: RawRecord) => void;
 }) {
   const capacity = int(klass[C.capacity]);
   const days = strList(klass[C.meeting_days]);
-  const status = classTone(str(klass[C.status]));
+  const effectiveStatus = effectiveClassStatus(str(klass[C.status]), hasMet);
+  const status = classTone(effectiveStatus);
   // Capacity counts what the class will hold once saved, not what it holds
   // now: filling the last seat twice over before pressing Save is exactly the
   // mistake staging is supposed to make visible.
@@ -1670,12 +1457,18 @@ function ClassDrop({
   // A class accepts a drop whenever anything is selected: whoever cannot go
   // in -- already enrolled, no application -- is reported per student after
   // the attempt rather than blocking the whole set.
-  const droppable = selected.length > 0 && !disabled;
-  // Disjoint from the other two by construction: staging refuses anyone who
-  // is already enrolled or off programme, so nobody is counted twice here.
-  const stagedIds = new Set(staged.map((row) => row.studentId));
-  const alreadyStaged = selected.filter((c) => stagedIds.has(c.studentId)).length;
-  const placeable = selected.length - alreadyIn - offProgramme - alreadyStaged;
+  // The three reasons are a split of the selection, so this cannot go
+  // negative -- which it did when they were counted separately, and a
+  // negative count is not zero, so the card offered a drop it would refuse.
+  const placeable = selected.length - alreadyIn - alreadyStaged - wrongCourse;
+  // placeable, not just "something is selected". A card that cannot take any
+  // of what is held still called preventDefault on dragover, which is what
+  // tells the browser a drop is allowed: the cursor said copy, the card lit up
+  // as a target, and the drop landed on a card already saying in words that
+  // the student is not admitted to its course -- answered with a toast listing
+  // the reason it had been showing all along. Refusing the dragover instead
+  // puts a no-drop cursor on it and never fires the drop at all.
+  const droppable = selected.length > 0 && !disabled && placeable > 0;
   const time = [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–');
 
   return (
@@ -1702,25 +1495,20 @@ function ClassDrop({
       {/* A real button, and outside the action row below -- buttons cannot
           nest, and the Enrol button lives there. */}
       <button type="button" className="drop-card-main" onClick={() => onOpen(klass)}>
-        <Avatar name={str(klass[C.name])} />
         <div className="cell-lines">
           <div className="cell-title">{str(klass[C.name])}</div>
-          <div className="cell-sub">
+          <div
+            className="cell-sub"
+            title={[
+              days.length > 0 ? shortDays(days) : 'No days set',
+              time,
+              str(klass[C.room]),
+            ].filter(Boolean).join(' · ')}
+          >
             {days.length > 0 ? shortDays(days) : 'No days set'}
             {time && <> · {time}</>}
             {str(klass[C.room]) && <> · {str(klass[C.room])}</>}
           </div>
-          {/* "Open to", not the bare list. A course several programmes
-              teach names them all, and a line reading "Life Sciences -
-              Secondary Science" sat where a description of the class would
-              and was read as "this is a Life Sciences class" -- which made
-              a Secondary Science student being placeable here look like a
-              bug. The words say what the list is for: who may take it. */}
-          {program && (
-            <div className="cell-sub faint" title={program.title}>
-              Open to {program.lead}
-            </div>
-          )}
         </div>
       </button>
 
@@ -1732,20 +1520,65 @@ function ClassDrop({
               : `${seats} enrolled`
           }
         >
-          <Icon name="users" size={13} />
+          {/* No icon. Two numbers over a slash in the one place on the card
+              where a count belongs are not ambiguous, and the glyph cost more
+              width than it explained. The tooltip says it in words. */}
           {seats}
           {staged.length > 0 && <span className="seats-staged">+{staged.length}</span>}
           {capacity !== null && ` / ${capacity}`}
         </Chip>
-        {sessions !== null && sessions > 0 && (
-          <Chip title={`${sessions} lessons scheduled`}>
-            <Icon name="calendar" size={13} />
-            {sessions}
-          </Chip>
+        {/* The lesson count has gone; only its one actionable case is left.
+            A class with no lessons cannot have a register taken against it, so
+            anyone placed there has nowhere to be marked present -- worth
+            seeing before the drop. Knowing it has twenty-seven rather than
+            twenty-six never changed a decision on this screen. */}
+        {/* null, not just 0. A class that never had sessions has no rollup
+            value at all -- Sessions_Count comes back empty, and `=== 0` only
+            ever caught a class whose sessions had been counted down to zero.
+            The warning was invisible on exactly the class it is for: a new
+            one nobody has generated lessons for. */}
+        {/* "yet", and it is the whole word. Beside a status of Scheduled,
+            "No lessons" read as a contradiction -- the card names the days and
+            the time right above it, so something is plainly scheduled. The two
+            badges answer different questions: the status is the stage someone
+            set on the class in the CRM, this is whether the dated lessons have
+            been generated from its weekly rule. Nobody has run the generator
+            is a different statement from there are none, and one word is the
+            difference. Worded as the staffing view already words it. */}
+        {(sessions ?? 0) === 0 && (
+          <Badge
+            tone="critical"
+            dot
+            title="This class has a weekly pattern but no dated lessons have been generated from it yet, so no register can be taken against it."
+          >
+            No lessons yet
+          </Badge>
         )}
-        {sessions === 0 && <Badge tone="critical" dot>No lessons</Badge>}
         {full && <Badge tone="pending" dot>Full</Badge>}
-        <Badge tone={status.tone} dot>{status.label}</Badge>
+        {/* Only when it is not the ordinary case. Every class in a running
+            term reads Running, so the badge said nothing on sixteen cards and
+            hid the one that was Cancelled among them. */}
+        {/* Only the statuses that should give you pause before dropping a
+            student here.
+
+            It used to be "anything but Running", read off the stored field --
+            which, since nobody advances that field, meant most of a term's
+            classes carried a Scheduled badge saying only that somebody had
+            not been into the CRM lately. Deriving the status fixed the
+            meaning but not the noise: a class that has met now reads Running
+            on every card, and Running is the ordinary case, so it says
+            nothing at all.
+
+            Cancelled, Draft and Completed are the three that change the
+            answer: the class is off, not confirmed yet, or already over.
+            Running and Scheduled both mean "this class is fine", and the
+            difference between them is a question for the register rather than
+            for the board. The drawer still shows the status in full. */}
+        {(effectiveStatus === 'Cancelled' ||
+          effectiveStatus === 'Draft' ||
+          effectiveStatus === 'Completed') && (
+          <Badge tone={status.tone} dot>{status.label}</Badge>
+        )}
       </div>
 
       {/* Only while a student is held. A button on every class at all times
@@ -1753,15 +1586,17 @@ function ClassDrop({
       {selected.length > 0 && (
         <div className="drop-card-action">
           {placeable === 0 ? (
-            /* Say which of the two reasons it is. "Already in this class" on
-               a class the student may not take at all sends them looking for
-               a placement that was never made. */
-            offProgramme > 0 && alreadyIn === 0 ? (
+            /* Say which of the reasons it is. "Already in this class" on
+               somebody only staged -- or on somebody who simply takes a
+               different subject -- sends them looking for a placement that
+               was never made. Wrong course first: it is the one that is about
+               the class rather than about the student. */
+            wrongCourse > 0 && alreadyIn === 0 && alreadyStaged === 0 ? (
               <span className="muted cover-mark">
                 <Icon name="alert" size={14} />
                 {selected.length === 1
-                  ? 'Not on their programme'
-                  : 'Not on their programmes'}
+                  ? `Not admitted to ${refName(klass[C.course]) || 'this course'}`
+                  : 'Admitted to other courses'}
               </span>
             ) : alreadyStaged > 0 && alreadyIn === 0 ? (
               <span className="muted cover-mark">
@@ -1786,11 +1621,11 @@ function ClassDrop({
                 : `Add ${placeable}${full ? ' anyway' : ''}`}
             </Button>
           )}
-          {placeable > 0 && (alreadyIn > 0 || offProgramme > 0) && (
+          {placeable > 0 && (alreadyIn > 0 || wrongCourse > 0) && (
             <span className="muted cell-sub">
               {[
                 alreadyIn > 0 ? `${alreadyIn} already in` : '',
-                offProgramme > 0 ? `${offProgramme} off programme` : '',
+                wrongCourse > 0 ? `${wrongCourse} other course` : '',
               ].filter(Boolean).join(' · ')}
             </span>
           )}
@@ -1814,7 +1649,7 @@ function ClassDrop({
                   title={'Remove ' + row.name + ' from this class'}
                   aria-label={'Remove ' + row.name + ' from ' + str(klass[C.name])}
                   disabled={disabled}
-                  onClick={() => onRemoveStaged(klass.id, row.studentId)}
+                  onClick={() => onRemoveStaged(row.admissionId)}
                 >
                   <Icon name="close" size={12} />
                 </button>
@@ -1860,7 +1695,6 @@ const OVERSCAN = 4;
  */
 function StudentList({
   people,
-  classesInView,
   selectedIds,
   disabled,
   onToggle,
@@ -1868,7 +1702,6 @@ function StudentList({
 }: {
   people: Candidate[];
   /** Classes each student holds within the current view; absent means none. */
-  classesInView: Map<string, number>;
   selectedIds: Set<string>;
   disabled: boolean;
   onToggle: (who: Candidate) => void;
@@ -1904,11 +1737,10 @@ function StudentList({
     >
       <div className="board-list-inner" style={{ height: people.length * ROW_H }}>
         {people.slice(first, last).map((c, i) => (
-          <div key={c.studentId} className="board-row" style={{ top: (first + i) * ROW_H }}>
+          <div key={c.admissionId} className="board-row" style={{ top: (first + i) * ROW_H }}>
             <PersonCard
               person={c}
-              classCount={classesInView.get(c.studentId) ?? 0}
-              selected={selectedIds.has(c.studentId)}
+              selected={selectedIds.has(c.admissionId)}
               selectedCount={selectedIds.size}
               disabled={disabled}
               onToggle={onToggle}
@@ -1922,6 +1754,88 @@ function StudentList({
 }
 
 /**
+ * Scrolls a container while a drag is held near its top or bottom edge.
+ *
+ * A drag owns the pointer: the wheel still works in most browsers but the
+ * scrollbar does not, and with eighteen classes in a term the one you are
+ * aiming at is routinely below the fold. Without this the only way to reach it
+ * is to drop the card somewhere harmless, scroll, and pick it up again.
+ *
+ * Driven from a document-level dragover rather than one on the container.
+ * dragover on the element itself stops firing the moment the pointer leaves
+ * it, which leaves the last speed in place and the column scrolling on its own
+ * for the rest of the drag; testing the pointer against the element's box
+ * means leaving it simply reads as zero.
+ *
+ * Speed ramps with depth into the edge zone instead of being a fixed step, so
+ * the same gesture gives a nudge near the boundary and a fast run at the very
+ * edge -- a fixed step is either too slow to cross a long column or too fast
+ * to stop on a card.
+ */
+function useDragAutoScroll(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    /** How far into the element counts as the edge, and the cap in px/frame. */
+    const ZONE = 88;
+    const MAX = 16;
+
+    let speed = 0;
+    let frame = 0;
+
+    const step = () => {
+      const el = ref.current;
+      if (!el || speed === 0) {
+        frame = 0;
+        return;
+      }
+      el.scrollTop += speed;
+      frame = requestAnimationFrame(step);
+    };
+
+    const onDragOver = (e: DragEvent) => {
+      const el = ref.current;
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      // Half the height at most, or on a short column the two zones overlap
+      // and the whole thing scrolls wherever the pointer is.
+      const zone = Math.min(ZONE, box.height / 2 - 1);
+      const inside =
+        e.clientX >= box.left && e.clientX <= box.right &&
+        e.clientY >= box.top && e.clientY <= box.bottom;
+
+      if (!inside || zone <= 0) {
+        speed = 0;
+        return;
+      }
+
+      const fromTop = e.clientY - box.top;
+      const fromBottom = box.bottom - e.clientY;
+      if (fromTop < zone) speed = -MAX * (1 - fromTop / zone);
+      else if (fromBottom < zone) speed = MAX * (1 - fromBottom / zone);
+      else speed = 0;
+
+      if (speed !== 0 && frame === 0) frame = requestAnimationFrame(step);
+    };
+
+    const stop = () => {
+      speed = 0;
+      if (frame !== 0) cancelAnimationFrame(frame);
+      frame = 0;
+    };
+
+    document.addEventListener('dragover', onDragOver);
+    // Both, because a drop fires drop and dragend fires on a cancelled one.
+    document.addEventListener('drop', stop);
+    document.addEventListener('dragend', stop);
+    return () => {
+      stop();
+      document.removeEventListener('dragover', onDragOver);
+      document.removeEventListener('drop', stop);
+      document.removeEventListener('dragend', stop);
+    };
+  }, [ref]);
+}
+
+/**
  * One student: draggable for a pointer, a toggle button for everything else.
  *
  * A card is not consumed by being placed -- a student takes several classes in
@@ -1930,7 +1844,6 @@ function StudentList({
  */
 function PersonCard({
   person,
-  classCount,
   selected,
   selectedCount,
   disabled,
@@ -1938,7 +1851,6 @@ function PersonCard({
   onOpenStudent,
 }: {
   person: Candidate;
-  classCount: number;
   selected: boolean;
   /** Size of the whole selection, for the drag image. */
   selectedCount: number;
@@ -1947,21 +1859,55 @@ function PersonCard({
   onOpenStudent: (who: { studentId: string; name: string }) => void;
 }) {
   return (
-    <div className={`pick-row${selected ? ' is-picked' : ''}`}>
-    <button
-      type="button"
+    <div
+      className={`pick-row${selected ? ' is-picked' : ''}`}
+      /* One student is one colour, on every card they hold. A student taking
+         five subjects is five cards here, and read as a plain list they are
+         five strangers with the same name -- you count down the names to see
+         whether somebody has been missed. The stripe makes a person a block
+         you can see the edges of without reading anything.
+
+         The same hue the avatar uses, from the same name, so the person in
+         the record panel and the person on the board are visibly one person.
+         Inline because it is data, not design: there is no stylesheet rule
+         that could know it. */
+      /* Stronger than the avatar wears it. The avatar is a filled circle 28px
+         across carrying white text, so it has to stay dark; the stripe is 6px
+         of pure colour against white and can afford to be vivid. Same hue, so
+         they still read as one person. */
+      style={{ ['--person' as string]: `hsl(${hueOf(person.name)} 72% 47%)` } as CSSProperties}
+    >
+    {/* A real checkbox, outside the draggable area. Selecting and dragging
+        were the same gesture on the same element before, which is why one
+        kept stealing the other. Keyboard users select here; it is also what
+        makes the selection reachable without a pointer at all. */}
+    <input
+      type="checkbox"
+      className="pick-check"
+      checked={selected}
+      disabled={disabled}
+      aria-label={`Select ${person.name} for ${person.courseName}`}
+      onChange={() => onToggle(person)}
+    />
+
+    <div
       className="pick-card"
       draggable={!disabled}
-      aria-pressed={selected}
-      disabled={disabled}
-      onClick={() => onToggle(person)}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'copy';
         // Some browsers cancel a drag that carries no payload at all.
         e.dataTransfer.setData('text/plain', person.studentId);
         // Dragging means "this one too": an unselected card joins the
         // selection, a selected one takes the whole set with it.
-        if (!selected) onToggle(person);
+        //
+        // Deferred, and that is the whole point. Selecting re-renders this row
+        // -- the checkbox ticks, the row takes its picked styling -- and doing
+        // that synchronously here replaces the element the browser is in the
+        // middle of picking up, which silently cancels the drag. The card then
+        // just looked clicked, and only a second drag worked, because by then
+        // it was already selected and nothing re-rendered. A tick late is
+        // still long before the drop.
+        if (!selected) window.setTimeout(() => onToggle(person), 0);
 
         // Say how many are coming. The browser's default drag image is the one
         // card under the pointer, so dragging a set of five looked exactly
@@ -1970,7 +1916,7 @@ function PersonCard({
         if (count > 1) {
           const ghost = document.createElement('div');
           ghost.className = 'drag-ghost';
-          ghost.textContent = `${count} students`;
+          ghost.textContent = `${count} placements`;
           document.body.appendChild(ghost);
           e.dataTransfer.setDragImage(ghost, 16, 16);
           // It has to be in the document when the image is taken, and gone
@@ -1979,20 +1925,17 @@ function PersonCard({
         }
       }}
     >
-      <span className="pick-check" aria-hidden="true">
-        {selected && <Icon name="check" size={13} />}
-      </span>
-      <Avatar name={person.name} />
       <span className="cell-lines">
-        <span className="cell-title">{person.name}</span>
-        <span className="cell-sub">{person.detail}</span>
-      </span>
-      {classCount > 0 && (
-        <span className="chip">
-          {classCount} class{classCount === 1 ? '' : 'es'}
+        {/* Name and id share a line: they answer one question -- who -- and
+            the id is short enough to ride along. The subject gets the line
+            below to itself, because it is what decides where the card may go. */}
+        <span className="pick-head">
+          <span className="cell-title">{person.name}</span>
+          {person.detail && <span className="pick-id">{person.detail}</span>}
         </span>
-      )}
-    </button>
+        <span className="cell-sub pick-course">{person.courseName}</span>
+      </span>
+    </div>
 
     <button
       type="button"
@@ -2042,37 +1985,25 @@ function PersonCard({
 function StudentDetails({
   studentId,
   name,
-  admission,
   termLabel,
-  offeringsOf,
   onOpenClass,
   onDropEnrolment,
-  onAdmissionPatched,
   onClose,
 }: {
   studentId: string;
   name: string;
-  admission: RawRecord | null;
   termLabel: string;
-  offeringsOf: Map<string, { id: string; name: string }[]>;
   /** Opens a class from one of this student's rows. The board owns the class
    *  drawer, and the two panels cannot stack, so this closes the student. */
   onOpenClass: (klass: RawRecord) => void;
   /** Ends one of this student's placements. The board owns the write so its
    *  seat counts stay in step; the panel patches its own copy on success. */
-  onDropEnrolment: (enrollmentId: string, name: string, reason: string) => Promise<void>;
-  /** Keeps the board's copy of the application in step with an edit here. */
-  onAdmissionPatched: (admissionId: string, patch: Record<string, unknown>) => void;
+  onDropEnrolment: (admissionId: string, name: string, reason: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [student, setStudent] = useState<RawRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const showSpinner = useDelayed(student === null && error === null);
-
-  // The application arrives as a prop but is edited here, so the panel keeps
-  // its own copy and hands patches back up rather than writing through a prop.
-  const [appRec, setAppRec] = useState<RawRecord | null>(admission);
-  useEffect(() => { setAppRec(admission); }, [admission]);
 
   // The family record, reached through the student's lookup. A second request
   // on purpose: the lookup carries only an id and a name, and the contact
@@ -2109,7 +2040,7 @@ function StudentDetails({
     let cancelled = false;
     setTaken(null);
     setTakenError(null);
-    getEnrollmentsForStudent(studentId)
+    getAdmissionsForStudent(studentId)
       .then((rows) => { if (!cancelled) setTaken(rows); })
       .catch((err: unknown) => { if (!cancelled) setTakenError(describeError(err)); });
     return () => { cancelled = true; };
@@ -2124,7 +2055,7 @@ function StudentDetails({
   const [marks, setMarks] = useState<RawRecord[] | null>(null);
 
   useEffect(() => {
-    const ids = (taken ?? []).map((e) => refId(e[E.class]) ?? '').filter(Boolean);
+    const ids = (taken ?? []).map((e) => refId(e[A.class]) ?? '').filter(Boolean);
     if (ids.length === 0) return;
     let cancelled = false;
     getClassesByIds(ids)
@@ -2144,12 +2075,12 @@ function StudentDetails({
     return () => { cancelled = true; };
   }, [studentId]);
 
-  // Attendance per enrolment, to the same rule as the class drawer: Present or
+  // Attendance per admission, to the same rule as the class drawer: Present or
   // Late over everything that is not Excused.
   const tallyOf = useMemo(() => {
     const tally = new Map<string, { present: number; eligible: number }>();
     for (const m of marks ?? []) {
-      const id = refId(m[AT.enrollment]);
+      const id = refId(m[AT.admission]);
       if (!id) continue;
       const row = tally.get(id) ?? { present: 0, eligible: 0 };
       const st = str(m[AT.status]);
@@ -2174,13 +2105,13 @@ function StudentDetails({
   const byTerm = useMemo(() => {
     const groups = new Map<string, { term: string; rows: RawRecord[] }>();
     for (const e of taken ?? []) {
-      const term = refName(e[E.term]) || 'No term recorded';
+      const term = refName(e[A.term]) || 'No term recorded';
       let g = groups.get(term);
       if (!g) groups.set(term, (g = { term, rows: [] }));
       g.rows.push(e);
     }
     for (const g of groups.values()) {
-      g.rows.sort((a, b) => refName(a[E.class]).localeCompare(refName(b[E.class])));
+      g.rows.sort((a, b) => refName(a[A.class]).localeCompare(refName(b[A.class])));
     }
     // Terms are named "2026 Term 3", so a reverse string sort is reverse
     // chronological without needing the term records themselves.
@@ -2211,14 +2142,12 @@ function StudentDetails({
     const rows = shownTerms.flatMap((g) => g.rows);
     let present = 0;
     let eligible = 0;
-    let owed = 0;
+    // No fee total any more: the fee is charged once for the sign-up and sits
+    // on the student, so a per-subject amount outstanding does not exist.
+    const owed = 0;
     for (const e of rows) {
       const t = tallyOf.get(e.id);
       if (t) { present += t.present; eligible += t.eligible; }
-      const paid = str(e[E.payment_status]);
-      if (paid && paid !== 'Paid' && paid !== 'Waived') {
-        owed += (int(e[E.fee_amount]) ?? 0) - (int(e[E.discount]) ?? 0);
-      }
     }
     return {
       classes: rows.length,
@@ -2272,16 +2201,6 @@ function StudentDetails({
       const value = text === '' ? null : text;
       await updateStudent(studentId, { [field]: value });
       setStudent((prev) => (prev ? { ...prev, [field]: value } : prev));
-    };
-
-  const saveAdmissionField = (field: string, transform?: (v: string) => string) =>
-    async (raw: string) => {
-      if (!appRec) return;
-      const text = transform ? transform(raw) : raw.trim();
-      const value = text === '' ? null : text;
-      await updateAdmission(appRec.id, { [field]: value });
-      setAppRec((prev) => (prev ? { ...prev, [field]: value } : prev));
-      onAdmissionPatched(appRec.id, { [field]: value });
     };
 
   return (
@@ -2420,26 +2339,14 @@ function StudentDetails({
                   <h4>{group.term}</h4>
                   <ul className="roster">
                     {group.rows.map((e) => {
-                      const status = str(e[E.status]);
-                      const grade = str(e[E.final_grade]);
-                      const klass = klasses.get(refId(e[E.class]) ?? '');
+                      const status = str(e[A.stage]);
+                      const grade = str(e[A.final_grade]);
+                      const klass = klasses.get(refId(e[A.class]) ?? '');
                       const days = klass ? strList(klass[C.meeting_days]) : [];
                       const time = klass
                         ? [str(klass[C.start_time]), str(klass[C.end_time])].filter(Boolean).join('–')
                         : '';
                       const rate = rateOf.get(e.id);
-                      const fee = int(e[E.fee_amount]);
-                      const paid = str(e[E.payment_status]);
-                      // The course must be offered by the programme the
-                      // student was admitted to. This is the check nothing
-                      // enforced when the placement was made.
-                      const courseId = refId(e[E.course]) ?? '';
-                      const offered = offeringsOf.get(courseId) ?? [];
-                      const myProgram = refId(student[ST.program]);
-                      const offProgramme =
-                        myProgram !== null &&
-                        offered.length > 0 &&
-                        !offered.some((pr) => pr.id === myProgram);
                       return (
                         <li key={e.id}>
                           <span className="cell-lines">
@@ -2450,13 +2357,13 @@ function StudentDetails({
                                 title="Open this class"
                                 onClick={() => onOpenClass(klass)}
                               >
-                                {refName(e[E.class]) || '—'}
+                                {refName(e[A.class]) || '—'}
                               </button>
                             ) : (
-                              <span className="cell-title">{refName(e[E.class]) || '—'}</span>
+                              <span className="cell-title">{refName(e[A.class]) || '—'}</span>
                             )}
                             <span className="cell-sub">
-                              {refName(e[E.course]) || 'No course recorded'}
+                              {refName(e[A.course]) || 'No course recorded'}
                               {days.length > 0 && <> · {shortDays(days)}</>}
                               {time && <> {time}</>}
                               {klass && str(klass[C.room]) && <> · {str(klass[C.room])}</>}
@@ -2473,18 +2380,9 @@ function StudentDetails({
                                 <> · {rate}% attendance</>
                               )}
                               {grade && <> · Grade {grade}</>}
-                              {fee !== null && (
-                                <> · {fee.toLocaleString()}{paid && ` (${paid})`}</>
-                              )}
                             </span>
-                            {offProgramme && (
-                              <span className="cell-sub warn-text">
-                                <Icon name="alert" size={13} />
-                                Not offered by {refName(student[ST.program])}
-                              </span>
-                            )}
                           </span>
-                          {status !== 'Active' ? (
+                          {status !== 'Placed' ? (
                             <Badge tone={status === 'Completed' ? 'positive' : 'neutral'}>
                               {status || '—'}
                             </Badge>
@@ -2496,7 +2394,7 @@ function StudentDetails({
                                 autoFocus
                                 maxLength={2000}
                                 placeholder="Why are they leaving?"
-                                aria-label={`Reason for leaving ${refName(e[E.class])}`}
+                                aria-label={`Reason for leaving ${refName(e[A.class])}`}
                                 onChange={(ev) => setDropReason(ev.target.value)}
                               />
                               <Button
@@ -2512,7 +2410,7 @@ function StudentDetails({
                                   setTaken((prev) =>
                                     (prev ?? []).map((r) =>
                                       r.id === e.id
-                                        ? { ...r, [E.status]: 'Dropped', [E.dropped_on]: orgToday() }
+                                        ? { ...r, [A.stage]: 'Dropped', [A.dropped_on]: orgToday() }
                                         : r,
                                     ),
                                   );
@@ -2536,7 +2434,7 @@ function StudentDetails({
                             <Button
                               small
                               variant="ghost"
-                              title={`${name} is leaving ${refName(e[E.class])}`}
+                              title={`${name} is leaving ${refName(e[A.class])}`}
                               onClick={() => { setDropping(e.id); setDropReason(''); }}
                             >
                               Drop
@@ -2803,91 +2701,6 @@ function StudentDetails({
             </>
           )}
 
-          <section className="drawer-section">
-            <h3>Application</h3>
-            {appRec === null ? (
-              <p className="muted">
-                No application for {termLabel}. This student is on the roll from an
-                earlier term.
-              </p>
-            ) : (
-              <>
-                <dl className="facts">
-                  <dt>Application</dt>
-                  <dd>{str(appRec[A.application_no], '—')}</dd>
-
-                  <dt>Stage</dt>
-                  <dd>{str(appRec[A.stage], '—')}</dd>
-
-                  <dt>Came from</dt>
-                  <dd>{str(appRec[A.source], '—')}</dd>
-
-                  <dt>Applied</dt>
-                  <dd>{str(appRec[A.applied_date], '—')}</dd>
-
-                  <EditableFact
-                    label="Interview"
-                    type="datetime-local"
-                    value={localDateTime(appRec[A.interview_date])}
-                    /* A datetime, so it is stamped with the org's offset --
-                       never a bare local string and never a trailing Z. */
-                    onSave={saveAdmissionField(A.interview_date, (v) =>
-                      v ? orgDateTime(v) : '',
-                    )}
-                  >
-                    {str(appRec[A.interview_date]) || (
-                      <span className="muted">Not scheduled</span>
-                    )}
-                  </EditableFact>
-
-                  <EditableFact
-                    label="Decided"
-                    type="date"
-                    value={str(appRec[A.decision_date])}
-                    onSave={saveAdmissionField(A.decision_date)}
-                  >
-                    {str(appRec[A.decision_date]) || (
-                      <span className="muted">Not recorded</span>
-                    )}
-                  </EditableFact>
-
-                  <EditableFact
-                    label="Guardian"
-                    value={str(appRec[A.guardian_name])}
-                    onSave={saveAdmissionField(A.guardian_name)}
-                  >
-                    {str(appRec[A.guardian_name], '—')}
-                  </EditableFact>
-
-                  <EditableFact
-                    label="Guardian phone"
-                    type="tel"
-                    value={str(appRec[A.guardian_phone])}
-                    onSave={saveAdmissionField(A.guardian_phone)}
-                  >
-                    {str(appRec[A.guardian_phone], '—')}
-                  </EditableFact>
-
-                  <EditableFact
-                    label="Guardian email"
-                    type="email"
-                    value={str(appRec[A.guardian_email])}
-                    onSave={saveAdmissionField(A.guardian_email)}
-                  >
-                    {str(appRec[A.guardian_email], '—')}
-                  </EditableFact>
-                </dl>
-
-                <EditableNote
-                  label="Notes"
-                  value={str(appRec[A.notes])}
-                  placeholder="Anything worth knowing about this application"
-                  empty="None."
-                  onSave={saveAdmissionField(A.notes)}
-                />
-              </>
-            )}
-          </section>
         </>
       )}
     </Drawer>
@@ -2994,6 +2807,21 @@ function EditableFact({
               <option value="">—</option>
               {(options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
+          ) : type === 'date' ? (
+            /* Its own branch so the day/month/year field is used wherever a
+               date is edited, not only where one was written by hand. */
+            <DateField
+              className="field"
+              autoFocus
+              value={draft}
+              disabled={saving}
+              aria-label={label}
+              onChange={setDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void commit(); }
+                if (e.key === 'Escape') cancel();
+              }}
+            />
           ) : (
             <input
               className="field"

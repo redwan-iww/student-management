@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE -- do not edit. Source: schema/model.yaml (npm run gen:docs) -->
 
-14 entities. Rollup fields are derived — they exist as a Zoho
+11 entities. Rollup fields are derived — they exist as a Zoho
 rollup summary field, never as stored data.
 
 ## Household — `households`
@@ -43,8 +43,7 @@ Zoho module `Students` (extend_custom)
 |---|---|:-:|:-:|---|---|
 | `full_name` | text | ✓ |  | `Name` | Stock display field. Keep in step with first_name + last_name. |
 | `student_code` | autonumber |  | ✓ | `Student_Code` |  |
-| `student_ref` | text |  | ✓ | `Student_Ref` | The readable identity: <programme>-<term>-<application serial>, taken from the student's FIRST admission, so it never changes as they move between programmes in later terms. Composed on write, not autonumbered: student_code is an autonumber and Zoho silently ignores writes to those -- an update reports SUCCESS and leaves the old value in place. |
-| `program` | reference → `programs` |  |  | `Program` | The programme the student is admitted to, chosen once and fixed -- student_ref is built from it. Not required at the schema level only because the record can exist before the decision; the rule is enforced when admitting. |
+| `student_ref` | text |  | ✓ | `Student_Ref` | The readable identity: STU-<term>-<application serial>, taken from the student's FIRST admission, so it says when they joined and never changes afterwards. The prefix used to be the programme they were admitted to; this school has no majors -- a student is admitted to a term and picks courses -- so there was nothing for it to name. Composed on write, not autonumbered: student_code is an autonumber and Zoho silently ignores writes to those -- an update reports SUCCESS and leaves the old value in place. |
 | `household` | reference → `households` | ✓ |  | `Household` |  |
 | `first_name` | text | ✓ |  | `First_Name` |  |
 | `last_name` | text | ✓ |  | `Last_Name` |  |
@@ -54,12 +53,16 @@ Zoho module `Students` (extend_custom)
 | `email` | email |  |  | `Email` |  |
 | `phone` | phone |  |  | `Phone` |  |
 | `enrollment_date` | date |  |  | `Enrollment_Date` |  |
+| `signup_term` | reference → `terms` |  |  | `Signup_Term` | The term this student signed up for. The sign-up lives on the student rather than in a module of its own: one person signing up once, for one term, paying once. |
+| `fee_total` | currency |  |  | `Fee_Total` | What the chosen courses come to. Charged per sign-up, not per course -- the admissions rows are only created once this is settled. |
+| `fee_paid` | currency |  |  | `Fee_Paid` | default `0` |
+| `payment_status` | enum `payment_status` | ✓ |  | `Payment_Status` | Admissions rows are created when this reaches Paid or Waived. Before that the student has chosen courses but is not admitted to any of them.; default `Unpaid` |
 | `exit_date` | date |  |  | `Exit_Date` |  |
 | `emergency_contact_name` | text |  |  | `Emergency_Contact_Name` |  |
 | `emergency_contact_phone` | phone |  |  | `Emergency_Contact_Phone` |  |
 | `medical_notes` | textarea |  |  | `Medical_Notes` |  |
 | `photo` | image |  |  | `Record_Image` |  |
-| `active_enrollments_count` | rollup(count of `enrollments`) |  |  | _(rollup)_ |  |
+| `active_enrollments_count` | rollup(count of `admissions`) |  |  | _(rollup)_ |  |
 
 ## Teacher — `teachers`
 
@@ -121,20 +124,6 @@ Zoho module `Holidays` (create)
 
 - `holiday_dates_ordered` — check `end_date IS NULL OR end_date >= start_date`
 
-## Program — `programs`
-
-Zoho module `Academic_Programs` (create)
-
-| Field | Type | Req | Unique | Zoho api_name | Notes |
-|---|---|:-:|:-:|---|---|
-| `name` | text | ✓ |  | `Name` |  |
-| `program_code` | text | ✓ | ✓ | `Program_Code` |  |
-| `description` | textarea |  |  | `Description` |  |
-| `level` | enum `academic_level` |  |  | `Level` |  |
-| `duration_terms` | integer |  |  | `Duration_Terms` |  |
-| `status` | enum `catalog_status` | ✓ |  | `Status` | default `Active` |
-| `courses_count` | rollup(count of `program_courses`) |  |  | _(rollup)_ |  |
-
 ## Course — `courses`
 
 What is taught. A course has no date and no teacher -- that is a `classes` row. The Zoho module name is forced by the target org: demo3 already holds an unrelated `Courses` (CustomModule2).
@@ -152,25 +141,9 @@ Zoho module `Course_Catalog` (create)
 | `default_fee` | currency |  |  | `Default_Fee` |  |
 | `status` | enum `catalog_status` | ✓ |  | `Status` | default `Active` |
 
-## Program Course — `program_courses`
-
-Which programmes offer a course, many-to-many. A subject several programmes teach -- Mathematics 101 in both Science and Commerce -- is ONE course with one row here per programme. Before this, courses.program gave a course exactly one programme, so a shared subject had to be duplicated per programme; the copies then drifted into separate codes, classes and enrollments.
-
-Zoho module `Program_Courses` (create)
-
-| Field | Type | Req | Unique | Zoho api_name | Notes |
-|---|---|:-:|:-:|---|---|
-| `name` | text | ✓ |  | `Name` | Mandatory on every custom module, join-like ones included. |
-| `program` | reference → `programs` | ✓ |  | `Program` |  |
-| `course` | reference → `courses` | ✓ |  | `Course` |  |
-
-**Constraints**
-
-- `uq_program_course` — unique (program, course)
-
 ## Admission — `admissions`
 
-An application. Applicant details are held inline because no student row exists until the application is accepted; `student` is back-filled then.
+One student admitted to one course. Five courses chosen is five rows. This is the record a place in a class is made against, and it carries the class once the placement is made -- so one row is the whole life of "this person takes this subject": admitted, placed, marked, graded. It used to be an application made before any student existed, with the applicant's own name and guardian held inline. That is gone: a student signs up first (see students.signup_term and the fee fields on it), and only once the fee is settled is a row created here per course chosen. Holding applicant details here would have repeated one person's date of birth once per subject they take.
 
 Zoho module `Admissions` (create)
 
@@ -178,25 +151,23 @@ Zoho module `Admissions` (create)
 |---|---|:-:|:-:|---|---|
 | `name` | text | ✓ |  | `Name` | Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from application_no. |
 | `application_no` | autonumber |  | ✓ | `Application_No` |  |
-| `applicant_first_name` | text | ✓ |  | `Applicant_First_Name` |  |
-| `applicant_last_name` | text | ✓ |  | `Applicant_Last_Name` |  |
-| `applicant_date_of_birth` | date |  |  | `Applicant_Date_Of_Birth` |  |
-| `applicant_gender` | enum `gender` |  |  | `Applicant_Gender` |  |
-| `guardian_name` | text |  |  | `Guardian_Name` |  |
-| `guardian_phone` | phone |  |  | `Guardian_Phone` |  |
-| `guardian_email` | email |  |  | `Guardian_Email` |  |
-| `household` | reference → `households` |  |  | `Household` | Linked once an existing family is matched, or created on acceptance. |
-| `student` | reference → `students` |  |  | `Student` | Back-filled when the application is accepted. |
+| `student` | reference → `students` | ✓ |  | `Student` |  |
+| `course` | reference → `courses` | ✓ |  | `Course` | The subject admitted to. Chosen at sign-up; a class running it comes later. |
 | `term` | reference → `terms` | ✓ |  | `Term` |  |
-| `program` | reference → `programs` |  |  | `Program` |  |
+| `class` | reference → `classes` |  |  | `Class` | Which run of the course they were put in. Empty until placed, which is what the enrolment board does -- an admitted-but-unplaced row is exactly what its left panel lists. |
 | `source` | enum `admission_source` |  |  | `Source` |  |
-| `stage` | enum `admission_stage` | ✓ |  | `Stage` | default `Enquiry` |
+| `stage` | enum `admission_stage` | ✓ |  | `Stage` | default `Admitted` |
 | `applied_date` | date | ✓ |  | `Applied_Date` |  |
-| `interview_date` | datetime |  |  | `Interview_Date` |  |
-| `decision_date` | date |  |  | `Decision_Date` |  |
-| `decision_by` | user_reference |  |  | `Decision_By` |  |
-| `rejection_reason` | textarea |  |  | `Rejection_Reason` |  |
+| `placed_on` | date |  |  | `Placed_On` |  |
+| `dropped_on` | date |  |  | `Dropped_On` |  |
+| `drop_reason` | textarea |  |  | `Drop_Reason` |  |
+| `final_grade` | text |  |  | `Final_Grade` |  |
+| `attendance_rate` | rollup(percent of `attendance`) |  |  | _(rollup)_ |  |
 | `notes` | textarea |  |  | `Admission_Notes` | api_name is not 'Notes' -- Zoho reserves that keyword. |
+
+**Constraints**
+
+- `uq_admission_student_course_term` — unique (student, course, term) — One admission per subject per term. Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md.
 
 ## Class — `classes`
 
@@ -220,7 +191,7 @@ Zoho module `Classes` (create)
 | `start_date` | date | ✓ |  | `Start_Date` |  |
 | `end_date` | date | ✓ |  | `End_Date` |  |
 | `status` | enum `class_status` | ✓ |  | `Status` | default `Draft` |
-| `enrolled_count` | rollup(count of `enrollments`) |  |  | _(rollup)_ |  |
+| `enrolled_count` | rollup(count of `admissions`) |  |  | _(rollup)_ |  |
 | `sessions_count` | rollup(count of `class_sessions`) |  |  | _(rollup)_ |  |
 
 **Constraints**
@@ -255,34 +226,6 @@ Zoho module `Class_Sessions` (create)
 
 - `uq_session_per_class_date` — unique (class, session_date, start_time)
 
-## Enrollment — `enrollments`
-
-Joins a student to a class. `course` and `term` are intentionally denormalized: Zoho COQL cannot join two hops, so "all enrollments in Term 1" is only answerable if the term sits on this record. Both are derived from `class` and kept in step by workflow (Zoho) / trigger (SQL).
-
-Zoho module `Enrollments` (create)
-
-| Field | Type | Req | Unique | Zoho api_name | Notes |
-|---|---|:-:|:-:|---|---|
-| `name` | text | ✓ |  | `Name` | Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from enrollment_no. |
-| `enrollment_no` | autonumber |  | ✓ | `Enrollment_No` |  |
-| `student` | reference → `students` | ✓ |  | `Student` |  |
-| `class` | reference → `classes` | ✓ |  | `Class` |  |
-| `course` | reference → `courses` |  |  | `Course` | derived from `class.course` |
-| `term` | reference → `terms` |  |  | `Term` | derived from `class.term` |
-| `status` | enum `enrollment_status` | ✓ |  | `Status` | default `Pending` |
-| `enrolled_on` | date | ✓ |  | `Enrolled_On` |  |
-| `dropped_on` | date |  |  | `Dropped_On` |  |
-| `drop_reason` | textarea |  |  | `Drop_Reason` |  |
-| `fee_amount` | currency |  |  | `Fee_Amount` |  |
-| `discount` | currency |  |  | `Discount` | default `0` |
-| `payment_status` | enum `payment_status` |  |  | `Payment_Status` | default `Unpaid` |
-| `final_grade` | text |  |  | `Final_Grade` |  |
-| `attendance_rate` | rollup(percent of `attendance`) |  |  | _(rollup)_ |  |
-
-**Constraints**
-
-- `uq_enrollment_student_class` — unique (student, class) — Zoho has no composite unique field -- enforced by validation rule. See docs/zoho-mapping.md.
-
 ## Allocation — `allocations`
 
 Teacher assigned to a class. class_session is NULL for a whole-term allocation and set only for a one-off substitution on that date.
@@ -308,7 +251,7 @@ Zoho module `Allocations` (create)
 
 ## Attendance — `attendance`
 
-One mark per enrolled student per session. `student` and `class` are denormalized off the enrollment for the same COQL reason as enrollments. Highest-volume table: students x classes-each x sessions-per-term.
+One mark per admitted student per session. `student` and `class` are denormalized off the admission for the same COQL reason admissions is. Highest-volume table: students x classes-each x sessions-per-term.
 
 Zoho module `Attendance` (create)
 
@@ -317,9 +260,9 @@ Zoho module `Attendance` (create)
 | `name` | text | ✓ |  | `Name` | Zoho stock display field -- always text, so it cannot BE the auto-number. Workflow-composed from attendance_no. |
 | `attendance_no` | autonumber |  | ✓ | `Attendance_No` |  |
 | `class_session` | reference → `class_sessions` | ✓ |  | `Class_Session` |  |
-| `enrollment` | reference → `enrollments` | ✓ |  | `Enrollment` |  |
-| `student` | reference → `students` | ✓ |  | `Student` | derived from `enrollment.student` |
-| `class` | reference → `classes` | ✓ |  | `Class` | derived from `enrollment.class` |
+| `admission` | reference → `admissions` | ✓ |  | `Admission` |  |
+| `student` | reference → `students` | ✓ |  | `Student` | derived from `admission.student` |
+| `class` | reference → `classes` | ✓ |  | `Class` | derived from `admission.class` |
 | `status` | enum `attendance_status` | ✓ |  | `Status` | default `Present` |
 | `minutes_late` | integer |  |  | `Minutes_Late` | default `0` |
 | `marked_by` | reference → `teachers` |  |  | `Marked_By` | The teacher who took the class and recorded the mark. |
@@ -328,7 +271,7 @@ Zoho module `Attendance` (create)
 
 **Constraints**
 
-- `uq_attendance_enrollment_session` — unique (enrollment, class_session) — Zoho: enforced by validation rule, not a native composite unique.
+- `uq_attendance_admission_session` — unique (admission, class_session) — Zoho: enforced by validation rule, not a native composite unique.
 - `attendance_minutes_late_nonneg` — check `minutes_late >= 0`
 
 ## Enumerations
@@ -343,7 +286,7 @@ Zoho module `Attendance` (create)
 - `term_status` — `Planned`, `Open`, `In Progress`, `Closed`, `Archived`
 - `catalog_status` — `Draft`, `Active`, `Inactive`, `Retired`
 - `academic_level` — `Foundation`, `Beginner`, `Intermediate`, `Advanced`, `Professional`
-- `admission_stage` — `Enquiry`, `Application Submitted`, `Documents Pending`, `Interview`, `Offered`, `Accepted`, `Enrolled`, `Rejected`, `Withdrawn`
+- `admission_stage` — `Admitted`, `Placed`, `Completed`, `Dropped`, `Withdrawn`
 - `admission_source` — `Walk In`, `Website`, `Referral`, `Social Media`, `Agent`, `Event`, `Other`
 - `class_status` — `Draft`, `Scheduled`, `Running`, `Completed`, `Cancelled`
 - `weekday` — `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `Sunday`
