@@ -442,6 +442,17 @@ export function EnrollmentBoard({
 
   const shownPeople = eligiblePeople;
 
+  /* Distinct people, not cards. Both lists hold one entry per admission, so
+     counting their length counts subjects. */
+  const peopleTotalCount = useMemo(
+    () => new Set((candidates ?? []).map((c) => c.studentId)).size,
+    [candidates],
+  );
+  const peopleShownCount = useMemo(
+    () => new Set(shownPeople.map((c) => c.studentId)).size,
+    [shownPeople],
+  );
+
   const peopleNarrowed = shownPeople.length !== (candidates?.length ?? 0);
 
 
@@ -843,20 +854,48 @@ export function EnrollmentBoard({
         <div className="board-head">
           <h2>
             Students{' '}
+            {/* People, then cards. The count said 23 over a column of 23 cards
+                belonging to 8 students, because a card is one admission -- one
+                student, one subject -- and a student taking three subjects is
+                three of them. "Students 23" was a claim about the intake and
+                it was wrong by a factor of three.
+
+                Both numbers, because both are asked: how many people are
+                waiting, and how much work is in the column. The filter counts
+                cards, since that is what it narrows. */}
             <span className="count">
               {peopleNarrowed
-                ? `${shownPeople.length} of ${candidates?.length ?? 0}`
-                : (candidates?.length ?? 0)}
+                ? `${peopleShownCount} of ${peopleTotalCount}`
+                : peopleTotalCount}
+            </span>
+            <span className="count-sub">
+              {peopleNarrowed
+                ? `${shownPeople.length} of ${candidates?.length ?? 0} cards`
+                : `${candidates?.length ?? 0} card${(candidates?.length ?? 0) === 1 ? '' : 's'}`}
             </span>
           </h2>
 
-          {!peopleLoading && selected.length === 0 && shownPeople.length > 0 && (
+          {/* One button, both directions.
+
+              Two of them meant one was always disabled -- Clear with nothing
+              held, Select all with everything -- so half the control was dead
+              at any moment, and the live half moved between them. The state
+              decides the label instead, the way a header checkbox does.
+
+              Anything held, not everything: with three of twenty-three ticked
+              the useful offer is to drop them, and finishing the set is one
+              more click on a card. */}
+          {!peopleLoading && shownPeople.length > 0 && (
             <Button
               small
               className="board-tools-end"
-              onClick={() => setSelected(shownPeople)}
+              onClick={() =>
+                setSelected(selected.length > 0 ? [] : shownPeople)
+              }
             >
-              Select all {shownPeople.length}
+              {selected.length > 0
+                ? `Unselect all ${selected.length}`
+                : `Select all ${shownPeople.length}`}
             </Button>
           )}
         </div>
@@ -878,24 +917,6 @@ export function EnrollmentBoard({
           />
         )}
 
-        {selected.length > 0 && (
-          <div className="select-bar">
-            <span>
-              <strong>{selected.length}</strong> selected
-            </span>
-            <Button small variant="ghost" onClick={() => setSelected([])}>
-              Clear
-            </Button>
-            <Button
-              small
-              variant="ghost"
-              onClick={() => setSelected(shownPeople)}
-              disabled={selected.length === shownPeople.length}
-            >
-              Select all {shownPeople.length}
-            </Button>
-          </div>
-        )}
 
         {peopleLoading && showPeopleSpinner && <Loader label="Loading students…" />}
 
@@ -959,6 +980,9 @@ export function EnrollmentBoard({
           />
         )}
 
+        {/* How much of the list the filter is showing. One line, and only
+            while it is narrowing something -- the full count is in the
+            heading. */}
         {!loading && classesFiltered && shownClasses.length > 0 && (
           <p className="muted board-count">
             {shownClasses.length} of {classes.length}

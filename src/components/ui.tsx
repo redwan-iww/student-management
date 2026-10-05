@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 // Aliased: the DOM KeyboardEvent is used below for a window listener, and an
 // unaliased React import would shadow it.
@@ -615,6 +615,52 @@ function unlockScroll() {
  * Shares the drawer's scroll lock, which is counted precisely so that closing
  * the modal does not unlock the page while the drawer behind it is still open.
  */
+/**
+ * Plays a panel's exit animation before telling the parent to unmount it.
+ *
+ * A drawer animates in because it mounts and the CSS runs; it had nothing on
+ * the way out because the parent drops it from the tree the instant onClose
+ * fires, and an element that is gone cannot animate. So the panel asks to be
+ * closed, marks itself closing -- which is what the exit keyframes hang off --
+ * and only then calls up.
+ *
+ * Returns the flag and the wrapped close. Every way out has to go through it:
+ * the button, the scrim and Escape, or one of them vanishes while the others
+ * slide.
+ *
+ * EXIT_MS must match the CSS. A timer shorter than the animation cuts it off;
+ * longer leaves the panel sitting finished on screen. animationend would avoid
+ * the duplication but does not fire at all under prefers-reduced-motion, where
+ * there is no animation -- which is the case that must still close.
+ */
+const EXIT_MS = 170;
+
+function useExitAnimation(onClose: () => void) {
+  const [closing, setClosing] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+
+  // A close already under way must not be started again -- a second Escape
+  // would otherwise queue a second timer and call onClose twice.
+  const requestClose = useCallback(() => {
+    // Nothing to wait for when the stylesheet has turned the animation off:
+    // the delay would be 170ms of a panel sitting there doing nothing, which
+    // is exactly the sluggishness the setting is asking us to avoid.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      onClose();
+      return;
+    }
+    setClosing((already) => {
+      if (already) return already;
+      timer.current = window.setTimeout(onClose, EXIT_MS);
+      return true;
+    });
+  }, [onClose]);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  return { closing, requestClose };
+}
+
 export function Modal({
   title,
   subtitle,
@@ -630,6 +676,7 @@ export function Modal({
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const { closing, requestClose } = useExitAnimation(onClose);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -637,7 +684,7 @@ export function Modal({
       // close at once -- which loses the work the modal was collecting.
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        requestClose();
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -646,16 +693,19 @@ export function Modal({
       window.removeEventListener('keydown', onKey, true);
       unlockScroll();
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   useEffect(() => {
     panel.current?.focus();
   }, []);
 
   return (
-    <div className="modal-scrim" onClick={onClose}>
+    <div
+      className={`modal-scrim${closing ? ' is-closing' : ''}`}
+      onClick={requestClose}
+    >
       <div
-        className="modal"
+        className={`modal${closing ? ' is-closing' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -668,7 +718,7 @@ export function Modal({
             <h2>{title}</h2>
             {subtitle && <p className="muted">{subtitle}</p>}
           </div>
-          <Button variant="ghost" small onClick={onClose} aria-label="Close">
+          <Button variant="ghost" small onClick={requestClose} aria-label="Close">
             <Icon name="close" />
           </Button>
         </header>
@@ -691,10 +741,11 @@ export function Drawer({
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
+  const { closing, requestClose } = useExitAnimation(onClose);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKey);
     lockScroll();
@@ -702,7 +753,7 @@ export function Drawer({
       window.removeEventListener('keydown', onKey);
       unlockScroll();
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   // Without this the focus ring stays on the card behind the scrim, and a
   // screen reader goes on reading the list rather than the panel.
@@ -711,9 +762,12 @@ export function Drawer({
   }, []);
 
   return (
-    <div className="drawer-scrim" onClick={onClose}>
+    <div
+      className={`drawer-scrim${closing ? ' is-closing' : ''}`}
+      onClick={requestClose}
+    >
       <div
-        className="drawer"
+        className={`drawer${closing ? ' is-closing' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -726,7 +780,7 @@ export function Drawer({
             <h2>{title}</h2>
             {subtitle && <p className="muted">{subtitle}</p>}
           </div>
-          <Button variant="ghost" small onClick={onClose} aria-label="Close">
+          <Button variant="ghost" small onClick={requestClose} aria-label="Close">
             <Icon name="close" />
           </Button>
         </header>

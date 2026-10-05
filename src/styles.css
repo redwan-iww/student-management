@@ -451,6 +451,7 @@ input:focus-visible,
    shoulder read as one four-way control; the gap says they are separate
    questions. Wraps to its own line before it would crowd the pickers. */
 .toolbar-end { margin-left: auto; }
+
 .toolbar label { display: inline-flex; align-items: center; gap: var(--s2); }
 
 /* Label above the control rather than beside it, for the form row in the
@@ -1359,6 +1360,18 @@ textarea:focus-visible {
   vertical-align: middle;
 }
 
+/* The second count, qualifying the first. No pill: two pills side by side read
+   as two equal facts, and this one only exists to explain why the column is
+   longer than the number beside the heading. */
+.count-sub {
+  margin-left: var(--s2);
+  color: var(--faint);
+  font-size: .74rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
 .board-search { width: 100%; box-sizing: border-box; }
 .board-count { margin: 0; font-size: .8rem; }
 
@@ -1500,8 +1513,34 @@ textarea:focus-visible {
 
 @keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes drawer-in { from { transform: translateX(12px); opacity: .6; } to { transform: none; opacity: 1; } }
+
+/* Leaving. Faster than arriving and easing the other way: an entrance
+   announces something, an exit should be out of the way before you look for
+   what is behind it.
+
+   Further out than it came in, because a panel that fades on the spot reads as
+   failing rather than as leaving. forwards, so the last frame holds for the
+   few milliseconds between the animation ending and React unmounting it --
+   without it the panel snaps back to full opacity first.
+
+   The duration is EXIT_MS in ui.tsx and the two have to agree. */
+@keyframes scrim-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes drawer-out { from { transform: none; opacity: 1; } to { transform: translateX(16px); opacity: 0; } }
+@keyframes modal-out { from { transform: none; opacity: 1; } to { transform: scale(.98); opacity: 0; } }
+
+.drawer-scrim.is-closing,
+.modal-scrim.is-closing { animation: scrim-out .17s ease-in forwards; }
+.drawer.is-closing { animation: drawer-out .17s ease-in forwards; }
+.modal.is-closing { animation: modal-out .17s ease-in forwards; }
+
+/* A closing panel stops taking clicks. It is on screen for another 170ms and
+   a second click on it would do nothing useful and could land on whatever
+   appears underneath. */
+.drawer-scrim.is-closing,
+.modal-scrim.is-closing { pointer-events: none; }
+
 @media (prefers-reduced-motion: reduce) {
-  .drawer-scrim, .drawer { animation: none; }
+  .drawer-scrim, .drawer, .modal-scrim, .modal { animation: none; }
 }
 
 /* The card's main area opens the panel. A real button, so it is reachable by
@@ -1544,21 +1583,6 @@ textarea:focus-visible {
 
 /* Sticks to the top of the students column: with a hundred rows the selection
    is made at the top and out of sight by the time you reach the bottom. */
-.select-bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  padding: var(--s2) var(--s3);
-  border-radius: var(--r-md);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-line);
-  color: var(--accent-dark);
-  font-size: .86rem;
-}
-.select-bar > span:first-child { flex: 1; }
 
 /* The tick box on a student card. */
 /* A real checkbox, sitting outside the draggable card so the two gestures
@@ -1817,23 +1841,52 @@ textarea:focus-visible {
 
    Opaque, and padded to the column's edges, or the cards would slide visibly
    under a transparent band. */
+/* The group is a rail and a grid side by side. */
+.shift-group {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s3);
+}
+.shift-group .class-grid { flex: 1; min-width: 0; }
+
+/* The shift's name, turned on its side down the left edge.
+
+   Across the top it was a full-width band for two words, repeated for each
+   shift -- and in a column that scrolls, a band is a row of cards you do not
+   get to see. On its side it costs about 24px of width and no height at all,
+   and it labels the group for its whole length rather than only at the point
+   you happened to scroll past.
+
+   vertical-rl then rotated 180deg, which reads bottom-to-top -- the usual
+   direction for a label down a left edge, and the one that puts the start of
+   the word at the bottom where the eye enters the rail. sideways-lr would say
+   it in one declaration but is not in Chromium.
+
+   Sticky to the top of the scroller and aligned to the start, so a long shift
+   keeps its name on screen the whole way down it. */
 .shift-head {
   position: sticky;
   top: 0;
+  align-self: flex-start;
   z-index: 2;
-  background: var(--bg);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s2);
-  margin: 0 0 var(--s3);
-  padding: var(--s2) 0;
+  margin: 0;
+  padding: var(--s2) 3px;
+  background: var(--bg);
+  border-right: 1px solid var(--line-strong);
   font-size: .8rem;
   font-weight: 650;
   letter-spacing: .03em;
   text-transform: uppercase;
   color: var(--fg);
-  border-bottom: 1px solid var(--line-strong);
 }
+/* The glyph is not text and does not want the rotation the rail applies. */
+.shift-head svg { transform: rotate(90deg); }
 
 /* The icon is the fastest read of the three, so it gets the accent and the
    label stays plain -- two coloured things would compete. */
@@ -1843,6 +1896,9 @@ textarea:focus-visible {
 
 .shift-name { flex: none; }
 
+/* The student column's band. Same rule, same height -- that is the point --
+   but outside a scroller, so the sticky offset it inherits has nothing to
+   stick to and the icon takes the column's own colour rather than a shift's. */
 /* How many, in the same pill the counts beside the column headings use. */
 .shift-count {
   flex: none;
@@ -1854,9 +1910,12 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-/* The rule the band hangs on. Pushed to the end and allowed to shrink away
-   first, so a narrow column drops the sentence rather than wrapping the band
-   onto two lines. */
+/* The rule the band hangs on -- not shown in the rail, where its length would
+   set the group's minimum height: a shift with one row of cards would be a
+   sentence tall for the sake of a parenthesis. The attendance calendar still
+   states the 13:00 split on its own bands. */
+.shift-head .shift-note { display: none; }
+
 .shift-note {
   flex: 0 1 auto;
   min-width: 0;
