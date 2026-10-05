@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { Loader, useDelayed } from './Loader';
 import { Banner, Button, Card, Icon, Modal } from './ui';
+import { shiftOf } from './status';
 import {
   BULK_LIMIT,
   describeError,
@@ -25,7 +26,9 @@ import {
   getClosedDates,
   getActiveTerms,
   getClassesForTerm,
-  getSessionKeysForClass,
+  getSessionsForClass,
+  sessionKeys,
+  setSessionCancelled,
   plannedSessions,
   str,
   type PlannedSession,
@@ -49,20 +52,37 @@ type Preview =
 
 /** One class's lessons, split into what is missing and what is not. */
 interface ClassCount {
+  classId: string;
   courseId: string;
+  /** Which side of 13:00 the class meets, for the shift scope. */
+  shift: '' | 'Morning' | 'Evening';
   missing: number;
   existing: number;
   onHoliday: number;
   /** The dates that would be created. */
   dates: string[];
-  /** The dates it already has, so the calendar can show them as taken. */
-  existingDates: string[];
+  /** The lessons it already has, so the calendar can show and change them. */
+  existingLessons: ExistingLesson[];
+}
+
+/** A lesson that exists, as the calendar needs to know it. */
+interface ExistingLesson {
+  id: string;
+  date: string;
+  cancelled: boolean;
 }
 
 type Run =
   | { kind: 'idle' }
   | { kind: 'working'; done: number; total: number; label: string }
-  | { kind: 'done'; created: number; skipped: number; onHoliday: number }
+  | {
+      kind: 'done';
+      created: number;
+      skipped: number;
+      onHoliday: number;
+      cancelled: number;
+      restored: number;
+    }
   | { kind: 'error'; message: string };
 
 /** Mon-first, to match the week the rest of the app draws. */
@@ -160,16 +180,43 @@ export function GenerateSessions({
      changes -- a date excluded from one course's plan means nothing in
      another's, and silently carrying it over would drop a lesson nobody
      decided to drop. */
+  /* Lessons not to create, as `classId|date`. Keyed per lesson for the same
+     reason the flips are: a date is not one lesson. */
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   /* Whether the date picker is open. Three months of calendar is taller than
      the drawer, and inline it pushed the Create button -- the one thing you
      came here to press -- below the fold, with the course list above it gone
      too. It is also a question you answer once, which is what a modal is for. */
   const [datesOpen, setDatesOpen] = useState(false);
-  /* Which month the picker is showing. Stepped rather than scrolled: a term
-     is three or four months and a scrollbar under them was both the only
-     thing saying there were more and an awkward way to reach them. */
-  const [monthAt, setMonthAt] = useState(0);
+  /* Which month the picker is showing, as '2026-10' rather than as a position
+     in the list. Stepped rather than scrolled: a term is three or four months
+     and a scrollbar under them was both the only thing saying there were more
+     and an awkward way to reach them.
+
+     The month itself, because the list it indexes into changes underneath it.
+     Narrowing to Evening drops the months the evening classes do not run in,
+     so index 2 of the old list and index 2 of the new one are different
+     months -- switching shift jumped from October to November. A key stays
+     pointing at October, and falls back to the first month when the new scope
+     does not reach it at all. */
+  const [monthKey, setMonthKey] = useState('');
+  /* Dates whose existing lessons are to be flipped -- a live one called off, a
+     cancelled one put back.
+
+     One set rather than two, because the question a date answers is "is this
+     different from how it is now", and a date cannot be both. Cleared with the
+     term and the course for the same reason the skipped set is. */
+  /* Session ids, not dates.
+  
+     A date can hold a morning lesson and an evening one -- two sections of the
+     same course -- and keyed by date a single click took both. Ids are what is
+     actually being changed, so narrowing the shift scope cannot leave a flip
+     standing against a lesson you can no longer see. */
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
+  /* Which half of the day to act on. '' is both, which is what a term being
+     set up for the first time wants; narrowing is for the afternoon somebody
+     needs to call off without touching the morning. */
+  const [shiftScope, setShiftScope] = useState<'' | 'Morning' | 'Evening'>('');
 
   // Every (class|date|time) this component has written. A ref, not state:
   // it must survive a re-render without causing one, and it is read inside an
@@ -183,6 +230,7 @@ export function GenerateSessions({
 
   const T = ZOHO_MODULES.terms.fields;
   const K = ZOHO_MODULES.classes.fields;
+  const S = ZOHO_MODULES.class_sessions.fields;
 
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +260,8 @@ export function GenerateSessions({
     setClasses(null);
     setCounts(null);
     setSkipped(new Set());
+    setFlipped(new Set());
+    setShiftScope('');
     // A course picked in one term means nothing in the next.
     setCourseId('');
     getClassesForTerm(termId)
@@ -269,36 +319,46 @@ export function GenerateSessions({
           .map((klass) => ({ klass, planned: plannedSessions(klass) }))
           .filter((c) => c.planned.length > 0);
 
-        const [keySets, closed] = await Promise.all([
-          Promise.all(scheduled.map((c) => getSessionKeysForClass(c.klass.id))),
+        const [sessionSets, closed] = await Promise.all([
+          Promise.all(scheduled.map((c) => getSessionsForClass(c.klass.id))),
           getClosedDates(termId),
         ]);
 
         const out: ClassCount[] = scheduled.map((c, i) => {
-          const already = keySets[i]!;
+          const sessions = sessionSets[i]!;
+          const already = sessionKeys(sessions);
           const startTime = str(c.klass[K.start_time]);
           let missing = 0;
           let existing = 0;
           let onHoliday = 0;
           const dates: string[] = [];
-          const existingDates: string[] = [];
           for (const session of c.planned) {
             // Closed dates are counted separately and never created. Folding
             // them into "already exists" would claim a lesson is on the
             // calendar when it deliberately is not.
             if (closed.has(session.date)) onHoliday += 1;
-            else if (already.has(`${session.date}|${startTime}`)) {
-              existing += 1;
-              existingDates.push(session.date);
-            } else { missing += 1; dates.push(session.date); }
+            else if (already.has(`${session.date}|${startTime}`)) existing += 1;
+            else { missing += 1; dates.push(session.date); }
           }
+          /* Every lesson the class holds, not only the ones the pattern
+             predicts. A lesson moved to a Friday by hand is still a lesson and
+             still has to be cancellable from here -- counting it only when the
+             rule would have produced it would hide exactly the ones somebody
+             had already had to intervene on. */
+          const existingLessons: ExistingLesson[] = sessions.map((r) => ({
+            id: r.id,
+            date: str(r[S.session_date]),
+            cancelled: str(r[S.status]) === 'Cancelled',
+          }));
           return {
+            classId: c.klass.id,
             courseId: refId(c.klass[K.course]) ?? '',
+            shift: shiftOf(startTime),
             missing,
             existing,
             onHoliday,
             dates,
-            existingDates,
+            existingLessons,
           };
         });
 
@@ -312,7 +372,7 @@ export function GenerateSessions({
     })();
 
     return () => { cancelled = true; };
-  }, [termId, classes, K.start_time, K.course]);
+  }, [termId, classes, K.start_time, K.course, S.session_date, S.status]);
 
   /* What is on the table for the course in scope, as dates.
 
@@ -321,23 +381,47 @@ export function GenerateSessions({
      renderings of one map. */
   const plan = useMemo(() => {
     const mine = Array.isArray(counts)
-      ? counts.filter((c) => courseId === '' || c.courseId === courseId)
+      ? counts.filter(
+          (c) =>
+            (courseId === '' || c.courseId === courseId) &&
+            (shiftScope === '' || c.shift === shiftScope),
+        )
       : [];
-    /** date -> how many lessons would be created on it, across the scope. */
-    const toCreate = new Map<string, number>();
+    /** date -> the lessons that would be created on it, as classId|date keys. */
+    const toCreate = new Map<string, string[]>();
     for (const c of mine) {
-      for (const d of c.dates) toCreate.set(d, (toCreate.get(d) ?? 0) + 1);
+      for (const d of c.dates) {
+        const list = toCreate.get(d);
+        if (list) list.push(`${c.classId}|${d}`);
+        else toCreate.set(d, [`${c.classId}|${d}`]);
+      }
     }
-    const taken = new Set<string>();
-    for (const c of mine) for (const d of c.existingDates) taken.add(d);
+    /** date -> the lessons already on it, which can be called off or put back. */
+    const taken = new Map<string, ExistingLesson[]>();
+    for (const c of mine) {
+      for (const lesson of c.existingLessons) {
+        const list = taken.get(lesson.date);
+        if (list) list.push(lesson);
+        else taken.set(lesson.date, [lesson]);
+      }
+    }
+    /* Which shifts the term actually runs, so the scope control can offer
+       only the ones there is a choice between. A school with no evening
+       classes should not be asked to pick a half of the day. */
+    const shifts = new Set(
+      (Array.isArray(counts) ? counts : [])
+        .filter((c) => courseId === '' || c.courseId === courseId)
+        .map((c) => c.shift),
+    );
     return {
       classes: mine.length,
       toCreate,
       taken,
+      shifts,
       existing: mine.reduce((n, c) => n + c.existing, 0),
       onHoliday: mine.reduce((n, c) => n + c.onHoliday, 0),
     };
-  }, [counts, courseId]);
+  }, [counts, courseId, shiftScope]);
 
   /* The preview, folded out of the plan minus whatever has been turned off.
      No fetch: changing course or unticking a day is arithmetic over numbers
@@ -347,9 +431,10 @@ export function GenerateSessions({
     if (counts === 'failed') return { kind: 'failed' };
     let lessons = 0;
     const dates: string[] = [];
-    for (const [date, n] of plan.toCreate) {
-      if (skipped.has(date)) continue;
-      lessons += n;
+    for (const [date, keys] of plan.toCreate) {
+      const live = keys.filter((key) => !skipped.has(key)).length;
+      if (live === 0) continue;
+      lessons += live;
       dates.push(date);
     }
     dates.sort();
@@ -364,10 +449,42 @@ export function GenerateSessions({
     };
   }, [counts, plan, skipped]);
 
-  /* The months the calendar draws: those the plan touches, and no others. A
-     term runs three or four, but a course added late may only need one. */
+  /* Which lessons the flipped dates resolve to, split by direction. Computed
+     once here rather than in the button, the preview and the write separately
+     -- three places deriving the same thing from two sets is three chances to
+     disagree about what the button is about to do. */
+  const changes = useMemo(() => {
+    const cancel: string[] = [];
+    const restore: string[] = [];
+    /* Walked from the plan rather than from the flip set, so a lesson flipped
+       and then scoped out of view is not written. The set is the record of
+       what you asked for; the plan is what is on screen to ask it about. */
+    for (const lessons of plan.taken.values()) {
+      for (const lesson of lessons) {
+        if (!flipped.has(lesson.id)) continue;
+        (lesson.cancelled ? restore : cancel).push(lesson.id);
+      }
+    }
+    return { cancel, restore };
+  }, [flipped, plan]);
+
+  /* The months the calendar draws: every month the term's lessons fall in,
+     whatever is currently in scope.
+
+     From all of the counts, not from the scoped plan. Built from the plan the
+     list changed shape under every filter -- the evening classes run from
+     October, so narrowing to Evening dropped September and the calendar moved
+     to a different month than the one you were looking at. The scope decides
+     which days are lit, never which months exist, and an empty September
+     under Evening is the true answer: there are no evening lessons in it.
+
+     Term-wide rather than course-wide for the same reason, one level up. */
   const months = useMemo(() => {
-    const days = [...plan.toCreate.keys(), ...plan.taken];
+    const all = Array.isArray(counts) ? counts : [];
+    const days = [
+      ...all.flatMap((c) => c.dates),
+      ...all.flatMap((c) => c.existingLessons.map((l) => l.date)),
+    ];
     if (days.length === 0) return [];
     days.sort();
     const first = days[0]!.slice(0, 7);
@@ -384,6 +501,18 @@ export function GenerateSessions({
         : `${y}-${String(m + 1).padStart(2, '0')}`;
     }
     return out;
+  }, [counts]);
+
+  /* Which of those months actually hold something under the current course and
+     shift. The month list is deliberately the whole term's -- so narrowing a
+     filter never moves the calendar -- which means the month in front of you
+     can legitimately be empty, and the calendar has to say which ones are not
+     rather than leaving you to step through looking. */
+  const monthsWithLessons = useMemo(() => {
+    const live = new Set<string>();
+    for (const date of plan.toCreate.keys()) live.add(date.slice(0, 7));
+    for (const date of plan.taken.keys()) live.add(date.slice(0, 7));
+    return live;
   }, [plan]);
 
   async function generate() {
@@ -398,12 +527,19 @@ export function GenerateSessions({
       // is real rather than a guess that creeps upward.
       const scheduled = fresh
         .filter((klass) => inCourse(klass, courseId, K.course))
+        // The same scope the calendar was drawn under. Without it a run made
+        // while narrowed to Evening would create the morning lessons too --
+        // the ones deliberately out of view.
+        .filter(
+          (klass) =>
+            shiftScope === '' || shiftOf(str(klass[K.start_time])) === shiftScope,
+        )
         .map((klass) => ({ klass, planned: plannedSessions(klass) }))
         .filter((c) => c.planned.length > 0);
 
       // Parallel for the same reason as the preview above: independent reads.
       const [keySets, closed] = await Promise.all([
-        Promise.all(scheduled.map((c) => getSessionKeysForClass(c.klass.id))),
+        Promise.all(scheduled.map((c) => getSessionsForClass(c.klass.id).then(sessionKeys))),
         getClosedDates(termId),
       ]);
 
@@ -423,7 +559,7 @@ export function GenerateSessions({
           // Turned off in the calendar. Counted with the rest of what was
           // left alone -- from the CRM's point of view a date nobody asked
           // for and a date that already exists are the same non-event.
-          if (skipped.has(s.date)) skippedCount += 1;
+          if (skipped.has(`${c.klass.id}|${s.date}`)) skippedCount += 1;
           else if (createdKeys.current.has(key)) skippedCount += 1;
           // Re-checked here rather than trusting the preview: a holiday added
           // between previewing and pressing would otherwise still be scheduled.
@@ -433,8 +569,44 @@ export function GenerateSessions({
         }
       });
 
+      /* The status changes, before anything is written.
+
+         First because they are the reversible half: a cancel that fails has
+         changed nothing, while a create that fails has left part of a
+         timetable behind. Doing them first also means a run that is only
+         cancellations never reaches the batching below at all.
+
+         One at a time -- the SDK's updateRecord takes a single record, there
+         is no bulk form of it -- but a day's worth of cancellations is a
+         handful of calls, not a term's worth. */
+      const flips = [
+        ...changes.cancel.map((id) => ({ id, cancelled: true })),
+        ...changes.restore.map((id) => ({ id, cancelled: false })),
+      ];
+      for (let i = 0; i < flips.length; i += 1) {
+        const flip = flips[i]!;
+        setRun({
+          kind: 'working',
+          done: i,
+          total: flips.length + plan.length,
+          label: flip.cancelled ? 'cancelling' : 'restoring',
+        });
+        await setSessionCancelled(flip.id, flip.cancelled);
+      }
+
       if (plan.length === 0) {
-        setRun({ kind: 'done', created: 0, skipped: skippedCount, onHoliday });
+        setRun({
+          kind: 'done',
+          created: 0,
+          skipped: skippedCount,
+          onHoliday,
+          cancelled: changes.cancel.length,
+          restored: changes.restore.length,
+        });
+        // The counts behind the calendar have moved, so the next open has to
+        // read them again rather than show what was true before this ran.
+        setFlipped(new Set());
+        onGenerated();
         return;
       }
 
@@ -459,7 +631,15 @@ export function GenerateSessions({
       }
       setRun({ kind: 'working', done: written, total: plan.length, label: 'finishing' });
 
-      setRun({ kind: 'done', created: written, skipped: skippedCount, onHoliday });
+      setRun({
+        kind: 'done',
+        created: written,
+        skipped: skippedCount,
+        onHoliday,
+        cancelled: changes.cancel.length,
+        restored: changes.restore.length,
+      });
+      setFlipped(new Set());
       onGenerated();
     } catch (err) {
       setRun({ kind: 'error', message: describeError(err) });
@@ -501,6 +681,8 @@ export function GenerateSessions({
       <Card body prose>
         <p>
           Done — created <strong>{run.created}</strong> lesson{run.created === 1 ? '' : 's'}
+          {run.cancelled > 0 && <> · <strong>{run.cancelled}</strong> cancelled</>}
+          {run.restored > 0 && <> · <strong>{run.restored}</strong> put back</>}
           {run.skipped > 0 && <> · {run.skipped} already existed</>}
           {run.onHoliday > 0 && <> · {run.onHoliday} skipped as holidays or closures</>}.
           {' '}Pick a date inside the term to take a register.
@@ -510,32 +692,28 @@ export function GenerateSessions({
     );
   }
 
-  // Nothing to do for this term: an empty date is then just a day nobody
-  // teaches, not a setup step that was missed. Collapse to one line rather than
-  // presenting a full explainer for a job already finished -- but keep the term
-  // picker, since another term may still need generating.
-  //
-  // Only with every course in scope. Narrowed to one, "all N lessons already
-  // exist" would be a claim about the term made from a count of one course --
-  // and collapsing would take away the course picker needed to try another.
-  if (courseId === '' && preview.kind === 'ready' && preview.lessons === 0 && preview.existing > 0) {
-    return (
-      <p className="muted generated">
-        All {preview.existing} lessons already exist for{' '}
-        <select value={termId} onChange={(e) => setTermId(e.target.value)}>
-          {terms.map((t) => (
-            <option key={t.id} value={t.id}>
-              {str(t[T.name], t.id)}
-            </option>
-          ))}
-        </select>{' '}
-        — pick another term above to set one up.
-      </p>
-    );
-  }
+  // There used to be a collapsed "all N lessons already exist -- pick another
+  // term" view here for a term with nothing left to generate. It has gone:
+  // the calendar can now call a lesson off as well as create one, so a term
+  // that is fully generated is precisely the one you would open this for, and
+  // collapsing hid the only way to reach it.
 
   const counting = !Array.isArray(counts);
   const shortCourses = courses.filter((c) => c.missing > 0).length;
+
+  /* What the button will do, worked out here rather than in three nested
+     ternaries inside it. A run can create, cancel, put back, or any mix, and
+     the label has to be the truth about the write -- "Create 19 lessons" over
+     a run that is nine cancellations is a lie about what the button does. */
+  const toCreate = preview.kind === 'ready' ? preview.lessons : 0;
+  const toCancel = changes.cancel.length;
+  const toRestore = changes.restore.length;
+  const applyLabel =
+    [
+      toCreate > 0 ? `Create ${toCreate}` : '',
+      toCancel > 0 ? `Cancel ${toCancel}` : '',
+      toRestore > 0 ? `Put back ${toRestore}` : '',
+    ].filter(Boolean).join(' · ') || 'Create lessons';
 
   return (
     /* No Card. This renders inside a drawer, which is already a panel with a
@@ -593,7 +771,7 @@ export function GenerateSessions({
             type="button"
             className={`gen-course${courseId === '' ? ' is-on' : ''}`}
             aria-pressed={courseId === ''}
-            onClick={() => { setCourseId(''); setSkipped(new Set()); setMonthAt(0); }}
+            onClick={() => { setCourseId(''); setSkipped(new Set()); setFlipped(new Set()); setMonthKey(''); }}
           >
             <span className="gen-course-name">All {courses.length} courses</span>
             {!counting && (
@@ -609,7 +787,7 @@ export function GenerateSessions({
               type="button"
               className={`gen-course${courseId === c.id ? ' is-on' : ''}`}
               aria-pressed={courseId === c.id}
-              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setMonthAt(0); }}
+              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setFlipped(new Set()); setMonthKey(''); }}
             >
               <span className="gen-course-name">
                 {c.name}
@@ -642,9 +820,13 @@ export function GenerateSessions({
         <div className="gen-dates">
           <span className="gen-dates-label">Dates</span>
           <span className="gen-dates-count">
-            {skipped.size > 0
-              ? `${plan.toCreate.size - skipped.size} of ${plan.toCreate.size} days`
-              : `${plan.toCreate.size} days`}
+            {flipped.size > 0
+              ? `${flipped.size} change${flipped.size === 1 ? '' : 's'}`
+              : skipped.size > 0
+                ? `${plan.toCreate.size - skipped.size} of ${plan.toCreate.size} to create`
+                : plan.toCreate.size > 0
+                  ? `${plan.toCreate.size} to create`
+                  : `${plan.taken.size} day${plan.taken.size === 1 ? '' : 's'}`}
           </span>
           <Button small onClick={() => setDatesOpen(true)}>
             <Icon name="calendar" size={14} />
@@ -656,37 +838,88 @@ export function GenerateSessions({
       {datesOpen && (
         <Modal
           title="Choose dates"
-          subtitle="Every day a lesson would be created on. Turn one off and it is left alone."
+          subtitle="Dark days will be created; green ones already exist. Click either to change it."
           onClose={() => setDatesOpen(false)}
           footer={
             <>
               <Button
                 variant="ghost"
                 small
-                disabled={skipped.size === 0}
-                onClick={() => setSkipped(new Set())}
+                disabled={skipped.size === 0 && flipped.size === 0}
+                onClick={() => { setSkipped(new Set()); setFlipped(new Set()); }}
               >
                 Reset
               </Button>
               <span className="spacer" />
-              <span className="muted gen-cal-note">
-                {plan.toCreate.size - skipped.size} of {plan.toCreate.size} days ·{' '}
-                {preview.kind === 'ready' ? preview.lessons : '—'} lessons
-              </span>
+              <span className="muted gen-cal-note">{applyLabel}</span>
               <Button variant="primary" small onClick={() => setDatesOpen(false)}>
                 Done
               </Button>
             </>
           }
         >
+        {/* Which half of the day the grid is about.
+
+            Only when the term runs both. A date that holds a morning lesson
+            and an evening one is one square, and a click on it meant both --
+            which is fine for setting a term up and wrong for calling off a
+            single evening class. Narrowing the scope makes the square mean one
+            lesson again. */}
+        {plan.shifts.has('Morning') && plan.shifts.has('Evening') && (
+          <div className="gen-shift seg">
+            {([
+              ['', 'Both'],
+              ['Morning', 'Morning'],
+              ['Evening', 'Evening'],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value || 'both'}
+                small
+                className={shiftScope === value ? 'is-on' : undefined}
+                aria-pressed={shiftScope === value}
+                onClick={() => setShiftScope(value)}
+              >
+                {value === 'Morning' && <Icon name="sun" size={13} />}
+                {value === 'Evening' && <Icon name="moon" size={13} />}
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
+
         <div className="gen-cal">
-          {/* One month at a time, stepped with the arrows. Clamped rather than
-              reset: narrowing to a course with a shorter plan can leave the
-              index past the end, and a blank calendar reads as "no dates"
-              rather than as "you are off the end of the list". */}
+          {/* One month at a time, stepped with the arrows.
+
+              The month is held as '2026-10', never as a position: the list it
+              sits in is rebuilt whenever the course or the shift changes, and
+              a position means a different month in a shorter list -- which is
+              what sent October to November on switching to Evening.
+
+              If the new scope has no lessons in that month at all, the nearest
+              later one wins, and failing that the last. Falling back to the
+              first would throw you to the start of the term for the sake of a
+              scope change, which is further than any of the arrows can move
+              you in one press. */}
           {(() => {
-            const at = Math.min(monthAt, months.length - 1);
+            const at = (() => {
+              if (months.length === 0) return 0;
+              // Nothing chosen yet: open on the first month that has lessons
+              // in scope rather than on the term's first, which under a narrow
+              // scope can be a month the filter empties.
+              if (monthKey === '') {
+                const first = months.findIndex((m) => monthsWithLessons.has(m));
+                return first >= 0 ? first : 0;
+              }
+              const exact = months.indexOf(monthKey);
+              if (exact >= 0) return exact;
+              const after = months.findIndex((m) => m >= monthKey);
+              return after >= 0 ? after : months.length - 1;
+            })();
             const month = months[at] ?? '';
+            // The next month along that has anything, for the note below.
+            const nextWithLessons = months.find(
+              (m, i) => i > at && monthsWithLessons.has(m),
+            );
             return (
             <div className="gen-month">
               <div className="gen-nav">
@@ -695,7 +928,7 @@ export function GenerateSessions({
                   small
                   aria-label="Previous month"
                   disabled={at === 0}
-                  onClick={() => setMonthAt(at - 1)}
+                  onClick={() => setMonthKey(months[at - 1] ?? '')}
                 >
                   <Icon name="arrow-left" size={15} />
                 </Button>
@@ -705,7 +938,7 @@ export function GenerateSessions({
                   small
                   aria-label="Next month"
                   disabled={at >= months.length - 1}
-                  onClick={() => setMonthAt(at + 1)}
+                  onClick={() => setMonthKey(months[at + 1] ?? '')}
                 >
                   <Icon name="arrow-right" size={15} />
                 </Button>
@@ -715,32 +948,102 @@ export function GenerateSessions({
               {months.length > 1 && (
                 <p className="gen-nav-of">{at + 1} of {months.length}</p>
               )}
+              {/* Why this month is blank, and where the lessons are. The month
+                  list spans the term so that filtering never moves the
+                  calendar; the price is that a filter can empty the month you
+                  are standing on, and without this that looks like a bug
+                  rather than an answer. */}
+              {!monthsWithLessons.has(month) && (
+                <p className="gen-empty">
+                  No{' '}
+                  {shiftScope === '' ? '' : `${shiftScope.toLowerCase()} `}
+                  lessons in {monthLabel(month)}
+                  {nextWithLessons && (
+                    <>
+                      {' · '}
+                      <Button variant="link" small onClick={() => setMonthKey(nextWithLessons)}>
+                        go to {monthLabel(nextWithLessons)}
+                      </Button>
+                    </>
+                  )}
+                </p>
+              )}
+
               <div className="gen-grid">
                 {WEEKDAY_INITIALS.map((d, i) => (
                   <span className="gen-dow" key={`${month}-dow-${i}`}>{d}</span>
                 ))}
                 {monthCells(month).map((date, i) => {
                   if (date === '') return <span className="gen-cell is-blank" key={`${month}-pad-${i}`} />;
-                  const n = plan.toCreate.get(date) ?? 0;
-                  const taken = plan.taken.has(date);
+                  const keys = plan.toCreate.get(date) ?? [];
+                  const n = keys.length;
+                  const lessons = plan.taken.get(date) ?? [];
                   const holiday = closed.get(date);
-                  const off = skipped.has(date);
+                  // Off when every lesson on it is off. One still in means the
+                  // date is still doing something.
+                  const off = keys.length > 0 && keys.every((key) => skipped.has(key));
+                  const flip =
+                    lessons.length > 0 && lessons.every((l) => flipped.has(l.id));
                   const day = Number(date.slice(8, 10));
+
+                  /* A date that already has lessons. Clickable in the other
+                     direction: off calls them off, on puts them back.
+
+                     Cancelled, not deleted. A lesson that has had a register
+                     taken against it owns attendance rows, and deleting the
+                     record would leave them pointing at nothing -- and the
+                     register screen already knows how to refuse a cancelled
+                     lesson and say why. */
+                  if (n === 0 && lessons.length > 0) {
+                    const live = lessons.filter((l) => !l.cancelled).length;
+                    const dead = lessons.length - live;
+                    // Mixed dates follow the majority: one click should have
+                    // one meaning, and the common case by far is all-or-none.
+                    const goingOff = live >= dead;
+                    return (
+                      <button
+                        type="button"
+                        key={date}
+                        className={[
+                          'gen-cell is-taken',
+                          live === 0 ? 'is-cancelled' : '',
+                          flip ? (goingOff ? 'is-dropping' : 'is-reviving') : '',
+                        ].filter(Boolean).join(' ')}
+                        aria-pressed={flip}
+                        /* Every lesson on the date, within the current shift
+                           scope -- which is what makes narrowing to Evening
+                           the way to call off an evening lesson without
+                           touching the morning one beside it. */
+                        title={
+                          flip
+                            ? goingOff
+                              ? `${date} — will be cancelled`
+                              : `${date} — will be put back`
+                            : live > 0
+                              ? `${date} — ${live} lesson${live === 1 ? '' : 's'}, click to cancel`
+                              : `${date} — cancelled, click to put back`
+                        }
+                        onClick={() =>
+                          setFlipped((prev) => {
+                            const next = new Set(prev);
+                            if (flip) for (const l of lessons) next.delete(l.id);
+                            else for (const l of lessons) next.add(l.id);
+                            return next;
+                          })
+                        }
+                      >
+                        {day}
+                        {lessons.length > 1 && <i className="gen-cell-n">{lessons.length}</i>}
+                      </button>
+                    );
+                  }
 
                   if (n === 0) {
                     return (
                       <span
-                        className={[
-                          'gen-cell',
-                          taken ? 'is-taken' : '',
-                          holiday ? 'is-closed' : '',
-                        ].filter(Boolean).join(' ')}
+                        className={`gen-cell${holiday ? ' is-closed' : ''}`}
                         key={date}
-                        title={
-                          taken ? 'A lesson already exists on this date'
-                            : holiday ? `Closed — ${holiday}`
-                            : undefined
-                        }
+                        title={holiday ? `Closed — ${holiday}` : undefined}
                       >
                         {day}
                       </span>
@@ -757,8 +1060,11 @@ export function GenerateSessions({
                       onClick={() =>
                         setSkipped((prev) => {
                           const next = new Set(prev);
-                          if (next.has(date)) next.delete(date);
-                          else next.add(date);
+                          // All on or all off, from whichever way round it is
+                          // now: a half-skipped date would have no state the
+                          // cell could show.
+                          if (off) for (const key of keys) next.delete(key);
+                          else for (const key of keys) next.add(key);
                           return next;
                         })
                       }
@@ -766,7 +1072,8 @@ export function GenerateSessions({
                       {day}
                       {/* How many lessons land on this day, when it is more
                           than one -- a course with two sections meeting the
-                          same day is two lessons behind one number. */}
+                          same day is two lessons behind one number. Narrow the
+                          shift above and they separate. */}
                       {n > 1 && <i className="gen-cell-n">{n}</i>}
                     </button>
                   );
@@ -780,6 +1087,7 @@ export function GenerateSessions({
             <span className="gen-key-item"><i className="gen-swatch is-plan" /> will create</span>
             <span className="gen-key-item"><i className="gen-swatch is-off" /> turned off</span>
             <span className="gen-key-item"><i className="gen-swatch is-taken" /> already there</span>
+            <span className="gen-key-item"><i className="gen-swatch is-dropping" /> cancelling</span>
             <span className="gen-key-item"><i className="gen-swatch is-closed" /> closed</span>
           </p>
         </div>
@@ -792,14 +1100,19 @@ export function GenerateSessions({
 
       {/* The verdict and the button that acts on it, together at the end. */}
       <div className="gen-foot">
+        {/* Named for what it will actually do. A run can now create, cancel,
+            or both, and "Create 19 lessons" over a run that is nine
+            cancellations would be a lie about a write. */}
         <Button
           variant="primary"
           onClick={generate}
-          disabled={!termId || preview.kind !== 'ready' || preview.lessons === 0}
+          disabled={
+            !termId || preview.kind !== 'ready' || toCreate + toCancel + toRestore === 0
+          }
         >
-          {preview.kind === 'ready' && preview.lessons > 0
-            ? `Create ${preview.lessons} lesson${preview.lessons === 1 ? '' : 's'}`
-            : 'Create lessons'}
+          {toCreate > 0 && toCancel + toRestore === 0
+            ? `Create ${toCreate} lesson${toCreate === 1 ? '' : 's'}`
+            : applyLabel}
         </Button>
 
         {preview.kind === 'ready' && (

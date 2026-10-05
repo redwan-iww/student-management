@@ -276,8 +276,8 @@ export function ClassAllocation() {
 
       {setupOpen && (
         <Drawer
-          title="Set up lessons"
-          subtitle="Creates one dated lesson per class, per meeting, across a term — skipping holidays and anything already there."
+          title="Lessons"
+          subtitle="One dated lesson per class, per meeting, across a term — created where they are missing, cancelled where they are not wanted."
           onClose={() => setSetupOpen(false)}
         >
           {/* Opens on the term the board is showing. The picker inside still
@@ -328,9 +328,11 @@ export function ClassAllocation() {
           </Button>
         </div>
 
-        <Button onClick={() => setSetupOpen(true)} title="Create the dated lessons for a term's classes">
+        {/* "Lessons", not "Set up lessons": it creates them and it calls them
+            off, and a term that is already set up is the one you open it for. */}
+        <Button onClick={() => setSetupOpen(true)} title="Create or cancel the dated lessons for a term's classes">
           <Icon name="calendar" size={14} />
-          Set up lessons
+          Lessons
         </Button>
 
         {/* Where the board's Save bar lands. Empty on the staffing view and on

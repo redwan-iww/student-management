@@ -859,25 +859,12 @@ select:hover, input:hover { border-color: var(--muted); }
    the left where prose belongs. */
 .empty .card { width: 100%; box-sizing: border-box; text-align: left; margin-top: var(--s5); }
 .empty .card-prose { max-width: none; }
-.empty .generated { justify-content: center; margin-top: var(--s5); }
 .empty .btn-link { margin-top: var(--s5); }
 .empty .loader { justify-content: center; }
 
 /* ==========================================================================
    Lesson generator
    ========================================================================== */
-
-/* Finished-state note: the setup box collapses to this once a term's lessons
-   all exist, so an ordinary empty day does not look like a missing step. */
-.generated {
-  margin-top: var(--s4);
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  color: var(--muted);
-}
-.generated select { font-size: .88rem; padding: 4px 8px; }
 
 .preview { margin: var(--s3) 0 0; }
 
@@ -2802,6 +2789,15 @@ select.field { cursor: pointer; }
 }
 .gen-dates-count { margin-left: auto; font-size: .82rem; color: var(--muted); }
 
+/* Morning / Evening / Both, above the grid. Centred over the calendar it
+   scopes rather than pushed to one side: it is a lens on the thing below, not
+   a toolbar for the dialog. */
+.gen-shift {
+  align-self: center;
+  margin-bottom: var(--s2);
+}
+.gen-shift .btn { padding: 4px 10px; font-size: .8rem; }
+
 /* The date picker itself, inside that modal. */
 .gen-cal {
   display: flex;
@@ -2833,6 +2829,17 @@ select.field { cursor: pointer; }
 /* Fixed width, or the two arrows sit at different distances from a short
    month and a long one, and stepping makes them jump. */
 .gen-nav .btn { flex: none; padding: 4px 8px; }
+
+/* Said over the grid rather than in place of it: the month is still drawn,
+   because a blank calendar with its dates on it reads as "nothing here" far
+   more clearly than an empty box does. */
+.gen-empty {
+  margin: 0 0 var(--s2);
+  text-align: center;
+  font-size: .76rem;
+  color: var(--warn);
+}
+.gen-empty .btn-link { padding: 0; font-size: .76rem; }
 
 .gen-nav-of {
   margin: 0 0 var(--s2);
@@ -2891,7 +2898,41 @@ select.field { cursor: pointer; }
 .gen-cell.is-taken {
   color: var(--accent-dark);
   background: var(--accent-soft);
-  opacity: .55;
+  border-color: var(--accent-line);
+  opacity: .75;
+  cursor: pointer;
+}
+.gen-cell.is-taken:hover { opacity: 1; }
+.gen-cell.is-taken:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Already called off, before this session touched it. */
+.gen-cell.is-cancelled {
+  background: var(--neutral-soft);
+  border-color: var(--line-strong);
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* About to be called off. Red and struck, not merely faded: this is the one
+   state in the grid that destroys something, and it has to look different
+   from a day that was already cancelled before you opened the dialog. */
+.gen-cell.is-dropping {
+  background: var(--danger-soft);
+  border-color: var(--danger-line);
+  color: var(--danger);
+  opacity: 1;
+  text-decoration: line-through;
+  font-weight: 700;
+}
+
+/* About to be put back. Filled, because it is becoming a real lesson again. */
+.gen-cell.is-reviving {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  opacity: 1;
+  text-decoration: none;
+  font-weight: 700;
 }
 .gen-cell.is-closed {
   color: var(--danger);
@@ -2959,4 +3000,5 @@ select.field { cursor: pointer; }
 .gen-swatch.is-plan { background: var(--ink); }
 .gen-swatch.is-off { border-color: var(--line-strong); }
 .gen-swatch.is-taken { background: var(--accent-soft); border-color: var(--accent-line); }
+.gen-swatch.is-dropping { background: var(--danger-soft); border-color: var(--danger-line); }
 .gen-swatch.is-closed { background: var(--danger-soft); border-color: var(--danger-line); }

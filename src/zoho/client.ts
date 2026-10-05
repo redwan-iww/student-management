@@ -440,9 +440,15 @@ export async function createAllocation(a: NewAllocation): Promise<string> {
 /**
  * Every dated lesson of one class, earliest first.
  *
- * Only needed by the one-lesson substitution path, so it is a separate call
- * rather than something the staffing screen fetches up front: a term's class
- * can carry thirty-odd sessions and the common allocation covers all of them.
+ * Not fetched up front by the screens that list classes: a term's class can
+ * carry thirty-odd sessions and most of what those screens do never looks at
+ * one. The staffing substitution path and the lesson generator both ask for
+ * it per class, when they need it.
+ *
+ * Read through the class's related list first and only fall back to a search,
+ * because the generator uses this as its guard against writing a second copy
+ * of a timetable -- searchRecord's index lags a write by seconds, the related
+ * list does not.
  */
 export async function getSessionsForClass(classId: string): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.class_sessions;
@@ -758,14 +764,41 @@ const WEEKDAY_INDEX = {
 } as const;
 
 /** Sessions already recorded for a class, as a set of "date|start_time" keys. */
+/** The (date, time) pairs a class already holds, for the duplicate guard. */
+export function sessionKeys(sessions: RawRecord[]): Set<string> {
+  const { fields } = ZOHO_MODULES.class_sessions;
+  return new Set(
+    sessions.map((r) => `${str(r[fields.session_date])}|${str(r[fields.start_time])}`),
+  );
+}
+
 export async function getSessionKeysForClass(classId: string): Promise<Set<string>> {
+  return sessionKeys(await getSessionsForClass(classId));
+}
+
+/**
+ * Call a lesson off, or put it back on.
+ *
+ * Cancelling rather than deleting: a lesson that has already had a register
+ * taken against it owns attendance rows, and removing the record would leave
+ * them pointing at nothing. Cancelled is also a state the register screen
+ * already understands -- it refuses to open one and says why.
+ *
+ * Restoring sets Scheduled rather than the status it had before, which is not
+ * recorded anywhere. A lesson that was Held and is being put back is being
+ * put back as one that has not happened yet.
+ */
+export async function setSessionCancelled(
+  sessionId: string,
+  cancelled: boolean,
+): Promise<void> {
   const { module, fields } = ZOHO_MODULES.class_sessions;
-  // Read-after-write: this set is the only guard against generating a second
-  // copy of a timetable, so it must not miss rows written moments ago.
-  const recs =
-    (await relatedRecords(ZOHO_MODULES.classes.module, classId, [module, fields.class])) ??
-    (await search(module, `(${fields.class}:equals:${classId})`));
-  return new Set(recs.map((r) => `${str(r[fields.session_date])}|${str(r[fields.start_time])}`));
+  await updateOne(
+    module,
+    sessionId,
+    { [fields.status]: cancelled ? 'Cancelled' : 'Scheduled' },
+    cancelled ? 'cancel lesson' : 'restore lesson',
+  );
 }
 
 /**

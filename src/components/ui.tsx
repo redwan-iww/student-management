@@ -699,7 +699,19 @@ export function Modal({
     panel.current?.focus();
   }, []);
 
-  return (
+  /* Portalled to the body rather than rendered where it is written.
+
+     Every modal in this app is opened from inside a drawer, and a drawer is a
+     fixed, z-indexed panel pinned to the right of the screen -- so a fixed
+     child of it is laid out and stacked inside that, not against the window.
+     The dialog came out beside the drawer instead of over the page, and the
+     drawer stayed above its scrim.
+
+     The body has no such ancestry, so inset: 0 means the window and z-index 40
+     is measured against the drawer's 30 rather than inside it. The React tree
+     is unchanged, so the state and the handlers still belong to the component
+     that opened it. */
+  return createPortal(
     <div
       className={`modal-scrim${closing ? ' is-closing' : ''}`}
       onClick={requestClose}
@@ -725,7 +737,8 @@ export function Modal({
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-foot">{footer}</footer>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
