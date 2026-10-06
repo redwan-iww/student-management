@@ -515,6 +515,23 @@ export function GenerateSessions({
     return live;
   }, [plan]);
 
+  /* Settle on an opening month, once, and then leave it alone.
+
+     The empty key used to mean "work out a sensible month" and was re-read on
+     every render -- so the answer changed with the filters it was derived
+     from, and switching Morning to Evening moved the calendar from September
+     to October because that is each scope's first month with lessons. Writing
+     it down the first time the calendar has months turns it from a rule that
+     keeps re-running into a choice that was made.
+
+     After that only the arrows move it. A scope that empties the chosen month
+     leaves it empty and says so, which is the honest answer and is what the
+     note under the heading is for. */
+  useEffect(() => {
+    if (monthKey !== '' || months.length === 0) return;
+    setMonthKey(months.find((m) => monthsWithLessons.has(m)) ?? months[0] ?? '');
+  }, [monthKey, months, monthsWithLessons]);
+
   async function generate() {
     if (!termId) return;
     setRun({ kind: 'working', done: 0, total: 0, label: 'Reading classes…' });
@@ -903,23 +920,14 @@ export function GenerateSessions({
           {(() => {
             const at = (() => {
               if (months.length === 0) return 0;
-              // Nothing chosen yet: open on the first month that has lessons
-              // in scope rather than on the term's first, which under a narrow
-              // scope can be a month the filter empties.
-              if (monthKey === '') {
-                const first = months.findIndex((m) => monthsWithLessons.has(m));
-                return first >= 0 ? first : 0;
-              }
+              // Only for the render before the effect above writes the key.
+              if (monthKey === '') return 0;
               const exact = months.indexOf(monthKey);
               if (exact >= 0) return exact;
               const after = months.findIndex((m) => m >= monthKey);
               return after >= 0 ? after : months.length - 1;
             })();
             const month = months[at] ?? '';
-            // The next month along that has anything, for the note below.
-            const nextWithLessons = months.find(
-              (m, i) => i > at && monthsWithLessons.has(m),
-            );
             return (
             <div className="gen-month">
               <div className="gen-nav">
@@ -948,27 +956,10 @@ export function GenerateSessions({
               {months.length > 1 && (
                 <p className="gen-nav-of">{at + 1} of {months.length}</p>
               )}
-              {/* Why this month is blank, and where the lessons are. The month
-                  list spans the term so that filtering never moves the
-                  calendar; the price is that a filter can empty the month you
-                  are standing on, and without this that looks like a bug
-                  rather than an answer. */}
-              {!monthsWithLessons.has(month) && (
-                <p className="gen-empty">
-                  No{' '}
-                  {shiftScope === '' ? '' : `${shiftScope.toLowerCase()} `}
-                  lessons in {monthLabel(month)}
-                  {nextWithLessons && (
-                    <>
-                      {' · '}
-                      <Button variant="link" small onClick={() => setMonthKey(nextWithLessons)}>
-                        go to {monthLabel(nextWithLessons)}
-                      </Button>
-                    </>
-                  )}
-                </p>
-              )}
-
+              {/* A month a filter has emptied is drawn as an ordinary month
+                  with nothing lit on it. There was a line here naming the next
+                  month that had lessons; the grid already says the same thing
+                  by being blank, and the arrows are directly above it. */}
               <div className="gen-grid">
                 {WEEKDAY_INITIALS.map((d, i) => (
                   <span className="gen-dow" key={`${month}-dow-${i}`}>{d}</span>

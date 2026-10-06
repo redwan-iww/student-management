@@ -282,6 +282,21 @@ export function AttendanceManager() {
     setSelected(null);
     setError(null);
 
+    /* Keep the old rows and dim them in the day view; clear them in a grid.
+
+       "Dim, do not yank" is right where the shape is stable: a day is one
+       column of lessons, the previous day's list stays legible as the thing
+       being replaced, and a spinner for a single query is more ceremony than
+       the wait deserves.
+
+       A week or a month is not that. The grid buckets rows into cells by
+       date, so rows fetched for another range land only in whichever cells
+       the two ranges happen to share -- one populated week and four empty
+       ones. That does not read as "still loading", it reads as a month with
+       one week of lessons in it, which is a lie the dimming is too quiet to
+       correct. */
+    if (span !== 'day') setSessions(null);
+
     getSessionsBetween(range.from, range.to)
       .then(async (recs) => {
         if (cancelled) return;
@@ -303,7 +318,7 @@ export function AttendanceManager() {
       });
 
     return () => { cancelled = true; };
-  }, [range.from, range.to, F.class]);
+  }, [range.from, range.to, span, F.class]);
 
   // Taking a register changes the row we came from. The list is state
   // fetched when the day loaded, so without this it still reads "Not taken"
