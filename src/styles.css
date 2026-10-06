@@ -2740,6 +2740,9 @@ select.field { cursor: pointer; }
   color: var(--accent);
 }
 .gen-course-state.is-short { color: var(--warn); }
+/* Short, but none of it queued -- a fact about the term rather than about
+   this run, so it is quiet and not the warning amber beside it. */
+.gen-course-state.is-off { color: var(--faint); font-weight: 500; }
 
 .gen-foot { display: flex; flex-direction: column; gap: var(--s2); align-items: flex-start; }
 .gen-foot .preview { margin: 0; font-size: .82rem; line-height: 1.5; }

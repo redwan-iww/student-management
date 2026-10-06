@@ -293,18 +293,32 @@ export function GenerateSessions({
       if (found) found.classes += 1;
       else byId.set(id, { id, name: refName(klass[K.course]) || id, classes: 1 });
     }
-    /* How many lessons each course is still short of, so the dropdown can say
-       which ones are set up before you pick one. Without it every option read
-       the same and finding the course you came for meant selecting them one
-       at a time and reading the sentence underneath. */
+    /* How many lessons each course is still short of, so the list can say
+       which ones are set up before you pick one. Without it every row read the
+       same and finding the course you came for meant selecting them one at a
+       time and reading the sentence underneath.
+
+       Two numbers, not one. `missing` is how many lessons the course does not
+       have, which is a fact about the term; `queued` is how many of those this
+       run would create, which is a choice you are making. They were one number
+       briefly and it made dropping every date from the review turn the whole
+       list green -- a tick means the lessons exist, and those did not; they
+       had just been taken out of the run. */
     const missing = new Map<string, number>();
+    const queued = new Map<string, number>();
     for (const c of Array.isArray(counts) ? counts : []) {
       missing.set(c.courseId, (missing.get(c.courseId) ?? 0) + c.missing);
+      const live = c.dates.filter((d) => !skipped.has(`${c.classId}|${d}`)).length;
+      queued.set(c.courseId, (queued.get(c.courseId) ?? 0) + live);
     }
     return [...byId.values()]
-      .map((c) => ({ ...c, missing: missing.get(c.id) ?? 0 }))
+      .map((c) => ({
+        ...c,
+        missing: missing.get(c.id) ?? 0,
+        queued: queued.get(c.id) ?? 0,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [classes, counts, K.course]);
+  }, [classes, counts, skipped, K.course]);
 
   /* Counted per class, for every class in the term -- not just the course in
      scope.
@@ -867,9 +881,11 @@ export function GenerateSessions({
           >
             <span className="gen-course-name">All {courses.length} courses</span>
             {!counting && (
-              <span className={`gen-course-state${shortCourses > 0 ? ' is-short' : ''}`}>
-                {shortCourses > 0 ? `${shortCourses} short` : <Icon name="check" size={14} />}
-              </span>
+              shortCourses === 0 ? (
+                <span className="gen-course-state"><Icon name="check" size={14} /></span>
+              ) : (
+                <span className="gen-course-state is-short">{shortCourses} short</span>
+              )
             )}
           </button>
 
@@ -888,9 +904,18 @@ export function GenerateSessions({
                 )}
               </span>
               {!counting && (
-                <span className={`gen-course-state${c.missing > 0 ? ' is-short' : ''}`}>
-                  {c.missing > 0 ? `${c.missing} to create` : <Icon name="check" size={14} />}
-                </span>
+                /* The tick is about the term, the count is about this run.
+                   A course with nothing missing is set up; one that is short
+                   says how many this run will make; one that is short with
+                   every date taken out says so plainly rather than wearing a
+                   tick it has not earned. */
+                c.missing === 0 ? (
+                  <span className="gen-course-state"><Icon name="check" size={14} /></span>
+                ) : c.queued > 0 ? (
+                  <span className="gen-course-state is-short">{c.queued} to create</span>
+                ) : (
+                  <span className="gen-course-state is-off">{c.missing} not queued</span>
+                )
               )}
             </button>
           ))}
