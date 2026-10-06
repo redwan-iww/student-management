@@ -436,7 +436,14 @@ export function EnrollmentBoard({
     const q = studentQuery.trim().toLowerCase();
     return (candidates ?? []).filter((c) => {
       if (!q) return true;
-      return `${c.name} ${c.detail}`.toLowerCase().includes(q);
+      /* The subject as well as the person.
+      
+         A card is a student and a subject, and the list is sorted by student,
+         so everyone waiting for English 204 is scattered down it one row at a
+         time. Matching the subject gathers them, and "Select all N" then takes
+         the lot -- which is the whole of "place this class's intake" in three
+         actions instead of twelve. */
+      return `${c.name} ${c.detail} ${c.courseName}`.toLowerCase().includes(q);
     });
   }, [candidates, studentQuery]);
 
@@ -911,7 +918,7 @@ export function EnrollmentBoard({
             type="text"
             className="board-search"
             value={studentQuery}
-            placeholder="Find a student by name or code…"
+            placeholder="Find by name, code or subject…"
             aria-label="Find a student"
             onChange={(e) => setStudentQuery(e.target.value)}
           />
