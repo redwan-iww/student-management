@@ -764,12 +764,18 @@ const WEEKDAY_INDEX = {
 } as const;
 
 /** Sessions already recorded for a class, as a set of "date|start_time" keys. */
-/** The (date, time) pairs a class already holds, for the duplicate guard. */
+/**
+ * The dates a class already holds, for the duplicate guard.
+ *
+ * Dates, not (date, time) pairs -- uq_session_per_class_date. A class has one
+ * start_time, so a second lesson for it on the same day is never a second
+ * lesson; it is the same one at a time that has since changed. Keyed on the
+ * time, changing a class from 14:00 to 11:00 made every planned date look
+ * missing and the next run duplicated the whole term.
+ */
 export function sessionKeys(sessions: RawRecord[]): Set<string> {
   const { fields } = ZOHO_MODULES.class_sessions;
-  return new Set(
-    sessions.map((r) => `${str(r[fields.session_date])}|${str(r[fields.start_time])}`),
-  );
+  return new Set(sessions.map((r) => str(r[fields.session_date])));
 }
 
 export async function getSessionKeysForClass(classId: string): Promise<Set<string>> {

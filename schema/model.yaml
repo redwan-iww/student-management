@@ -419,7 +419,13 @@ entities:
       - { name: absent_count, label: Absent, type: rollup,
           rollup: { from: attendance, via: class_session, function: count, where: "status = 'Absent'" } }
     constraints:
-      - { type: unique, name: uq_session_per_class_date, fields: [class, session_date, start_time] }
+      # (class, date) and not (class, date, start_time). A class carries one
+      # start_time, so two lessons for one class on one day can only ever be a
+      # leftover -- and keying on the time made the generator produce exactly
+      # that: change a class from 14:00 to 11:00 and every planned date stops
+      # matching, so the next run writes a second lesson on each of them at the
+      # new time while the old ones sit there at the old one.
+      - { type: unique, name: uq_session_per_class_date, fields: [class, session_date] }
 
   # =========================================================================
   # There is no enrollments entity, and that is deliberate.

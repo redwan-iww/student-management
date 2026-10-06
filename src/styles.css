@@ -2622,20 +2622,48 @@ select.field { cursor: pointer; }
    The lesson generator, inside the setup drawer
    --------------------------------------------------------------------------- */
 
-.gen { display: flex; flex-direction: column; gap: var(--s4); }
-.gen-intro { margin: 0; font-size: .86rem; line-height: 1.5; }
+/* The panel does not scroll; the list inside it does.
+
+   Eleven courses plus a term picker, two rows and a button ran past the
+   drawer, so the whole thing scrolled -- and the control you came to press,
+   Create, went with it. Filling the drawer exactly and letting the one
+   unbounded part take the slack keeps the term at the top and the button at
+   the bottom, both always in view.
+
+   :has, so the rule reaches the drawer's own body without the Drawer
+   component having to know what it is showing. Where it is not supported the
+   body scrolls as before, which is where this started. */
+.drawer-body:has(> .gen) { overflow: hidden; }
+
+.gen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  height: 100%;
+  min-height: 0;
+}
+.gen-intro { margin: 0; font-size: .86rem; line-height: 1.5; flex: none; }
+.gen-term, .gen-dates, .gen-changes, .gen-foot { flex: none; }
 .gen-term select { width: 100%; }
 
-/* The courses, as a list that is already open. */
+/* The courses, as a list that is already open. The one part allowed to grow,
+   and therefore the one that scrolls -- a floor of about four rows, so a term
+   with many courses cannot squeeze it to nothing. */
 .gen-courses {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 9rem;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  overflow: hidden;
+  overflow: hidden auto;
 }
 
+/* Pinned, so the column keeps its name while its rows move under it. */
 .gen-courses-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: baseline;
   gap: var(--s2);
@@ -2788,6 +2816,12 @@ select.field { cursor: pointer; }
   color: var(--faint);
 }
 .gen-dates-count { margin-left: auto; font-size: .82rem; color: var(--muted); }
+/* Pushed right on its own account, not by whatever happens to sit beside it.
+   The count used to do this, and taking it off the dates row left the button
+   next to its label with the rest of the row empty -- and out of line with
+   the Changes row below, which still had one. */
+.gen-dates .btn { margin-left: auto; }
+.gen-dates-count + .btn { margin-left: 0; }
 
 /* Morning / Evening / Both, above the grid. Centred over the calendar it
    scopes rather than pushed to one side: it is a lens on the thing below, not
@@ -2970,6 +3004,59 @@ select.field { cursor: pointer; }
   line-height: 11px;
   text-align: center;
 }
+
+/* What is about to be written, one lesson per row, in its own dialog. No box
+   of its own: the dialog is the box, and a bordered panel inside a bordered
+   panel is the nesting the generator's card already lost. */
+.gen-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gen-changes li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  font-size: .82rem;
+  color: var(--fg);
+}
+.gen-changes li + li { border-top: 1px solid var(--line); }
+.gen-changes .is-create svg { color: var(--ink); }
+.gen-changes .is-cancel svg { color: var(--danger); }
+.gen-changes .is-restore svg { color: var(--accent); }
+
+.gen-change-what {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex: 1;
+  min-width: 0;
+}
+.gen-change-what strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gen-change-when {
+  flex: none;
+  color: var(--muted);
+  font-size: .74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The verb, not a badge: it repeats what the icon's colour already says, for
+   anyone who cannot use the colour. */
+.gen-change-verb {
+  flex: none;
+  font-size: .72rem;
+  color: var(--muted);
+}
+.gen-changes .btn { padding: 2px 4px; flex: none; }
 
 .gen-key {
   display: flex;

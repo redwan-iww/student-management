@@ -277,7 +277,7 @@ export function ClassAllocation() {
       {setupOpen && (
         <Drawer
           title="Lessons"
-          subtitle="One dated lesson per class, per meeting, across a term — created where they are missing, cancelled where they are not wanted."
+          subtitle="The dated lessons behind a term's registers — create the ones that are missing, call off the ones that are not going ahead."
           onClose={() => setSetupOpen(false)}
         >
           {/* Opens on the term the board is showing. The picker inside still

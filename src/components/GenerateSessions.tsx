@@ -54,6 +54,9 @@ type Preview =
 interface ClassCount {
   classId: string;
   courseId: string;
+  /** Its code and the time it meets, for naming a lesson of it in a list. */
+  label: string;
+  time: string;
   /** Which side of 13:00 the class meets, for the shift scope. */
   shift: '' | 'Morning' | 'Evening';
   missing: number;
@@ -70,6 +73,9 @@ interface ExistingLesson {
   id: string;
   date: string;
   cancelled: boolean;
+  /** Which class it belongs to and when it meets, for naming it in a list. */
+  label: string;
+  time: string;
 }
 
 type Run =
@@ -188,6 +194,10 @@ export function GenerateSessions({
      came here to press -- below the fold, with the course list above it gone
      too. It is also a question you answer once, which is what a modal is for. */
   const [datesOpen, setDatesOpen] = useState(false);
+  /* Whether the pending changes are being read. A row on the panel, a list in
+     a dialog: the panel says how many and the dialog says which, the same
+     split the dates row already uses. */
+  const [changesOpen, setChangesOpen] = useState(false);
   /* Which month the picker is showing, as '2026-10' rather than as a position
      in the list. Stepped rather than scrolled: a term is three or four months
      and a scrollbar under them was both the only thing saying there were more
@@ -328,6 +338,7 @@ export function GenerateSessions({
           const sessions = sessionSets[i]!;
           const already = sessionKeys(sessions);
           const startTime = str(c.klass[K.start_time]);
+          const label = str(c.klass[K.class_code], str(c.klass[K.name], c.klass.id));
           let missing = 0;
           let existing = 0;
           let onHoliday = 0;
@@ -337,7 +348,9 @@ export function GenerateSessions({
             // them into "already exists" would claim a lesson is on the
             // calendar when it deliberately is not.
             if (closed.has(session.date)) onHoliday += 1;
-            else if (already.has(`${session.date}|${startTime}`)) existing += 1;
+            // By date alone -- see sessionKeys. A lesson already on this date
+            // is this lesson, whatever time it was written at.
+            else if (already.has(session.date)) existing += 1;
             else { missing += 1; dates.push(session.date); }
           }
           /* Every lesson the class holds, not only the ones the pattern
@@ -349,10 +362,16 @@ export function GenerateSessions({
             id: r.id,
             date: str(r[S.session_date]),
             cancelled: str(r[S.status]) === 'Cancelled',
+            label,
+            // The lesson's own time, not the class's: a lesson retimed by hand
+            // is exactly the one somebody needs to pick out of a list.
+            time: str(r[S.start_time]),
           }));
           return {
             classId: c.klass.id,
             courseId: refId(c.klass[K.course]) ?? '',
+            label,
+            time: startTime,
             shift: shiftOf(startTime),
             missing,
             existing,
@@ -372,7 +391,11 @@ export function GenerateSessions({
     })();
 
     return () => { cancelled = true; };
-  }, [termId, classes, K.start_time, K.course, S.session_date, S.status]);
+  }, [
+    termId, classes,
+    K.start_time, K.course, K.class_code, K.name,
+    S.session_date, S.status, S.start_time,
+  ]);
 
   /* What is on the table for the course in scope, as dates.
 
@@ -454,19 +477,53 @@ export function GenerateSessions({
      -- three places deriving the same thing from two sets is three chances to
      disagree about what the button is about to do. */
   const changes = useMemo(() => {
-    const cancel: string[] = [];
-    const restore: string[] = [];
-    /* Walked from the plan rather than from the flip set, so a lesson flipped
-       and then scoped out of view is not written. The set is the record of
-       what you asked for; the plan is what is on screen to ask it about. */
-    for (const lessons of plan.taken.values()) {
-      for (const lesson of lessons) {
-        if (!flipped.has(lesson.id)) continue;
-        (lesson.cancelled ? restore : cancel).push(lesson.id);
+    /* Lessons this run would create: every planned date not turned off, named
+       the same way the existing ones are so one list can hold all three kinds.
+       Scoped like everything else -- these come from the plan, which is
+       already narrowed to the course and shift on screen. */
+    const create: { key: string; label: string; time: string; date: string }[] = [];
+    const mine = Array.isArray(counts)
+      ? counts.filter(
+          (c) =>
+            (courseId === '' || c.courseId === courseId) &&
+            (shiftScope === '' || c.shift === shiftScope),
+        )
+      : [];
+    for (const c of mine) {
+      for (const date of c.dates) {
+        const key = `${c.classId}|${date}`;
+        if (skipped.has(key)) continue;
+        create.push({ key, label: c.label, time: c.time, date });
       }
     }
-    return { cancel, restore };
-  }, [flipped, plan]);
+
+    const cancel: ExistingLesson[] = [];
+    const restore: ExistingLesson[] = [];
+    /* Every class in the term, not only the ones in scope.
+
+       These were walked from the scoped plan, which meant a lesson flipped
+       under Both and then looked at under Evening left the list and the write
+       without saying so -- you had made a choice and the view filter quietly
+       unmade it. The course and shift pickers decide what the calendar draws;
+       they do not decide which of your decisions count.
+
+       Creations stay scoped, because those are not decisions -- they are
+       whatever the chosen course is missing, and unscoping them would turn
+       "set up Economics" into "set up the term". */
+    for (const c of Array.isArray(counts) ? counts : []) {
+      for (const lesson of c.existingLessons) {
+        if (!flipped.has(lesson.id)) continue;
+        (lesson.cancelled ? restore : cancel).push(lesson);
+      }
+    }
+    const byDate = (a: { date: string; time: string }, b: { date: string; time: string }) =>
+      a.date.localeCompare(b.date) || a.time.localeCompare(b.time);
+    return {
+      create: create.sort(byDate),
+      cancel: cancel.sort(byDate),
+      restore: restore.sort(byDate),
+    };
+  }, [flipped, counts, courseId, shiftScope, skipped]);
 
   /* The months the calendar draws: every month the term's lessons fall in,
      whatever is currently in scope.
@@ -565,9 +622,8 @@ export function GenerateSessions({
       let onHoliday = 0;
       scheduled.forEach((c, i) => {
         const existing = keySets[i]!;
-        const startTime = str(c.klass[K.start_time]);
         for (const s of c.planned) {
-          const key = `${c.klass.id}|${s.date}|${startTime}`;
+          const key = `${c.klass.id}|${s.date}`;
           // Belt and braces against a second run duplicating the timetable.
           // The read above is the primary guard, but Zoho does not enforce
           // uq_session_per_class_date natively, so anything this component has
@@ -581,7 +637,7 @@ export function GenerateSessions({
           // Re-checked here rather than trusting the preview: a holiday added
           // between previewing and pressing would otherwise still be scheduled.
           else if (closed.has(s.date)) onHoliday += 1;
-          else if (existing.has(`${s.date}|${startTime}`)) skippedCount += 1;
+          else if (existing.has(s.date)) skippedCount += 1;
           else plan.push({ klass: c.klass, date: s.date, sequenceNo: s.sequenceNo });
         }
       });
@@ -596,9 +652,10 @@ export function GenerateSessions({
          One at a time -- the SDK's updateRecord takes a single record, there
          is no bulk form of it -- but a day's worth of cancellations is a
          handful of calls, not a term's worth. */
+      // Everything flipped, wherever it was flipped from -- see the changes memo.
       const flips = [
-        ...changes.cancel.map((id) => ({ id, cancelled: true })),
-        ...changes.restore.map((id) => ({ id, cancelled: false })),
+        ...changes.cancel.map((l) => ({ id: l.id, cancelled: true })),
+        ...changes.restore.map((l) => ({ id: l.id, cancelled: false })),
       ];
       for (let i = 0; i < flips.length; i += 1) {
         const flip = flips[i]!;
@@ -643,7 +700,7 @@ export function GenerateSessions({
         // Recorded only after the write returns, so a failed batch is not
         // mistaken for one already on the calendar.
         for (const item of batch) {
-          createdKeys.current.add(`${item.klass.id}|${item.date}|${str(item.klass[K.start_time])}`);
+          createdKeys.current.add(`${item.klass.id}|${item.date}`);
         }
       }
       setRun({ kind: 'working', done: written, total: plan.length, label: 'finishing' });
@@ -725,12 +782,29 @@ export function GenerateSessions({
   const toCreate = preview.kind === 'ready' ? preview.lessons : 0;
   const toCancel = changes.cancel.length;
   const toRestore = changes.restore.length;
-  const applyLabel =
-    [
-      toCreate > 0 ? `Create ${toCreate}` : '',
-      toCancel > 0 ? `Cancel ${toCancel}` : '',
-      toRestore > 0 ? `Put back ${toRestore}` : '',
-    ].filter(Boolean).join(' · ') || 'Create lessons';
+  /* "Call off", not "Cancel".
+
+     Cancel on a primary button is the word for abandoning the dialog, not for
+     what the dialog does -- "Cancel 5" sitting where the confirm button goes
+     reads as a way out rather than as five lessons being called off. The
+     status written is still Cancelled, and the rows in the review still say
+     cancelling, because that is the CRM's word for the state; this is the one
+     place where the word collides with a different meaning.
+
+     The noun comes back when there is only one verb, because "Call off 5" is
+     five of something and the button should say what. Two verbs and it would
+     be "Create 19 lessons · Call off 2 lessons", which is longer than the
+     button. */
+  const parts = [
+    toCreate > 0 ? `Create ${toCreate}` : '',
+    toCancel > 0 ? `Call off ${toCancel}` : '',
+    toRestore > 0 ? `Put back ${toRestore}` : '',
+  ].filter(Boolean);
+  const only = parts.length === 1;
+  const total = toCreate + toCancel + toRestore;
+  const applyLabel = parts.length === 0
+    ? 'Create lessons'
+    : parts.join(' · ') + (only ? ` lesson${total === 1 ? '' : 's'}` : '');
 
   return (
     /* No Card. This renders inside a drawer, which is already a panel with a
@@ -745,8 +819,9 @@ export function GenerateSessions({
       <p className="muted gen-intro">
         A class knows <em>when it meets</em> — “Mon and Wed, 09:00–10:30, 7 Sep
         to 11 Dec”. That is a rule, not a list of dates, and a register is taken
-        against one date. This turns the rule into those dates. Running it twice
-        is harmless.
+        against one date. This turns the rule into those dates, and lets you
+        call one off when it is not going ahead. Nothing already on the
+        calendar is touched unless you ask.
       </p>
 
       <label className="field gen-term">
@@ -788,7 +863,7 @@ export function GenerateSessions({
             type="button"
             className={`gen-course${courseId === '' ? ' is-on' : ''}`}
             aria-pressed={courseId === ''}
-            onClick={() => { setCourseId(''); setSkipped(new Set()); setFlipped(new Set()); setMonthKey(''); }}
+            onClick={() => { setCourseId(''); setSkipped(new Set()); setMonthKey(''); }}
           >
             <span className="gen-course-name">All {courses.length} courses</span>
             {!counting && (
@@ -804,7 +879,7 @@ export function GenerateSessions({
               type="button"
               className={`gen-course${courseId === c.id ? ' is-on' : ''}`}
               aria-pressed={courseId === c.id}
-              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setFlipped(new Set()); setMonthKey(''); }}
+              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setMonthKey(''); }}
             >
               <span className="gen-course-name">
                 {c.name}
@@ -836,15 +911,10 @@ export function GenerateSessions({
       {months.length > 0 && (
         <div className="gen-dates">
           <span className="gen-dates-label">Dates</span>
-          <span className="gen-dates-count">
-            {flipped.size > 0
-              ? `${flipped.size} change${flipped.size === 1 ? '' : 's'}`
-              : skipped.size > 0
-                ? `${plan.toCreate.size - skipped.size} of ${plan.toCreate.size} to create`
-                : plan.toCreate.size > 0
-                  ? `${plan.toCreate.size} to create`
-                  : `${plan.taken.size} day${plan.taken.size === 1 ? '' : 's'}`}
-          </span>
+          {/* No count here. This row carried one for a while -- dates, then
+              lessons -- and the Changes row below now says the same thing in
+              the same unit as the button. Two tallies of one number, a line
+              apart, are a thing to reconcile rather than read. */}
           <Button small onClick={() => setDatesOpen(true)}>
             <Icon name="calendar" size={14} />
             Choose
@@ -1085,6 +1155,124 @@ export function GenerateSessions({
         </Modal>
       )}
 
+      {/* How many lessons are about to change, and the way to see which.
+
+          A row, not the list itself. The list was inline here for a while and
+          a term's worth of cancellations is a wall of rows between the dates
+          and the button that writes them -- while the question it answers,
+          "which lesson on the 7th", is asked once and then done with. Same
+          split as the dates row above it: the panel counts, a dialog names. */}
+      {toCreate + toCancel + toRestore > 0 && (
+        <div className="gen-dates">
+          <span className="gen-dates-label">Changes</span>
+          <span className="gen-dates-count">
+            {[
+              toCreate > 0 ? `${toCreate} creating` : '',
+              toCancel > 0 ? `${toCancel} cancelling` : '',
+              toRestore > 0 ? `${toRestore} putting back` : '',
+            ].filter(Boolean).join(' · ')}
+          </span>
+          <Button small onClick={() => setChangesOpen(true)}>
+            <Icon name="list" size={14} />
+            Review
+          </Button>
+        </div>
+      )}
+
+      {changesOpen && (
+        <Modal
+          title="Pending changes"
+          subtitle="Everything this run will do, lesson by lesson. Nothing is written until you press Create."
+          onClose={() => setChangesOpen(false)}
+          footer={
+            <>
+              <Button
+                variant="ghost"
+                small
+                onClick={() => { setFlipped(new Set()); setSkipped(new Set()); }}
+              >
+                Reset
+              </Button>
+              <span className="spacer" />
+              <Button variant="primary" small onClick={() => setChangesOpen(false)}>
+                Done
+              </Button>
+            </>
+          }
+        >
+          {/* Creations first, then cancellations, then restorations: the
+              order the run itself writes them in, near enough, and the order
+              that puts the bulk of a first-time setup at the top where its
+              count is least surprising.
+
+              One list, not three: a reader counting what a button is about to
+              do should not have to add up three sections, and each row says
+              its own verb. */}
+          <ul className="gen-changes">
+            {changes.create.map((lesson) => (
+              <li key={lesson.key} className="is-create">
+                <Icon name="plus" size={14} />
+                <span className="gen-change-what">
+                  <strong>{lesson.label}</strong>
+                  <span className="gen-change-when">
+                    {lesson.date}
+                    {lesson.time && ` · ${lesson.time}`}
+                  </span>
+                </span>
+                <span className="gen-change-verb">creating</span>
+                {/* Turns this one date off, exactly as clicking its square in
+                    the calendar would. */}
+                <Button
+                  variant="ghost"
+                  small
+                  aria-label={`Do not create ${lesson.label} on ${lesson.date}`}
+                  onClick={() =>
+                    setSkipped((prev) => new Set(prev).add(lesson.key))
+                  }
+                >
+                  <Icon name="close" size={13} />
+                </Button>
+              </li>
+            ))}
+
+            {[...changes.cancel, ...changes.restore].map((lesson) => {
+              const going = !lesson.cancelled;
+              return (
+                <li key={lesson.id} className={going ? 'is-cancel' : 'is-restore'}>
+                  <Icon name={going ? 'slash' : 'rotate'} size={14} />
+                  <span className="gen-change-what">
+                    <strong>{lesson.label}</strong>
+                    <span className="gen-change-when">
+                      {lesson.date}
+                      {lesson.time && ` · ${lesson.time}`}
+                    </span>
+                  </span>
+                  <span className="gen-change-verb">
+                    {going ? 'cancelling' : 'putting back'}
+                  </span>
+                  {/* Undoes this one. The alternative is finding its square in
+                      the calendar, under whatever scope reveals it. */}
+                  <Button
+                    variant="ghost"
+                    small
+                    aria-label={`Leave ${lesson.label} on ${lesson.date} as it is`}
+                    onClick={() =>
+                      setFlipped((prev) => {
+                        const next = new Set(prev);
+                        next.delete(lesson.id);
+                        return next;
+                      })
+                    }
+                  >
+                    <Icon name="close" size={13} />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </Modal>
+      )}
+
       {preview.kind === 'failed' && (
         <Banner tone="error">Could not read this term's classes.</Banner>
       )}
@@ -1101,9 +1289,7 @@ export function GenerateSessions({
             !termId || preview.kind !== 'ready' || toCreate + toCancel + toRestore === 0
           }
         >
-          {toCreate > 0 && toCancel + toRestore === 0
-            ? `Create ${toCreate} lesson${toCreate === 1 ? '' : 's'}`
-            : applyLabel}
+          {applyLabel}
         </Button>
 
         {preview.kind === 'ready' && (

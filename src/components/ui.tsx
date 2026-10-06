@@ -68,6 +68,10 @@ const PATHS = {
   alert: 'M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4.5M12 17.2h.01',
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z',
   slash: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM5.6 5.6l12.8 12.8',
+  // Three stacked lines: a list of things to look at.
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  // An arrow going back round: putting a cancelled lesson back on.
+  rotate: 'M3 12a9 9 0 1 0 2.6-6.4M3 4.5V10h5.5',
   close: 'M18 6L6 18M6 6l12 12',
   info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16v-4.5M12 8h.01',
   pencil: 'M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z',

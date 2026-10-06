@@ -47,10 +47,9 @@
       "name": "uq_session_per_class_date",
       "fields": [
         "Class",
-        "Session_Date",
-        "Start_Time"
+        "Session_Date"
       ],
-      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Class + Session_Date + Start_Time); reject when count > 0."
+      "enforcement": "Custom function on create/edit: COQL-count existing records matching all fields (Class + Session_Date); reject when count > 0."
     },
     {
       "_entity": "allocations",

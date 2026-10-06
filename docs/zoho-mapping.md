@@ -232,7 +232,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 - **Check** `Classes`.`class_capacity_positive` — `capacity > 0` — implement as a Zoho validation rule.
 - **Time-only field** `Classes`.`Start_Time` — stored as `HH:MM` text.
 - **Time-only field** `Classes`.`End_Time` — stored as `HH:MM` text.
-- **Composite unique** `Class_Sessions` (class + session_date + start_time) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
+- **Composite unique** `Class_Sessions` (class + session_date) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
 - **Time-only field** `Class_Sessions`.`Start_Time` — stored as `HH:MM` text.
 - **Time-only field** `Class_Sessions`.`End_Time` — stored as `HH:MM` text.
 - **Check** `Allocations`.`allocation_dates_ordered` — `effective_to IS NULL OR effective_from IS NULL OR effective_to >= effective_from` — implement as a Zoho validation rule.

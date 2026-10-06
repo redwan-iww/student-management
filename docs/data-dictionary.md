@@ -224,7 +224,7 @@ Zoho module `Class_Sessions` (create)
 
 **Constraints**
 
-- `uq_session_per_class_date` — unique (class, session_date, start_time)
+- `uq_session_per_class_date` — unique (class, session_date)
 
 ## Allocation — `allocations`
 
