@@ -411,7 +411,7 @@ export function Toast({
 /* -------------------------------------------------------------------------- */
 
 /** yyyy-MM-dd -> dd/mm/yyyy. '' for anything that is not a full ISO date. */
-function toUk(iso: string): string {
+export function toUk(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }

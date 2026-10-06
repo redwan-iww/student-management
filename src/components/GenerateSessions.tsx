@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ZOHO_MODULES } from '../generated/types';
 import { Loader, useDelayed } from './Loader';
-import { Banner, Button, Card, Icon, Modal } from './ui';
+import { Banner, Button, Card, Icon, Modal, toUk } from './ui';
 import { shiftOf } from './status';
 import {
   BULK_LIMIT,
@@ -843,7 +843,7 @@ export function GenerateSessions({
         <select value={termId} onChange={(e) => setTermId(e.target.value)}>
           {terms.map((t) => (
             <option key={t.id} value={t.id}>
-              {str(t[T.name], t.id)} ({str(t[T.start_date], '?')} → {str(t[T.end_date], '?')})
+              {str(t[T.name], t.id)} ({toUk(str(t[T.start_date])) || '?'} → {toUk(str(t[T.end_date])) || '?'})
             </option>
           ))}
         </select>
@@ -1240,7 +1240,7 @@ export function GenerateSessions({
                 <span className="gen-change-what">
                   <strong>{lesson.label}</strong>
                   <span className="gen-change-when">
-                    {lesson.date}
+                    {toUk(lesson.date)}
                     {lesson.time && ` · ${lesson.time}`}
                   </span>
                 </span>
@@ -1268,7 +1268,7 @@ export function GenerateSessions({
                   <span className="gen-change-what">
                     <strong>{lesson.label}</strong>
                     <span className="gen-change-when">
-                      {lesson.date}
+                      {toUk(lesson.date)}
                       {lesson.time && ` · ${lesson.time}`}
                     </span>
                   </span>
@@ -1334,7 +1334,7 @@ export function GenerateSessions({
               <>
                 Will create <strong>{preview.lessons} lessons</strong> across{' '}
                 {preview.classes} class{preview.classes === 1 ? '' : 'es'}, from{' '}
-                {preview.firstDate} to {preview.lastDate}
+                {toUk(preview.firstDate)} to {toUk(preview.lastDate)}
                 {preview.existing > 0 && <> · {preview.existing} already exist</>}
                 {preview.onHoliday > 0 && (
                   <> · <strong>{preview.onHoliday} skipped</strong> as holidays or closures</>
