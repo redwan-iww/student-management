@@ -64,6 +64,23 @@ export function PageNotice({ children }: { children: ReactNode }) {
   return host ? createPortal(children, host) : null;
 }
 
+/** The far end of the title row, published by the shell. */
+const TitleSlot = createContext<HTMLElement | null>(null);
+
+/**
+ * Puts its children on the page's title row, at the far end.
+ *
+ * For the one thing a screen always has to say about itself -- which period
+ * the timetable is showing, which record is open -- where the title already
+ * says what the screen is. Inside the page it would be an item in a toolbar,
+ * competing with the controls that produced it; up here nothing else is on
+ * the line.
+ */
+export function PageTitleAside({ children }: { children: ReactNode }) {
+  const host = useContext(TitleSlot);
+  return host ? createPortal(children, host) : null;
+}
+
 /**
  * Common chrome for both web tabs: waits for the CRM handshake, then renders.
  *
@@ -75,6 +92,7 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
   // A callback ref rather than useRef: the portal needs a render once the node
   // exists, and a ref object mutating would not cause one.
   const [noticeHost, setNoticeHost] = useState<HTMLElement | null>(null);
+  const [titleHost, setTitleHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +144,13 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
             full-bleed strip above it: it qualifies where the data is coming
             from, which is a caption on the title, not a warning about the
             content below. */}
+        {/* Where a screen puts what it is currently showing -- right after the
+            title, because it continues it: "Attendance Manager, November 2026"
+            is one phrase, and pushed to the far end it was two labels on one
+            line with a gap between them. Empty on a screen that has nothing to
+            say, and it takes no room when it is. */}
+        <div className="tabhead-aside" ref={setTitleHost} />
+
         {state.kind === 'ready-live' && (
           <span className="devchip">
             <i className="dot" aria-hidden="true" />
@@ -174,7 +199,9 @@ export function TabShell({ title, children }: { title: string; children: ReactNo
 
       {state.kind === 'failed' && <p className="error">{state.message}</p>}
       {(state.kind === 'ready' || state.kind === 'ready-live') && (
-        <NoticeSlot.Provider value={noticeHost}>{children}</NoticeSlot.Provider>
+        <TitleSlot.Provider value={titleHost}>
+          <NoticeSlot.Provider value={noticeHost}>{children}</NoticeSlot.Provider>
+        </TitleSlot.Provider>
       )}
     </main>
   );

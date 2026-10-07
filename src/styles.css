@@ -152,7 +152,11 @@ code {
 .tabhead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* Packed from the left, not space-between. Between two children that pushed
+     them to opposite ends of the page -- which is right for a title and a
+     status chip, and wrong for a title and the period it is showing, which
+     belong next to each other. What wants the far end asks for it. */
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: var(--s3);
   margin-bottom: var(--s5);
@@ -873,12 +877,34 @@ select:hover, input:hover { border-color: var(--muted); }
    ========================================================================== */
 
 /* Which weekday you are looking at, without re-reading the date field. */
+/* Immediately after the page title, divided by a rule rather than by
+   distance: near enough to read as a continuation of the heading -- 
+   "Attendance Manager, November 2026" is one phrase -- and separated enough
+   not to be mistaken for part of its name. Pushed to the far end it was two
+   labels on one line with a gap between them.
+
+   :not(:empty), so a screen that says nothing here draws no rule. The dev
+   chip that may follow keeps the far end to itself. */
+.tabhead-aside:not(:empty) {
+  display: flex;
+  align-items: center;
+  padding-left: var(--s3);
+  border-left: 1px solid var(--line-strong);
+}
+.tabhead .devchip { margin-left: auto; }
+
+/* The period on screen. A size under the h1 beside it: it qualifies the title
+   rather than competing with it. */
 .daylabel {
   display: inline-flex;
   align-items: center;
   gap: var(--s2);
-  font-size: .86rem;
+  font-size: 1rem;
+  font-weight: 620;
+  letter-spacing: -.01em;
+  color: var(--fg);
 }
+.daylabel svg { color: var(--accent); flex: none; }
 
 /* ==========================================================================
    Occupancy meter
@@ -2404,6 +2430,16 @@ select.field { cursor: pointer; }
 .cal-dim { background: var(--surface-2); }
 
 .cal-today { background: var(--accent-soft); }
+
+/* The month beside a date number. Quiet and small -- the number is what you
+   are counting along, this only says which month you are counting in. */
+.cal-month-tag {
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+.cal-dim .cal-month-tag { color: var(--faint); }
 
 
 

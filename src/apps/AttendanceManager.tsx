@@ -3,6 +3,7 @@ import { ZOHO_MODULES } from '../generated/types';
 import { AttendanceSheet } from '../components/AttendanceSheet';
 import { Loader, useDelayed } from '../components/Loader';
 import { Avatar, Badge, Banner, Button, Card, DateField, Drawer, EmptyState, Icon } from '../components/ui';
+import { PageTitleAside } from '../components/TabShell';
 import { sessionTone, shiftOf, shortDays } from '../components/status';
 import {
   describeError,
@@ -29,6 +30,13 @@ const today = orgToday;
 const weekdayOf = (isoDate: string) =>
   new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', {
     weekday: 'long',
+    timeZone: 'UTC',
+  });
+
+/** 'Sep' -- short enough to ride beside a date number in a grid cell. */
+const shortMonthOf = (isoDate: string) =>
+  new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', {
+    month: 'short',
     timeZone: 'UTC',
   });
 
@@ -542,10 +550,6 @@ export function AttendanceManager() {
           </label>
         )}
 
-        <span className="muted daylabel">
-          <Icon name="calendar" size={15} />
-          {range.label}
-        </span>
       </div>
 
       {details && (() => {
@@ -621,6 +625,20 @@ export function AttendanceManager() {
       {!error && sessions === null && showSpinner && (
         <Loader label={`Loading timetable for ${range.label}…`} />
       )}
+
+      {/* What is actually on screen, said on the title row.
+
+          It sat at the end of the toolbar, where it was the eighth item in a
+          row of pickers and read as one more control rather than as the answer
+          they produce. Up beside the tab's own title it is the only thing on
+          the line, and it reads as what this screen is currently showing --
+          which is what it is. */}
+      <PageTitleAside>
+        <span className="daylabel">
+          <Icon name="calendar" size={16} />
+          {range.label}
+        </span>
+      </PageTitleAside>
 
       <div className="content">
       {/* A hairline bar, not a spinner. Stepping a day is one query; a labelled
@@ -812,6 +830,12 @@ export function AttendanceManager() {
                         otherwise carry it is hidden. */}
                     <span className="cal-date" data-weekday={weekdayOf(cell.date)}>
                       {Number(cell.date.slice(8, 10))}
+                      {/* On every date, not only where it changes. A row
+                          reading "2 3 4 5 6 7 8" belongs to no month at all,
+                          and a reader landing on the Thursday column should
+                          not have to track back to the Monday to find out
+                          which one they are in. */}
+                      <span className="cal-month-tag">{shortMonthOf(cell.date)}</span>
                       {cell.date === today() && <span className="cal-today-tag">Today</span>}
                     </span>
                   </div>
