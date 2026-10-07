@@ -53,7 +53,7 @@ Zoho module `Students` (extend_custom)
 | `email` | email |  |  | `Email` |  |
 | `phone` | phone |  |  | `Phone` |  |
 | `enrollment_date` | date |  |  | `Enrollment_Date` |  |
-| `signup_term` | reference → `terms` |  |  | `Signup_Term` | The term this student signed up for. The sign-up lives on the student rather than in a module of its own: one person signing up once, for one term, paying once. |
+| `signup_term` | reference → `terms` |  |  | `Signed_Up_For` | The term this student signed up for. The sign-up lives on the student rather than in a module of its own: one person signing up once, for one term, paying once. |
 | `fee_total` | currency |  |  | `Fee_Total` | What the chosen courses come to. Charged per sign-up, not per course -- the admissions rows are only created once this is settled. |
 | `fee_paid` | currency |  |  | `Fee_Paid` | default `0` |
 | `payment_status` | enum `payment_status` | ✓ |  | `Payment_Status` | Admissions rows are created when this reaches Paid or Waived. Before that the student has chosen courses but is not admitted to any of them.; default `Unpaid` |

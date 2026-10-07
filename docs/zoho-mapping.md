@@ -67,7 +67,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `email` | `Email` | email | ✓ |
 | `phone` | `Phone` | phone |  |
 | `enrollment_date` | `Enrollment_Date` | date |  |
-| `signup_term` | `Signup_Term` | lookup → `Terms` |  |
+| `signup_term` | `Signed_Up_For` | lookup → `Terms` |  |
 | `fee_total` | `Fee_Total` | currency |  |
 | `fee_paid` | `Fee_Paid` | currency |  |
 | `payment_status` | `Payment_Status` | picklist |  |

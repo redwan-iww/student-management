@@ -120,7 +120,13 @@ entities:
       - { name: email, label: Email, type: email, zoho: { api_name: Email, stock: true } }
       - { name: phone, label: Phone, type: phone }
       - { name: enrollment_date, label: Enrollment Date, type: date }
+      # api_name is Signed_Up_For, not the Signup_Term this would otherwise
+      # derive. Zoho named the field from its label when it was created and an
+      # api_name cannot be changed afterwards -- updateField has no such
+      # property -- so the org is the fixed point here and the schema records
+      # what is actually there. Renaming the label would not move it either.
       - { name: signup_term, label: Signed Up For, type: reference, ref: terms, required: false, on_delete: set_null,
+          zoho: { api_name: Signed_Up_For },
           note: "The term this student signed up for. The sign-up lives on the student rather than
                  in a module of its own: one person signing up once, for one term, paying once." }
       - { name: fee_total, label: Fee Total, type: currency,

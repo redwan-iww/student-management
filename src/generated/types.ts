@@ -615,7 +615,7 @@ export const ZOHO_MODULES = {
       email: 'Email',
       phone: 'Phone',
       enrollment_date: 'Enrollment_Date',
-      signup_term: 'Signup_Term',
+      signup_term: 'Signed_Up_For',
       fee_total: 'Fee_Total',
       fee_paid: 'Fee_Paid',
       payment_status: 'Payment_Status',

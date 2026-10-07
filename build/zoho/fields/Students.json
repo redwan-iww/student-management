@@ -246,7 +246,7 @@
     },
     {
       "field_label": "Signed Up For",
-      "api_name": "Signup_Term",
+      "api_name": "Signed_Up_For",
       "tooltip": {
         "name": "info_icon",
         "value": "The term this student signed up for. The sign-up lives on the student rather than in a module of its own: one person signing up once, for one term, paying once."

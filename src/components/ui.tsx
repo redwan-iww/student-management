@@ -432,11 +432,6 @@ function fromUk(text: string): string {
   return Number.isNaN(back.getTime()) || back.toISOString().slice(0, 10) !== iso ? '' : iso;
 }
 
-/** Whether this browser can be asked to open a date picker on demand. */
-const CAN_PICK =
-  typeof HTMLInputElement !== 'undefined' &&
-  typeof HTMLInputElement.prototype.showPicker === 'function';
-
 /**
  * A date field that reads and writes day/month/year.
  *
@@ -530,34 +525,26 @@ export function DateField({
         onKeyDown={onKeyDown}
       />
 
-      {CAN_PICK && (
-        <button
-          type="button"
-          className="datefield-pick"
-          disabled={disabled}
-          aria-label="Open the calendar"
-          title="Open the calendar"
-          onClick={() => {
-            try {
-              native.current?.showPicker();
-            } catch {
-              // Chrome throws if the call is not treated as user-activated.
-              // The text box still works, so there is nothing to recover.
-            }
-          }}
-        >
-          <Icon name="calendar" size={15} />
-        </button>
-      )}
+      {/* The calendar.
 
-      {/* The calendar, and nothing else. Hidden from layout and from the tab
-          order: it is the button above that is the control. */}
+          Not a button calling showPicker(): Chrome refuses that outright from
+          a cross-origin iframe -- 'SecurityError: showPicker() called from
+          cross-origin iframe' -- and a Zoho widget is always one, so the API
+          route could never have worked in the only place this ships.
+
+          The browser's own date input is laid over the icon instead, with its
+          picker indicator stretched across it (see .datefield-native). A click
+          is then a direct interaction with the control rather than a scripted
+          request to open it, which nothing restricts. The icon underneath is
+          decoration and takes no pointer events. */}
+      <span className="datefield-pick" aria-hidden="true">
+        <Icon name="calendar" size={15} />
+      </span>
       <input
         ref={native}
         type="date"
         className="datefield-native"
-        tabIndex={-1}
-        aria-hidden="true"
+        aria-label="Pick a date from a calendar"
         value={value}
         min={min}
         max={max}
