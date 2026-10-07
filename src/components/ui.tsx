@@ -480,20 +480,69 @@ export function DateField({
   const native = useRef<HTMLInputElement>(null);
   const [text, setText] = useState(() => toUk(value));
 
-  // Follow the value when it is changed from outside -- a step, a picker, a
-  // reset -- but not while it is being typed, which would fight the caret.
+  /* Follow the value when it is changed from outside -- a step, a picker, a
+     reset -- but not while it is being typed.
+
+     "From outside" cannot be read as "the value changed", because typing a
+     valid date changes it too: delete the 0 from 30/10/2026 and 30/1/2026
+     parses, commits, comes back, and gets rewritten as 30/01/2026. That is a
+     different string from the one in the box, so React replaces the DOM value
+     and the caret jumps to the end -- mid-word, on every keystroke that
+     happens to leave a valid date behind.
+
+     So the test is whether the incoming value is the one this text already
+     means. If it is, the box is left exactly as typed and the caret with it;
+     blur still tidies it to dd/mm/yyyy. */
   const [lastValue, setLastValue] = useState(value);
   if (value !== lastValue) {
     setLastValue(value);
-    setText(toUk(value));
+    if (value !== fromUk(text)) setText(toUk(value));
   }
+
+  /* Typing waits; everything else does not.
+
+     A date is eight to ten keystrokes and several of them leave a valid date
+     behind on the way -- 30/10/2026 passes through 3/10/2026 and 30/1/2026,
+     each of which committed, and each commit is a term's worth of lessons
+     fetched for a date nobody meant. So a typed date is held briefly and only
+     the last one is emitted.
+
+     Not a general debounce on the value: the arrows, Today, the calendar and
+     a term change all go straight through, because none of them is a
+     half-finished thought. Blur and Enter flush immediately, so the wait is
+     never something you can see when you have actually finished. */
+  const TYPING_PAUSE = 450;
+  const pending = useRef<{ timer: number; iso: string } | undefined>(undefined);
+
+  const flush = () => {
+    const held = pending.current;
+    if (!held) return;
+    window.clearTimeout(held.timer);
+    pending.current = undefined;
+    onChange(held.iso);
+    return held.iso;
+  };
 
   const typed = (next: string) => {
     setText(next);
     const iso = fromUk(next);
-    if (iso) onChange(iso);
-    else if (next.trim() === '') onChange('');
+    const emit = iso || (next.trim() === '' ? '' : undefined);
+    if (emit === undefined) return;
+    if (pending.current) window.clearTimeout(pending.current.timer);
+    pending.current = {
+      iso: emit,
+      timer: window.setTimeout(() => {
+        pending.current = undefined;
+        onChange(emit);
+      }, TYPING_PAUSE),
+    };
   };
+
+  // A field unmounted mid-pause -- a drawer closed, a term switched -- must
+  // not call back into a parent that has moved on.
+  useEffect(() => () => {
+    if (pending.current) window.clearTimeout(pending.current.timer);
+  }, []);
 
   // Half a date is not emitted -- the value stays as it was -- so without
   // something on screen the field looks edited while holding the old day, and
@@ -519,10 +568,19 @@ export function DateField({
         aria-label={ariaLabel}
         aria-invalid={malformed || undefined}
         onChange={(e) => typed(e.target.value)}
-        /* Snap back to the last good value rather than leaving half a date
-           on screen pretending to be one. */
-        onBlur={() => setText(toUk(value))}
-        onKeyDown={onKeyDown}
+        /* Commit whatever is waiting, then snap back to the last good value
+           rather than leaving half a date on screen pretending to be one.
+           Flushing first, or the snap-back would show the date being replaced
+           rather than the one just typed. */
+        onBlur={() => {
+          const held = flush();
+          setText(toUk(held ?? value));
+        }}
+        onKeyDown={(e) => {
+          // Enter means "I have finished", which is exactly the pause's cue.
+          if (e.key === 'Enter') flush();
+          onKeyDown?.(e);
+        }}
       />
 
       {/* The calendar.
