@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader, ButtonBusy, useDelayed } from './Loader';
-import { Avatar, Banner, Button, Card, EmptyState, Icon } from './ui';
+import { Avatar, Banner, Button, Card, EmptyState, Icon, toUk } from './ui';
 import {
   ZOHO_MODULES,
   ATTENDANCE_STATUS_VALUES,
@@ -224,7 +224,9 @@ export function AttendanceSheet({
             {sessionName}
           </span>
         }
-        subtitle={sessionDate}
+        /* dd/mm/yyyy, like every other date this app prints. It was the raw
+           yyyy-MM-dd the CRM stores -- the only place left showing one. */
+        subtitle={toUk(sessionDate) || sessionDate}
         action={
           /* Bulk actions apply to every row, so they are meaningless with no
              rows -- and "All Excused" beside "Nobody placed" invites a
@@ -252,7 +254,7 @@ export function AttendanceSheet({
         {!cancelled && future && (
           <div className="card-body">
             <Banner tone="warn">
-              <strong>This lesson has not happened yet ({sessionDate}).</strong>{' '}
+              <strong>This lesson has not happened yet ({toUk(sessionDate) || sessionDate}).</strong>{' '}
               Present, Absent, Late and Left Early record what was observed, so they
               are unavailable. Excused can be set in advance for a known absence.
             </Banner>
