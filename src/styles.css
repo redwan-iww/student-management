@@ -312,14 +312,6 @@ tr.ended td { opacity: .55; }
   border: 1px solid transparent;
 }
 
-.badge .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--r-pill);
-  background: currentColor;
-  flex: none;
-}
-
 .badge-positive, .pill.done {
   background: var(--accent-soft);
   color: var(--accent-dark);
@@ -2042,16 +2034,6 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
-/* No dot here. At the grid's narrowest column the card has 230px of content
-   and three badges want about 245 -- and a dot costs 10px of that, the mark
-   plus the gap after it. Dropping both buys 20px, which is the difference
-   between one row and two.
-
-   Nothing is lost by it: the dot repeated what the fill colour already said.
-   It earns its place in a table row, where badges sit in a column of mostly
-   white and the mark is what catches the eye; on a card with two or three
-   of them side by side the colours do that on their own. */
-.class-grid .drop-card-side .badge .dot { display: none; }
 
 /* ---------------------------------------------------------------------------
    Roster rows, and the record panel behind a name
@@ -2498,6 +2480,23 @@ select.field { cursor: pointer; }
 .cal-item.tone-critical { border-left-color: var(--danger); }
 .cal-item.tone-neutral { border-left-color: var(--neutral); }
 
+/* A lesson whose class has nobody in it. The left edge is already the
+   register's status, so this takes the opposite corner: a small hollow ring,
+   which reads as "empty" without needing a word the cell has no room for. */
+.cal-item { position: relative; }
+.cal-empty-mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--danger);
+  border-radius: 50%;
+  background: var(--surface);
+}
+/* Dimmed with the lesson it marks, on a day outside the period on screen. */
+.cal-dim .cal-empty-mark { opacity: .5; }
+
 /* ---- Month: the same grid, a quarter of the ink ----------------------------
 
    A month cell answers "is this day busy" and "where is the gap". It does not
@@ -2506,6 +2505,10 @@ select.field { cursor: pointer; }
    one thing that identifies it. */
 .cal-is-month .cal-day { min-height: 5.5rem; gap: 1px; padding: var(--s1) 5px var(--s2); }
 .cal-is-month .cal-day-empty { min-height: 5.5rem; }
+
+/* In a month cell the lesson is one compact line and the ring would sit over
+   its last character. Pushed clear of the text instead. */
+.cal-is-month .cal-empty-mark { top: 50%; right: 2px; transform: translateY(-50%); }
 
 .cal-is-month .cal-item {
   flex-direction: row;

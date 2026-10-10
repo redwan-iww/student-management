@@ -421,7 +421,7 @@ export function ClassAllocation() {
                         <span>{primary}</span>
                       </div>
                     ) : (
-                      <Badge tone="pending" dot>No lead</Badge>
+                      <Badge tone="pending">No lead</Badge>
                     )}
                   </td>
                   <td>
@@ -441,7 +441,7 @@ export function ClassAllocation() {
                     />
                   </td>
                   <td>
-                    <Badge tone={status.tone} dot>{status.label}</Badge>
+                    <Badge tone={status.tone}>{status.label}</Badge>
                   </td>
                   <td className="actions">
                     <Button variant="ghost" onClick={() => setSelectedClass(k)}>
@@ -706,7 +706,7 @@ function ClassStaffing({
               enrolled={int(klass[C.enrolled_count])}
               capacity={int(klass[C.capacity])}
             />
-            <Badge tone={status.tone} dot>{status.label}</Badge>
+            <Badge tone={status.tone}>{status.label}</Badge>
           </div>
         }
         body
@@ -911,7 +911,7 @@ function ClassStaffing({
                     )}
                   </td>
                   <td>
-                    <Badge tone={allocStatus.tone} dot>{allocStatus.label}</Badge>
+                    <Badge tone={allocStatus.tone}>{allocStatus.label}</Badge>
                   </td>
                   <td className="muted">
                     <span className="cell-mono">{str(a[AL.effective_from], "—")}</span>

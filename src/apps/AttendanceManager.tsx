@@ -8,6 +8,7 @@ import { sessionTone, shiftOf, shortDays } from '../components/status';
 import {
   describeError,
   getActiveTerms,
+  getAdmissionsForTerm,
   getClassesByIds,
   getSessionsBetween,
   isFutureDate,
@@ -185,6 +186,17 @@ export function AttendanceManager() {
   // session carries only a Class lookup -- its term, room and weekly pattern
   // all live on the class, and the details panel wants all three.
   const [classById, setClassById] = useState<Map<string, RawRecord>>(new Map());
+  /* How many students are placed in each class of the term.
+
+     Counted here rather than read off Classes.Enrolled_Count, which is a
+     rollup the schema declares and the CRM leaves null on every row -- the
+     field exists, nothing computes it. The allocation board already counts
+     its own for the same reason.
+
+     One read per term, not per range: stepping a day or a week does not
+     change who is enrolled, and a count that refetched on every arrow would
+     cost more than the timetable itself. */
+  const [placedByClass, setPlacedByClass] = useState<Map<string, number>>(new Map());
   // The session whose details are open, if any. Distinct from `selected`,
   // which is the register itself: reading about a lesson and marking one are
   // different acts and only the second should replace the timetable.
@@ -193,6 +205,17 @@ export function AttendanceManager() {
   const F = ZOHO_MODULES.class_sessions.fields;
   const C = ZOHO_MODULES.classes.fields;
   const T = ZOHO_MODULES.terms.fields;
+  const AD = ZOHO_MODULES.admissions.fields;
+
+  /* Nobody placed in the class this lesson belongs to.
+
+     Worth saying before the register is opened rather than after: an empty
+     roster is not a register you can take, it is a class somebody has not
+     finished allocating. Distinguished from "not counted yet" -- while the
+     admissions read is in flight the map is empty and every lesson would
+     otherwise claim to have no students. */
+  const hasNobody = (sess: RawRecord) =>
+    placedByClass.size > 0 && (placedByClass.get(refId(sess[F.class]) ?? '') ?? 0) === 0;
 
   // Read once, on mount. It used to wait until a term span was asked for --
   // three of the four spans are arithmetic and need nothing fetched -- but
@@ -283,6 +306,25 @@ export function AttendanceManager() {
   // Only surface a spinner once the wait is long enough to notice; a fast
   // fetch would otherwise flash one and read as a glitch.
   const showSpinner = useDelayed(loading);
+
+  useEffect(() => {
+    if (!termId) return;
+    let cancelled = false;
+    getAdmissionsForTerm(termId)
+      .then((rows) => {
+        if (cancelled) return;
+        const counts = new Map<string, number>();
+        for (const row of rows) {
+          const classId = refId(row[AD.class]);
+          if (classId) counts.set(classId, (counts.get(classId) ?? 0) + 1);
+        }
+        setPlacedByClass(counts);
+      })
+      // A failure here costs a badge, not the timetable. Every class then
+      // reads as "not known to be empty", which is the safe way round.
+      .catch(() => { if (!cancelled) setPlacedByClass(new Map()); });
+    return () => { cancelled = true; };
+  }, [termId, AD.class]);
 
   useEffect(() => {
     let cancelled = false;
@@ -567,7 +609,7 @@ export function AttendanceManager() {
           >
             <dl className="facts">
               <dt>Status</dt>
-              <dd><Badge tone={tone.tone} dot>{tone.label}</Badge></dd>
+              <dd><Badge tone={tone.tone}>{tone.label}</Badge></dd>
 
               <dt>Time</dt>
               <dd>
@@ -773,7 +815,10 @@ export function AttendanceManager() {
                     </button>
                   </td>
                   <td>
-                    <Badge tone={status.tone} dot>{status.label}</Badge>
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    {hasNobody(s) && (
+                      <Badge tone="critical">No students</Badge>
+                    )}
                   </td>
                   <td className="actions">
                     <Button variant="ghost" onClick={() => setSelected(s.id)}>
@@ -909,12 +954,24 @@ export function AttendanceManager() {
                               <button
                                 type="button"
                                 key={sess.id}
-                                className={`cal-item tone-${tone.tone}`}
+                                className={[
+                                  `cal-item tone-${tone.tone}`,
+                                  hasNobody(sess) ? 'is-unstaffed' : '',
+                                ].filter(Boolean).join(' ')}
                                 onClick={() => setDetails(sess)}
-                                title={`${str(sess[F.start_time])} ${refName(sess[F.class])} — ${tone.label}`}
+                                title={[
+                                  `${str(sess[F.start_time])} ${refName(sess[F.class])} — ${tone.label}`,
+                                  hasNobody(sess) ? 'No students placed in this class' : '',
+                                ].filter(Boolean).join(' · ')}
                               >
                                 <span className="cal-time">{str(sess[F.start_time], '—')}</span>
                                 <span className="cal-name">{refName(sess[F.class]) || '—'}</span>
+                                {/* A mark, not a word: the cell is 140px and
+                                    "No students" would be most of it. The
+                                    tooltip and the day view say it in full. */}
+                                {hasNobody(sess) && (
+                                  <i className="cal-empty-mark" aria-label="No students placed" />
+                                )}
                               </button>
                             );
                           })}

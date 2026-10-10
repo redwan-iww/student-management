@@ -170,21 +170,25 @@ export type Tone = 'positive' | 'pending' | 'neutral' | 'critical';
  * status to a tone lives in `status.ts` -- so the same enum value cannot end up
  * green on one screen and grey on another.
  */
+/* No leading dot.
+
+   The design this came from marked each badge with one, and in a table it
+   looked like it was earning its place -- a column of mostly white, with
+   something to catch the eye. It was not: the dot is the same colour as the
+   fill behind it, so it repeats what the badge already says, and two badges
+   side by side put four marks on one row saying it twice. */
 export function Badge({
   tone,
-  dot = false,
   title,
   children,
 }: {
   tone: Tone;
-  dot?: boolean;
   /** The long form, for a badge whose label had to be short to fit. */
   title?: string;
   children: ReactNode;
 }) {
   return (
     <span className={`badge badge-${tone}`} title={title}>
-      {dot && <i className="dot" aria-hidden="true" />}
       {children}
     </span>
   );

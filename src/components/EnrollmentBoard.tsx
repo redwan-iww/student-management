@@ -1247,7 +1247,7 @@ function ClassDetails({
 
         <dt>Status</dt>
         <dd>
-          <Badge tone={status.tone} dot>{status.label}</Badge>
+          <Badge tone={status.tone}>{status.label}</Badge>
         </dd>
       </dl>
 
@@ -1579,13 +1579,12 @@ function ClassDrop({
         {(sessions ?? 0) === 0 && (
           <Badge
             tone="critical"
-            dot
             title="This class has a weekly pattern but no dated lessons have been generated from it yet, so no register can be taken against it."
           >
             No lessons yet
           </Badge>
         )}
-        {full && <Badge tone="pending" dot>Full</Badge>}
+        {full && <Badge tone="pending">Full</Badge>}
         {/* Only when it is not the ordinary case. Every class in a running
             term reads Running, so the badge said nothing on sixteen cards and
             hid the one that was Cancelled among them. */}
@@ -1608,7 +1607,7 @@ function ClassDrop({
         {(effectiveStatus === 'Cancelled' ||
           effectiveStatus === 'Draft' ||
           effectiveStatus === 'Completed') && (
-          <Badge tone={status.tone} dot>{status.label}</Badge>
+          <Badge tone={status.tone}>{status.label}</Badge>
         )}
       </div>
 
@@ -2268,7 +2267,7 @@ function StudentDetails({
                 {refName(student[ST.household]) || 'No household on file'}
               </div>
             </div>
-            <Badge tone={str(student[ST.status]) === 'Active' ? 'positive' : 'neutral'} dot>
+            <Badge tone={str(student[ST.status]) === 'Active' ? 'positive' : 'neutral'}>
               {str(student[ST.status], '—')}
             </Badge>
           </div>
