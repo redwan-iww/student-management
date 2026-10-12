@@ -240,6 +240,53 @@ td.actions, th.actions { text-align: right; width: 1%; white-space: nowrap; }
 tr.dirty, tr.dirty:hover { background: var(--dirty); }
 tr.dirty td:first-child { box-shadow: inset 3px 0 0 var(--dirty-line); }
 
+/* The status buttons and the qualifier beside them. Wraps rather than
+   squeezing the buttons when the column is narrow. */
+.mark-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s4);
+}
+
+/* Leaving early, beside the status it qualifies rather than among the
+   statuses it is not one of. Divided by a rule, because without one it reads
+   as a fifth option in the group it is deliberately not part of. */
+.mark-also {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding-left: var(--s4);
+  border-left: 1px solid var(--line);
+  font-size: .8rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mark-also input { accent-color: var(--accent); cursor: pointer; }
+.mark-also:has(input:checked) { color: var(--fg); font-weight: 550; }
+.mark-also input:disabled, .mark-also:has(input:disabled) { cursor: default; }
+/* Present but not applicable: faded rather than removed, so the row keeps its
+   shape as the status changes. */
+.mark-also.is-off { opacity: .35; }
+
+/* Why, for a mark that is not Present. Under the choices rather than in a
+   column of its own: it belongs to the status just chosen, and a column would
+   stand empty on every Present row -- which is most of them. */
+.mark-why {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: var(--s2);
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font: inherit;
+  font-size: .82rem;
+}
+.mark-why::placeholder { color: var(--faint); }
+.mark-why:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+
 /* Nobody has marked this student yet. An edge, not a fill: a register is read
    top to bottom and the question is which rows are still blank, which is a
    question about the left margin rather than about any one row. A fill would

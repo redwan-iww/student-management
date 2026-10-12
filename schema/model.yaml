@@ -507,6 +507,11 @@ entities:
           derived_from: "admission.class" }
       - { name: status, label: Attendance, type: enum, enum: attendance_status, required: true, default: Present }
       - { name: minutes_late, label: Minutes Late, type: integer, default: 0 }
+      - { name: left_early, label: Left Early, type: boolean, default: false,
+          note: "The student attended but did not stay to the end. A fact about the
+                 mark rather than a status of its own, so it can be true alongside
+                 Present and alongside a minutes_late above zero -- neither of which
+                 was expressible while leaving early was one of the status values." }
       - { name: marked_by, label: Marked By, type: reference, ref: teachers, required: false, on_delete: set_null,
           note: "The teacher who took the class and recorded the mark." }
       - { name: marked_at, label: Marked At, type: datetime }

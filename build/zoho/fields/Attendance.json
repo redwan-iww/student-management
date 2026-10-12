@@ -39,11 +39,6 @@
           "display_value": "Excused",
           "actual_value": "Excused",
           "sequence_number": 4
-        },
-        {
-          "display_value": "Left Early",
-          "actual_value": "Left Early",
-          "sequence_number": 5
         }
       ],
       "system_mandatory": true,
@@ -57,6 +52,17 @@
       "length": 9,
       "default_value": "0",
       "_entity_field": "minutes_late"
+    },
+    {
+      "field_label": "Left Early",
+      "api_name": "Left_Early",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "The student attended but did not stay to the end. A fact about the mark rather than a status of its own, so it can be true alongside Present and alongside a minutes_late above zero -- neither of which was expressible while leaving early was one of the sta"
+      },
+      "data_type": "boolean",
+      "default_value": "false",
+      "_entity_field": "left_early"
     },
     {
       "field_label": "Marked At",

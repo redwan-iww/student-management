@@ -657,6 +657,13 @@ export interface AttendanceMark {
   studentId: string;
   classId: string;
   status: AttendanceStatus;
+  /**
+   * Why, in the marker's words. Empty for a plain Present, which needs no
+   * explaining -- the field exists for the four statuses that do.
+   */
+  remarks?: string;
+  /** Attended but did not stay to the end. See attendance.left_early. */
+  leftEarly?: boolean;
   /** Used to compose the mandatory Name field. */
   studentName: string;
   /** Present when updating an existing mark rather than creating one. */
@@ -686,6 +693,10 @@ export async function saveMark(
     [fields.class]: { id: mark.classId },
     [fields.status]: mark.status,
     [fields.marked_at]: zohoDateTime(),
+    // Always sent, including empty: clearing a reason has to erase the stored
+    // one, and a payload that omits the field would leave it standing.
+    [fields.remarks]: mark.remarks?.trim() || null,
+    [fields.left_early]: mark.leftEarly === true,
   };
   if (markedByTeacherId) payload[fields.marked_by] = { id: markedByTeacherId };
 

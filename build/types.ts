@@ -311,15 +311,13 @@ export type AttendanceStatus =
   | 'Present'
   | 'Absent'
   | 'Late'
-  | 'Excused'
-  | 'Left Early';
+  | 'Excused';
 
 export const ATTENDANCE_STATUS_VALUES: readonly AttendanceStatus[] = [
   'Present',
   'Absent',
   'Late',
   'Excused',
-  'Left Early',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -549,6 +547,7 @@ export interface Attendance {
   class: ZohoRef;
   status: AttendanceStatus;
   minutes_late?: number;
+  left_early?: boolean;
   marked_by?: ZohoRef;
   marked_at?: string;
   remarks?: string;
@@ -775,6 +774,7 @@ export const ZOHO_MODULES = {
       class: 'Class',
       status: 'Status',
       minutes_late: 'Minutes_Late',
+      left_early: 'Left_Early',
       marked_by: 'Marked_By',
       marked_at: 'Marked_At',
       remarks: 'Remarks',

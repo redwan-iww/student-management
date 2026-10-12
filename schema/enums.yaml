@@ -113,6 +113,12 @@ enums:
     label: Allocation Status
     values: [Planned, Active, Ended, Cancelled]
 
+  # No 'Left Early'. Leaving early is not a rival to being present -- it is
+  # something that happened to a student who was present, which is why it
+  # could not be recorded alongside Present or Late while it was a status.
+  # It is attendance.left_early now. The CRM picklist keeps the old value so
+  # the column does not have to be rewritten; nothing writes it any more, and
+  # the four marks that held it were migrated on 2026-10-12.
   attendance_status:
     label: Attendance
-    values: [Present, Absent, Late, Excused, Left Early]
+    values: [Present, Absent, Late, Excused]

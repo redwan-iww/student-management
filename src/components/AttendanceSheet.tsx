@@ -35,6 +35,10 @@ interface Row {
    * and have recorded nothing at all.
    */
   status: AttendanceStatus | null;
+  /** Why. Only asked for when the status is something other than Present. */
+  remarks: string;
+  /** Attended but did not stay. True alongside Present, or alongside Late. */
+  leftEarly: boolean;
   existingId?: string;
   /** Whether this row differs from what is stored. */
   dirty: boolean;
@@ -99,6 +103,8 @@ export function AttendanceSheet({
             // No fallback. An admission with no attendance record for this
             // session has not been marked, and saying so is the point.
             status: isAttendanceStatus(priorStatus) ? priorStatus : null,
+            remarks: String(prior?.[attendanceFields.remarks] ?? ''),
+            leftEarly: prior?.[attendanceFields.left_early] === true,
             existingId: prior?.id,
             dirty: false,
           };
@@ -129,12 +135,47 @@ export function AttendanceSheet({
 
   function setStatus(admissionId: string, status: AttendanceStatus) {
     setRows((prev) =>
-      prev.map((r) => (r.admissionId === admissionId ? { ...r, status, dirty: true } : r)),
+      prev.map((r) =>
+        r.admissionId === admissionId
+          ? {
+              ...r,
+              status,
+              // A reason belongs to the thing it explains. Moving to Present
+              // leaves nothing to explain, so a note written against an
+              // Absent must not quietly ride along with it.
+              remarks: status === 'Present' ? '' : r.remarks,
+              // Nobody who was absent left early. Clearing it keeps the two
+              // from contradicting each other in the record.
+              leftEarly: status === 'Absent' || status === 'Excused' ? false : r.leftEarly,
+              dirty: true,
+            }
+          : r,
+      ),
+    );
+  }
+
+  function setLeftEarly(admissionId: string, leftEarly: boolean) {
+    setRows((prev) =>
+      prev.map((r) => (r.admissionId === admissionId ? { ...r, leftEarly, dirty: true } : r)),
+    );
+  }
+
+  function setRemarks(admissionId: string, remarks: string) {
+    setRows((prev) =>
+      prev.map((r) => (r.admissionId === admissionId ? { ...r, remarks, dirty: true } : r)),
     );
   }
 
   function setAll(status: AttendanceStatus) {
-    setRows((prev) => prev.map((r) => ({ ...r, status, dirty: true })));
+    setRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        status,
+        remarks: status === 'Present' ? '' : r.remarks,
+        leftEarly: status === 'Absent' || status === 'Excused' ? false : r.leftEarly,
+        dirty: true,
+      })),
+    );
   }
 
   async function save() {
@@ -179,6 +220,8 @@ export function AttendanceSheet({
             classId,
             // Narrowed by the pending filter above; the field is non-null.
             status: row.status as AttendanceStatus,
+            remarks: row.remarks,
+            leftEarly: row.leftEarly,
             studentName: row.studentName,
             ...(row.existingId ? { existingId: row.existingId } : {}),
           },
@@ -276,7 +319,11 @@ export function AttendanceSheet({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                /* Was this student in the room? The only case where leaving
+                   early can be true of them. */
+                const attended = row.status === 'Present' || row.status === 'Late';
+                return (
                 <tr
                   key={row.admissionId}
                   className={[row.dirty ? 'dirty' : '', row.status === null ? 'unmarked' : '']
@@ -290,10 +337,14 @@ export function AttendanceSheet({
                     </div>
                   </td>
                   <td>
-                    {/* A segmented control, but still five real radios sharing
+                    {/* A segmented control, but still real radios sharing
                         one name: the inputs are clipped rather than hidden, so
                         the group keeps its semantics and its arrow-key
                         navigation. */}
+                    {/* The statuses and the qualifier on one line: leaving
+                        early is part of the same answer, and on its own row it
+                        hung under the first button looking like a stray. */}
+                    <div className="mark-line">
                     <div className="seg-choices">
                       {ATTENDANCE_STATUS_VALUES.map((s) => (
                         <label key={s} className={allowed(s) ? undefined : 'unavailable'}>
@@ -308,9 +359,58 @@ export function AttendanceSheet({
                         </label>
                       ))}
                     </div>
+
+                    {/* Leaving early is not one of the four statuses -- it is
+                        something that happened to a student who was there, so
+                        it rides alongside Present or Late rather than
+                        replacing them.
+
+                        Always drawn, and merely disabled where it does not
+                        apply. Rendered only for Present and Late it appeared
+                        and vanished as the status changed, and the row jumped
+                        under the pointer on every click -- on a register that
+                        is twenty rows of clicking. A greyed tick beside Absent
+                        says what it means on its own. */}
+                    <label
+                      className={`mark-also${attended ? '' : ' is-off'}`}
+                      title={attended ? undefined : 'Only for a student who was there'}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.leftEarly && attended}
+                        disabled={saving || cancelled || !attended || !allowed(row.status ?? 'Present')}
+                        onChange={(e) => setLeftEarly(row.admissionId, e.target.checked)}
+                      />
+                      left early
+                    </label>
+                    </div>
+
+                    {/* Only where there is something to explain. Present on its
+                        own is the unremarkable case, and a box asking why
+                        somebody turned up would be asked on every row of every
+                        register. The field is attendance.remarks, which the
+                        schema has always had and nothing ever filled. */}
+                    {row.status !== null && !(row.status === 'Present' && !row.leftEarly) && (
+                      <input
+                        type="text"
+                        className="mark-why"
+                        value={row.remarks}
+                        disabled={saving || cancelled}
+                        placeholder={
+                          row.status === 'Excused' ? 'Reason for the excusal…'
+                            : row.status === 'Absent' ? 'Reason (optional)'
+                            : row.leftEarly && row.status === 'Late' ? 'Late, and why they left (optional)'
+                            : row.leftEarly ? 'Why they left (optional)'
+                            : 'Why late? (optional)'
+                        }
+                        aria-label={`Note for ${row.studentName}`}
+                        onChange={(e) => setRemarks(row.admissionId, e.target.value)}
+                      />
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

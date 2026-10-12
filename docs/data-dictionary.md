@@ -265,6 +265,7 @@ Zoho module `Attendance` (create)
 | `class` | reference → `classes` | ✓ |  | `Class` | derived from `admission.class` |
 | `status` | enum `attendance_status` | ✓ |  | `Status` | default `Present` |
 | `minutes_late` | integer |  |  | `Minutes_Late` | default `0` |
+| `left_early` | boolean |  |  | `Left_Early` | The student attended but did not stay to the end. A fact about the mark rather than a status of its own, so it can be true alongside Present and alongside a minutes_late above zero -- neither of which was expressible while leaving early was one of the status values.; default `false` |
 | `marked_by` | reference → `teachers` |  |  | `Marked_By` | The teacher who took the class and recorded the mark. |
 | `marked_at` | datetime |  |  | `Marked_At` |  |
 | `remarks` | textarea |  |  | `Remarks` |  |
@@ -296,4 +297,4 @@ Zoho module `Attendance` (create)
 - `payment_status` — `Unpaid`, `Partially Paid`, `Paid`, `Waived`, `Refunded`
 - `allocation_role` — `Lead Teacher`, `Assistant`, `Substitute`, `Observer`
 - `allocation_status` — `Planned`, `Active`, `Ended`, `Cancelled`
-- `attendance_status` — `Present`, `Absent`, `Late`, `Excused`, `Left Early`
+- `attendance_status` — `Present`, `Absent`, `Late`, `Excused`

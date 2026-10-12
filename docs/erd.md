@@ -157,6 +157,7 @@ erDiagram
         FK_classes class "required"
         enum status "required"
         integer minutes_late
+        boolean left_early
         FK_teachers marked_by
         datetime marked_at
         textarea remarks

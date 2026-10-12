@@ -218,6 +218,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `class` | `Class` | lookup → `Classes` |  |
 | `status` | `Status` | picklist |  |
 | `minutes_late` | `Minutes_Late` | integer |  |
+| `left_early` | `Left_Early` | boolean |  |
 | `marked_by` | `Marked_By` | lookup → `Teachers` |  |
 | `marked_at` | `Marked_At` | datetime |  |
 | `remarks` | `Remarks` | textarea |  |
