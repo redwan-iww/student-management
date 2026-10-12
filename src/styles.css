@@ -3061,6 +3061,17 @@ select.field { cursor: pointer; }
    the day beside it and looked like it belonged to that one -- on a grid
    where every square is a separate decision, a marker that can be read
    against the wrong square is worse than no marker. */
+/* A day that holds several lessons is the only one that opens a list, and the
+   badge is the only thing distinguishing it. Made to look like the control it
+   is -- a ring to lift it off the square, and it grows on hover with the cell,
+   so the square reads as having something behind it rather than being one
+   more toggle. */
+.gen-cell:hover .gen-cell-n.is-many { transform: scale(1.18); }
+.gen-cell-n.is-many {
+  box-shadow: 0 0 0 1.5px var(--surface);
+  transition: transform .12s ease;
+}
+
 .gen-cell-n {
   position: absolute;
   top: 1px;
@@ -3129,6 +3140,70 @@ select.field { cursor: pointer; }
   color: var(--muted);
 }
 .gen-changes .btn { padding: 2px 4px; flex: none; }
+
+/* One date's lessons, opened from a square that carries several. Under the
+   grid rather than floating over it: a popover would have to dodge the cell
+   it came from, and at four rows this is no taller than the month it sits
+   beneath. */
+.gen-day {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.gen-day-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s2) var(--s1) var(--s3);
+  border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+.gen-day-count { margin-left: auto; color: var(--muted); font-size: .74rem; }
+
+.gen-day-list { list-style: none; margin: 0; padding: 0; }
+.gen-day-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) var(--s2) var(--s1) var(--s3);
+  font-size: .8rem;
+}
+.gen-day-list li + li { border-top: 1px solid var(--line); }
+/* A row that will be written. The rest are being left alone, which is the
+   quiet state. */
+.gen-day-list li.is-acting { background: var(--surface); }
+
+.gen-day-when {
+  flex: none;
+  width: 3.2rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.gen-day-what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+/* What this lesson's state is -- words, not a control, so it cannot be
+   mistaken for the button beside it. Quiet while nothing is happening to the
+   lesson and coloured once something is. */
+.gen-day-state {
+  flex: none;
+  font-size: .72rem;
+  color: var(--faint);
+}
+.gen-day-list li.is-acting .gen-day-state { color: var(--warn); font-weight: 600; }
+
+.gen-day-list .btn { flex: none; padding: 2px 8px; font-size: .72rem; }
+/* The class name gives up its width first: the state and the verb beside it
+   are short and fixed, and a truncated code is still recognisable where a
+   truncated "will be called off" is not. */
+.gen-day-what { flex: 1 1 auto; }
 
 .gen-key {
   display: flex;

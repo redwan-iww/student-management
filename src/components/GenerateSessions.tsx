@@ -227,6 +227,14 @@ export function GenerateSessions({
      set up for the first time wants; narrowing is for the afternoon somebody
      needs to call off without touching the morning. */
   const [shiftScope, setShiftScope] = useState<'' | 'Morning' | 'Evening'>('');
+  /* A date opened to be worked on lesson by lesson.
+
+     A square is a date, and a date is not a lesson: with every course in
+     scope a December Monday carries four, and one click took all four. Course
+     and shift narrow it, but two morning lessons of different courses are
+     still one square -- and "keep this one, drop that one" has no square to
+     click. Opening the date lists what is on it instead. */
+  const [openDate, setOpenDate] = useState('');
 
   // Every (class|date|time) this component has written. A ref, not state:
   // it must survive a re-render without causing one, and it is read inside an
@@ -272,6 +280,7 @@ export function GenerateSessions({
     setSkipped(new Set());
     setFlipped(new Set());
     setShiftScope('');
+    setOpenDate('');
     // A course picked in one term means nothing in the next.
     setCourseId('');
     getClassesForTerm(termId)
@@ -579,6 +588,46 @@ export function GenerateSessions({
      filter never moves the calendar -- which means the month in front of you
      can legitimately be empty, and the calendar has to say which ones are not
      rather than leaving you to step through looking. */
+  const classMeta = useMemo(() => {
+    const by = new Map<string, { label: string; time: string }>();
+    for (const c of Array.isArray(counts) ? counts : []) {
+      by.set(c.classId, { label: c.label, time: c.time });
+    }
+    return by;
+  }, [counts]);
+
+  /* Everything on one date, in scope, as rows a person can act on one at a
+     time. Creations first, then lessons that already exist. */
+  const lessonsOn = (date: string) => {
+    const rows: {
+      key: string;
+      label: string;
+      time: string;
+      kind: 'create' | 'live' | 'cancelled';
+      on: boolean;
+    }[] = [];
+    for (const key of plan.toCreate.get(date) ?? []) {
+      const meta = classMeta.get(key.split('|')[0] ?? '');
+      rows.push({
+        key,
+        label: meta?.label ?? '—',
+        time: meta?.time ?? '',
+        kind: 'create',
+        on: !skipped.has(key),
+      });
+    }
+    for (const lesson of plan.taken.get(date) ?? []) {
+      rows.push({
+        key: lesson.id,
+        label: lesson.label,
+        time: lesson.time,
+        kind: lesson.cancelled ? 'cancelled' : 'live',
+        on: flipped.has(lesson.id),
+      });
+    }
+    return rows.sort((a, b) => a.time.localeCompare(b.time) || a.label.localeCompare(b.label));
+  };
+
   const monthsWithLessons = useMemo(() => {
     const live = new Set<string>();
     for (const date of plan.toCreate.keys()) live.add(date.slice(0, 7));
@@ -877,7 +926,7 @@ export function GenerateSessions({
             type="button"
             className={`gen-course${courseId === '' ? ' is-on' : ''}`}
             aria-pressed={courseId === ''}
-            onClick={() => { setCourseId(''); setSkipped(new Set()); setMonthKey(''); }}
+            onClick={() => { setCourseId(''); setSkipped(new Set()); setMonthKey(''); setOpenDate(''); }}
           >
             <span className="gen-course-name">All {courses.length} courses</span>
             {!counting && (
@@ -895,7 +944,7 @@ export function GenerateSessions({
               type="button"
               className={`gen-course${courseId === c.id ? ' is-on' : ''}`}
               aria-pressed={courseId === c.id}
-              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setMonthKey(''); }}
+              onClick={() => { setCourseId(c.id); setSkipped(new Set()); setMonthKey(''); setOpenDate(''); }}
             >
               <span className="gen-course-name">
                 {c.name}
@@ -950,7 +999,7 @@ export function GenerateSessions({
       {datesOpen && (
         <Modal
           title="Choose dates"
-          subtitle="Dark days will be created; green ones already exist. Click either to change it."
+          subtitle="Dark days will be created, green ones already exist — click either to change it. A day with a number on it holds several lessons: click to choose between them."
           onClose={() => setDatesOpen(false)}
           footer={
             <>
@@ -1101,25 +1150,30 @@ export function GenerateSessions({
                            the way to call off an evening lesson without
                            touching the morning one beside it. */
                         title={
-                          flip
-                            ? goingOff
-                              ? `${date} — will be cancelled`
-                              : `${date} — will be put back`
-                            : live > 0
-                              ? `${date} — ${live} lesson${live === 1 ? '' : 's'}, click to cancel`
-                              : `${date} — cancelled, click to put back`
+                          lessons.length > 1
+                            ? `${toUk(date)} — ${lessons.length} lessons, click to choose between them`
+                            : flip
+                              ? goingOff
+                                ? `${toUk(date)} — will be cancelled`
+                                : `${toUk(date)} — will be put back`
+                              : live > 0
+                                ? `${toUk(date)} — click to cancel this lesson`
+                                : `${toUk(date)} — cancelled, click to put it back`
                         }
-                        onClick={() =>
+                        onClick={() => {
+                          // More than one lesson behind the square: the click
+                          // cannot mean one of them, so it opens the date.
+                          if (lessons.length > 1) { setOpenDate(date); return; }
                           setFlipped((prev) => {
                             const next = new Set(prev);
                             if (flip) for (const l of lessons) next.delete(l.id);
                             else for (const l of lessons) next.add(l.id);
                             return next;
-                          })
-                        }
+                          });
+                        }}
                       >
                         {day}
-                        {lessons.length > 1 && <i className="gen-cell-n">{lessons.length}</i>}
+                        {lessons.length > 1 && <i className="gen-cell-n is-many">{lessons.length}</i>}
                       </button>
                     );
                   }
@@ -1142,25 +1196,27 @@ export function GenerateSessions({
                       key={date}
                       className={`gen-cell is-plan${off ? ' is-off' : ''}`}
                       aria-pressed={!off}
-                      title={`${date} — ${n} lesson${n === 1 ? '' : 's'}${off ? ', not creating' : ''}`}
-                      onClick={() =>
+                      title={
+                        n > 1
+                          ? `${toUk(date)} — ${n} lessons, click to choose between them`
+                          : `${toUk(date)} — ${off ? 'not creating' : 'will be created'}`
+                      }
+                      onClick={() => {
+                        if (keys.length > 1) { setOpenDate(date); return; }
                         setSkipped((prev) => {
                           const next = new Set(prev);
-                          // All on or all off, from whichever way round it is
-                          // now: a half-skipped date would have no state the
-                          // cell could show.
                           if (off) for (const key of keys) next.delete(key);
                           else for (const key of keys) next.add(key);
                           return next;
-                        })
-                      }
+                        });
+                      }}
                     >
                       {day}
                       {/* How many lessons land on this day, when it is more
                           than one -- a course with two sections meeting the
                           same day is two lessons behind one number. Narrow the
                           shift above and they separate. */}
-                      {n > 1 && <i className="gen-cell-n">{n}</i>}
+                      {n > 1 && <i className="gen-cell-n is-many">{n}</i>}
                     </button>
                   );
                 })}
@@ -1169,6 +1225,84 @@ export function GenerateSessions({
             );
           })()}
 
+          {/* One date, lesson by lesson.
+
+              A square can only ever mean a whole date, so the squares that
+              carry several open this instead of guessing which one was meant.
+              Each row says what will happen to that lesson and changes only
+              that lesson. */}
+          {openDate !== '' && (
+            <div className="gen-day">
+              <div className="gen-day-head">
+                <strong>{toUk(openDate)}</strong>
+                <span className="gen-day-count">
+                  {lessonsOn(openDate).length} lesson
+                  {lessonsOn(openDate).length === 1 ? '' : 's'}
+                </span>
+                <Button variant="ghost" small aria-label="Close this date" onClick={() => setOpenDate('')}>
+                  <Icon name="close" size={13} />
+                </Button>
+              </div>
+              <ul className="gen-day-list">
+                {lessonsOn(openDate).map((row) => {
+                  /* Two different things, which were one before: what this
+                     lesson's state is, and what the button does to it.
+
+                     The button said "creating", which is a state -- so it read
+                     as a label on a control and told you nothing about what
+                     pressing it would do. State is now plain text and the
+                     button is an imperative, which is the only form a button
+                     can be read in without guessing. */
+                  const [state, action] =
+                    row.kind === 'create'
+                      ? row.on ? ['will be created', 'Skip'] : ['skipped', 'Create']
+                      : row.kind === 'live'
+                        ? row.on ? ['will be called off', 'Keep'] : ['on', 'Call off']
+                        : row.on ? ['will be put back', 'Leave off'] : ['called off', 'Put back'];
+                  // A row that this run will write, as opposed to one it will
+                  // leave exactly as it found it.
+                  const acting = row.on;
+                  return (
+                    <li key={row.key} className={acting ? 'is-acting' : ''}>
+                      <span className="gen-day-when">{row.time || '—'}</span>
+                      <span className="gen-day-what">{row.label}</span>
+                      <span className="gen-day-state">{state}</span>
+                      <Button
+                        small
+                        variant="ghost"
+                        onClick={() => {
+                          if (row.kind === 'create') {
+                            setSkipped((prev) => {
+                              const next = new Set(prev);
+                              if (row.on) next.add(row.key);
+                              else next.delete(row.key);
+                              return next;
+                            });
+                          } else {
+                            setFlipped((prev) => {
+                              const next = new Set(prev);
+                              if (row.on) next.delete(row.key);
+                              else next.add(row.key);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        {action}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* The legend explains the squares' colours. With a date open the
+              rows below say the same thing in words, for the lessons actually
+              being decided -- and leaving both in pushed the legend under the
+              dialog's edge, where half a row of swatches reads as a rendering
+              fault rather than a key. */}
+          {openDate === '' && (
           <p className="gen-key">
             <span className="gen-key-item"><i className="gen-swatch is-plan" /> will create</span>
             <span className="gen-key-item"><i className="gen-swatch is-off" /> turned off</span>
@@ -1176,6 +1310,7 @@ export function GenerateSessions({
             <span className="gen-key-item"><i className="gen-swatch is-dropping" /> cancelling</span>
             <span className="gen-key-item"><i className="gen-swatch is-closed" /> closed</span>
           </p>
+          )}
         </div>
         </Modal>
       )}
