@@ -49,6 +49,13 @@ erDiagram
         textarea medical_notes
         image photo
     }
+    ROOMS {
+        text name "required"
+        text room_code "unique"
+        integer seats
+        enum status
+        textarea notes
+    }
     TEACHERS {
         text full_name "required"
         autonumber staff_code "unique"
@@ -114,6 +121,7 @@ erDiagram
         text section_label
         FK_teachers primary_teacher
         text room
+        FK_rooms classroom
         integer capacity "required"
         multi_enum meeting_days
         time start_time
@@ -173,6 +181,7 @@ erDiagram
     COURSES ||--o{ CLASSES : "course"
     TERMS ||--o{ CLASSES : "term"
     TEACHERS |o--o{ CLASSES : "primary_teacher"
+    ROOMS |o--o{ CLASSES : "classroom"
     CLASSES ||--o{ CLASS_SESSIONS : "class"
     TEACHERS |o--o{ CLASS_SESSIONS : "teacher_taken"
     TEACHERS ||--o{ ALLOCATIONS : "teacher"
@@ -189,6 +198,7 @@ erDiagram
 
 - **Household** (`households`) — Family or billing unit. In Zoho this rides on the stock Contacts module, so one record is "the household plus its primary guardian". The entity is kept distinct in this spec so a future move to Accounts-as-household is a mapping change, not a remodel.
 - **Student** (`students`) — The learner. Always belongs to exactly one household.
+- **Room** (`rooms`) — Where a class is taught. A record rather than the line of text it used to be, because two things depend on a room having an identity: telling one class that another is already in it, and telling a class that it has more students than the room has seats. Free text could do neither -- "Room 201" and "room 201" were two rooms to the timetable and one to the school.
 - **Teacher** (`teachers`) — Teaching staff. A separate module rather than CRM users because the org holds only 2 user licences; crm_user links the minority who do have one.
 - **Term** (`terms`) — An academic term/session. Classes and enrollments are scoped to one.
 - **Holiday** (`holidays`) — A date or date range on which no lesson is held. Scoped to a term when it is a term-specific closure, or left unscoped to apply across the whole calendar -- which is what a public holiday needs.

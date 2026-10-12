@@ -81,6 +81,10 @@ enums:
     label: Class Status
     values: [Draft, Scheduled, Running, Completed, Cancelled]
 
+  room_status:
+    label: Room Status
+    values: [Available, Out of Use]
+
   weekday:
     label: Day
     values: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]

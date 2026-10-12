@@ -2,6 +2,13 @@
   "_comment": "Constraints the Zoho field model cannot express natively.",
   "validations": [
     {
+      "_entity": "rooms",
+      "module": "Rooms",
+      "name": "rooms_seats_positive",
+      "expression": "seats > 0",
+      "enforcement": "Zoho validation rule on the listed expression."
+    },
+    {
       "_entity": "terms",
       "module": "Terms",
       "name": "term_dates_ordered",

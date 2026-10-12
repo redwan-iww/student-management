@@ -26,6 +26,8 @@ import {
   getClosedDates,
   getActiveTerms,
   getClassesForTerm,
+  getRooms,
+  int,
   getSessionsForClass,
   sessionKeys,
   setSessionCancelled,
@@ -138,6 +140,15 @@ function monthCells(month: string): string[] {
   return cells;
 }
 
+/** Do two half-open time ranges on the same day overlap? */
+function overlaps(aFrom: string, aTo: string, bFrom: string, bTo: string): boolean {
+  // HH:mm is fixed width, so string order is clock order. A missing end time
+  // cannot be compared, so such a lesson is never reported as clashing --
+  // better silent than crying wolf over every class with a blank End Time.
+  if (!aFrom || !aTo || !bFrom || !bTo) return false;
+  return aFrom < bTo && bFrom < aTo;
+}
+
 /** Is this class in the chosen course? '' means every course. */
 function inCourse(klass: RawRecord, courseId: string, courseField: string): boolean {
   return courseId === '' || refId(klass[courseField]) === courseId;
@@ -180,6 +191,15 @@ export function GenerateSessions({
   /* Dates the term is closed -- holidays, breaks. Kept so the calendar can
      show why a day in the middle of a pattern has no lesson on it. */
   const [closed, setClosed] = useState<ReadonlyMap<string, string>>(new Map());
+  /* Lessons that want a room somebody else is already in, keyed the same way
+     the plan is -- `classId|date` for one this run would create, the session
+     id for one already on the calendar -- against a sentence naming the other
+     class. Nothing in the schema forbids this: classes.room is free text and
+     no constraint compares two of them, so it is caught here or not at all. */
+  const [clashes, setClashes] = useState<ReadonlyMap<string, string>>(new Map());
+  /* Seats per room. Read once rather than per term: a school's rooms do not
+     change between terms, and the count is the same nine rows either way. */
+  const [seatsByRoom, setSeatsByRoom] = useState<ReadonlyMap<string, number>>(new Map());
   /* Dates the user has turned off, so they are not created.
      Empty means create everything, which is what the button offered before
      there was a way to say otherwise. Cleared whenever the term or the course
@@ -270,6 +290,26 @@ export function GenerateSessions({
     return () => { cancelled = true; };
   }, [initialTermId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getRooms()
+      .then((rooms) => {
+        if (cancelled) return;
+        const R = ZOHO_MODULES.rooms.fields;
+        setSeatsByRoom(
+          new Map(
+            rooms
+              .map((r) => [r.id, int(r[R.seats]) ?? 0] as const)
+              .filter(([, seats]) => seats > 0),
+          ),
+        );
+      })
+      // A failure costs the seat warning, not the drawer: no room is then
+      // known to be too small, which is the quiet way to be wrong.
+      .catch(() => { if (!cancelled) setSeatsByRoom(new Map()); });
+    return () => { cancelled = true; };
+  }, []);
+
   // The term's classes, read once per term. Separate from the count below so
   // that changing course re-counts without re-reading them.
   useEffect(() => {
@@ -357,6 +397,27 @@ export function GenerateSessions({
           getClosedDates(termId),
         ]);
 
+        /* Every lesson the term will hold once this run is done, so the room
+           each one wants can be compared against the others.
+
+           Built from all of the classes, never the scoped ones: a morning
+           class clashes with an evening class just as readily as with another
+           morning one, and narrowing the view must not narrow the check. */
+        type Slot = {
+          key: string;
+          date: string;
+          from: string;
+          to: string;
+          /* What this lesson occupies. A room and a teacher are the same kind
+             of thing to a timetable -- a resource that cannot be in two places
+             at once -- so they are checked by one pass over two keys rather
+             than two passes that would have to agree with each other. */
+          books: { kind: 'room' | 'teacher'; id: string; name: string }[];
+          label: string;
+          planned: boolean;
+        };
+        const slots: Slot[] = [];
+
         const out: ClassCount[] = scheduled.map((c, i) => {
           const sessions = sessionSets[i]!;
           const already = sessionKeys(sessions);
@@ -390,6 +451,53 @@ export function GenerateSessions({
             // is exactly the one somebody needs to pick out of a list.
             time: str(r[S.start_time]),
           }));
+          const endTime = str(c.klass[K.end_time]);
+          const books: Slot['books'] = [];
+          /* The room record, not the text beside it. While rooms were free
+             text this folded case and spacing and still could not tell "Rm
+             201" from "Room 201"; an id is an id. classes.room is left in the
+             CRM and no longer read. */
+          const roomId = refId(c.klass[K.classroom]);
+          if (roomId) {
+            books.push({
+              kind: 'room',
+              id: roomId,
+              name: refName(c.klass[K.classroom]) || 'the room',
+            });
+          }
+          const teacherId = refId(c.klass[K.primary_teacher]);
+          if (teacherId) {
+            books.push({
+              kind: 'teacher',
+              id: teacherId,
+              name: refName(c.klass[K.primary_teacher]) || 'the teacher',
+            });
+          }
+
+          if (books.length > 0) {
+            for (const date of dates) {
+              slots.push({
+                key: `${c.klass.id}|${date}`,
+                date, from: startTime, to: endTime, books, label, planned: true,
+              });
+            }
+            for (const lesson of existingLessons) {
+              // A cancelled lesson occupies nothing, so it cannot be in the
+              // way of anything.
+              if (lesson.cancelled) continue;
+              slots.push({
+                key: lesson.id,
+                date: lesson.date,
+                from: lesson.time,
+                // The class's end time: a session carries its own, but a
+                // lesson retimed by hand keeps the pattern's length, and the
+                // class is the only place a length is recorded.
+                to: endTime,
+                books, label, planned: false,
+              });
+            }
+          }
+
           return {
             classId: c.klass.id,
             courseId: refId(c.klass[K.course]) ?? '',
@@ -404,9 +512,56 @@ export function GenerateSessions({
           };
         });
 
+        /* Two lessons wanting one room at one time. Compared within a room
+           and a date, so the loop is over small groups rather than every pair
+           of the term's four hundred lessons. */
+        /* Grouped per resource and per date, so the comparison is within
+           small sets rather than over every pair of the term's lessons. */
+        type Held = Omit<Slot, 'books'> & { booking: Slot['books'][number] };
+        const byResource = new Map<string, Held[]>();
+        for (const slot of slots) {
+          const { books, ...rest } = slot;
+          for (const booking of books) {
+            const k = `${booking.kind}|${booking.id}|${slot.date}`;
+            const entry: Held = { ...rest, booking };
+            const list = byResource.get(k);
+            if (list) list.push(entry);
+            else byResource.set(k, [entry]);
+          }
+        }
+        const found = new Map<string, string>();
+        /* One lesson can contend for a room and a teacher at once. The room
+           is said first because it is the one somebody can resolve without
+           asking anybody. */
+        const note = (key: string, text: string, kind: 'room' | 'teacher') => {
+          const had = found.get(key);
+          if (!had) found.set(key, text);
+          else if (kind === 'room') found.set(key, `${text}; also ${had}`);
+          else found.set(key, `${had}; also ${text}`);
+        };
+        for (const group of byResource.values()) {
+          if (group.length < 2) continue;
+          for (let a = 0; a < group.length; a += 1) {
+            for (let b = a + 1; b < group.length; b += 1) {
+              const x = group[a]!;
+              const y = group[b]!;
+              if (x.label === y.label) continue;
+              if (!overlaps(x.from, x.to, y.from, y.to)) continue;
+              const where = x.booking.kind === 'room'
+                ? `in ${x.booking.name}`
+                : `taught by ${x.booking.name}`;
+              // Reported against both, because either is the one somebody
+              // might decide to move.
+              note(x.key, `${y.label} is ${where} at ${y.from}`, x.booking.kind);
+              note(y.key, `${x.label} is ${where} at ${x.from}`, x.booking.kind);
+            }
+          }
+        }
+
         if (!cancelled) {
           setCounts(out);
           setClosed(closed);
+          setClashes(found);
         }
       } catch {
         if (!cancelled) setCounts('failed');
@@ -547,6 +702,31 @@ export function GenerateSessions({
       restore: restore.sort(byDate),
     };
   }, [flipped, counts, courseId, shiftScope, skipped]);
+
+  /* Classes with more seats on paper than the room holds.
+
+     Reported per class, not per lesson: a class that will not fit is wrong on
+     every one of its twenty dates, and twenty warnings for one mistake is a
+     way of hiding it. Scoped like the rest of the drawer, so narrowing to a
+     course narrows this too. */
+  const oversized = useMemo(() => {
+    const out: { label: string; room: string; capacity: number; seats: number }[] = [];
+    for (const klass of classes ?? []) {
+      if (courseId !== '' && refId(klass[K.course]) !== courseId) continue;
+      const roomId = refId(klass[K.classroom]);
+      if (!roomId) continue;
+      const seats = seatsByRoom.get(roomId);
+      const capacity = int(klass[K.capacity]);
+      if (seats === undefined || capacity === null || capacity <= seats) continue;
+      out.push({
+        label: str(klass[K.class_code], str(klass[K.name], klass.id)),
+        room: refName(klass[K.classroom]) || 'the room',
+        capacity,
+        seats,
+      });
+    }
+    return out;
+  }, [classes, courseId, seatsByRoom, K.course, K.classroom, K.capacity, K.class_code, K.name]);
 
   /* The months the calendar draws: every month the term's lessons fall in,
      whatever is currently in scope.
@@ -858,6 +1038,14 @@ export function GenerateSessions({
      five of something and the button should say what. Two verbs and it would
      be "Create 19 lessons · Call off 2 lessons", which is longer than the
      button. */
+  /* Of the lessons about to be created, how many want a room another class is
+     already in. Counted from what will actually be written -- turning one off
+     resolves its clash, and a warning that did not move when you acted on it
+     would be noise. */
+  const clashing = changes.create.filter((l) => clashes.has(l.key));
+
+
+
   const parts = [
     toCreate > 0 ? `Create ${toCreate}` : '',
     toCancel > 0 ? `Call off ${toCancel}` : '',
@@ -1266,7 +1454,14 @@ export function GenerateSessions({
                     <li key={row.key} className={acting ? 'is-acting' : ''}>
                       <span className="gen-day-when">{row.time || '—'}</span>
                       <span className="gen-day-what">{row.label}</span>
-                      <span className="gen-day-state">{state}</span>
+                      <span className="gen-day-state">
+                        {state}
+                        {clashes.has(row.key) && (
+                          <i className="gen-clash" title={clashes.get(row.key)}>
+                            clash
+                          </i>
+                        )}
+                      </span>
                       <Button
                         small
                         variant="ghost"
@@ -1379,7 +1574,14 @@ export function GenerateSessions({
                     {lesson.time && ` · ${lesson.time}`}
                   </span>
                 </span>
-                <span className="gen-change-verb">creating</span>
+                <span className="gen-change-verb">
+                  creating
+                  {clashes.has(lesson.key) && (
+                    <i className="gen-clash" title={clashes.get(lesson.key)}>
+                      clash
+                    </i>
+                  )}
+                </span>
                 {/* Turns this one date off, exactly as clicking its square in
                     the calendar would. */}
                 <Button
@@ -1433,6 +1635,20 @@ export function GenerateSessions({
         </Modal>
       )}
 
+      {oversized.length > 0 && (
+        <Banner tone="warn">
+          {oversized.length === 1
+            ? 'One class is bigger than its room'
+            : `${oversized.length} classes are bigger than their rooms`}
+          :{' '}
+          {oversized
+            .map((c) => `${c.label} takes ${c.capacity} in ${c.room} (${c.seats} seats)`)
+            .join('; ')}
+          . Lessons will still be created — the timetable is not the thing that
+          decides how many chairs are in a room.
+        </Banner>
+      )}
+
       {preview.kind === 'failed' && (
         <Banner tone="error">Could not read this term's classes.</Banner>
       )}
@@ -1473,6 +1689,12 @@ export function GenerateSessions({
                 {preview.existing > 0 && <> · {preview.existing} already exist</>}
                 {preview.onHoliday > 0 && (
                   <> · <strong>{preview.onHoliday} skipped</strong> as holidays or closures</>
+                )}
+                {clashing.length > 0 && (
+                  <>
+                    {' '}· <strong className="is-clash">{clashing.length} double-booked</strong>
+                    {' '}— the room or the teacher is taken
+                  </>
                 )}.
               </>
             )}

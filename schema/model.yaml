@@ -147,6 +147,37 @@ entities:
   # =========================================================================
   # teachers -- deliberately NOT CRM users (only 2 licences in the org)
   # =========================================================================
+  - name: rooms
+    label: Room
+    plural_label: Rooms
+    description: >
+      Where a class is taught. A record rather than the line of text it used
+      to be, because two things depend on a room having an identity: telling
+      one class that another is already in it, and telling a class that it has
+      more students than the room has seats. Free text could do neither --
+      "Room 201" and "room 201" were two rooms to the timetable and one to
+      the school.
+    zoho:
+      module: Rooms
+      access_type: team_based
+      strategy: create
+      display_field: Name
+    fields:
+      - { name: name, label: Room Name, type: text, length: 60, required: true,
+          zoho: { api_name: Name, stock: true } }
+      - { name: room_code, label: Room Code, type: text, length: 20, unique: true,
+          note: "A stable handle. Renaming a room on a sign should not orphan its timetable." }
+      - { name: seats, label: Seats, type: integer,
+          note: "How many people fit. Seeded on 2026-10-12 from the largest class then
+                 timetabled in each room, which is a floor rather than a measurement." }
+      - { name: status, label: Status, type: enum, enum: room_status, default: Available }
+      - { name: notes, label: Room Notes, type: textarea,
+          zoho: { api_name: Room_Notes },
+          note: "Relabelled and renamed: Zoho reserves Notes, so a field labelled it
+                 is rejected outright. Same treatment as households.notes." }
+    constraints:
+      - { type: check, name: rooms_seats_positive, expr: "seats > 0" }
+
   - name: teachers
     label: Teacher
     plural_label: Teachers
@@ -371,7 +402,15 @@ entities:
       - { name: term, label: Term, type: reference, ref: terms, required: true, on_delete: restrict }
       - { name: section_label, label: Section, type: text, length: 10, note: "e.g. 'A', 'B', 'Evening'" }
       - { name: primary_teacher, label: Primary Teacher, type: reference, ref: teachers, required: false, on_delete: set_null }
-      - { name: room, label: Room, type: text, length: 60 }
+      # Kept, and no longer read by the app. Zoho cannot delete a field that
+      # other things reference and an api_name cannot be reused, so the text
+      # stays as it was on 2026-10-12 while classroom is the live answer.
+      - { name: room, label: Room, type: text, length: 60,
+          note: "Superseded by classroom. Left in place because removing a Zoho field
+                 is not reversible and the historical value is worth keeping." }
+      - { name: classroom, label: Classroom, type: reference, ref: rooms, required: false, on_delete: set_null,
+          note: "The room as a record. Two classes wanting it at one hour is a clash the
+                 lesson generator reports; a class larger than its seats is another." }
       - { name: capacity, label: Capacity, type: integer, required: true, default: 20 }
       - { name: meeting_days, label: Meeting Days, type: multi_enum, enum: weekday,
           note: "The weekly pattern that class_sessions rows are generated from." }

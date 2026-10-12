@@ -200,6 +200,15 @@ export const CLASS_STATUS_VALUES: readonly ClassStatus[] = [
   'Cancelled',
 ] as const;
 
+export type RoomStatus =
+  | 'Available'
+  | 'Out of Use';
+
+export const ROOM_STATUS_VALUES: readonly RoomStatus[] = [
+  'Available',
+  'Out of Use',
+] as const;
+
 export type Weekday =
   | 'Monday'
   | 'Tuesday'
@@ -382,6 +391,19 @@ export interface Student {
 }
 
 /**
+ * Where a class is taught. A record rather than the line of text it used to be, because two things depend on a room having an identity: telling one class that another is already in it, and telling a class that it has more students than the room has seats. Free text could do neither -- "Room 201" and "room 201" were two rooms to the timetable and one to the school.
+ * Zoho module: Rooms
+ */
+export interface Room {
+  id: string;
+  name: string;
+  room_code?: string;
+  seats?: number;
+  status?: RoomStatus;
+  notes?: string;
+}
+
+/**
  * Teaching staff. A separate module rather than CRM users because the org holds only 2 user licences; crm_user links the minority who do have one.
  * Zoho module: Teachers
  */
@@ -482,6 +504,7 @@ export interface Class {
   section_label?: string;
   primary_teacher?: ZohoRef;
   room?: string;
+  classroom?: ZohoRef;
   capacity: number;
   meeting_days?: Weekday[];
   start_time?: string;
@@ -626,6 +649,17 @@ export const ZOHO_MODULES = {
       active_enrollments_count: 'Active_Enrollments_Count',
     },
   },
+  rooms: {
+    module: 'Rooms',
+    displayField: 'Name',
+    fields: {
+      name: 'Name',
+      room_code: 'Room_Code',
+      seats: 'Seats',
+      status: 'Status',
+      notes: 'Room_Notes',
+    },
+  },
   teachers: {
     module: 'Teachers',
     displayField: 'Name',
@@ -715,6 +749,7 @@ export const ZOHO_MODULES = {
       section_label: 'Section_Label',
       primary_teacher: 'Primary_Teacher',
       room: 'Room',
+      classroom: 'Classroom',
       capacity: 'Capacity',
       meeting_days: 'Meeting_Days',
       start_time: 'Start_Time',
@@ -788,6 +823,7 @@ export type EntityName = keyof typeof ZOHO_MODULES;
 export interface EntityTypes {
   households: Household;
   students: Student;
+  rooms: Room;
   teachers: Teacher;
   terms: Term;
   holidays: Holiday;

@@ -368,6 +368,22 @@ export async function getClassesForTerm(termId: string): Promise<RawRecord[]> {
   return recs.sort((a, b) => str(a[fields.name]).localeCompare(str(b[fields.name])));
 }
 
+/**
+ * Every room, with its seat count.
+ *
+ * Read whole rather than searched: a school has a dozen rooms and a criterion
+ * meaning "all" does not exist, so one page covers it. Out-of-use rooms come
+ * back too -- a class is still timetabled in one until somebody moves it, and
+ * hiding the room would hide the problem.
+ */
+export async function getRooms(): Promise<RawRecord[]> {
+  const { module, fields } = ZOHO_MODULES.rooms;
+  const recs = await pageThrough(`all ${module}`, (page) =>
+    zoho().CRM.API.getAllRecords({ Entity: module, per_page: PAGE_SIZE, page }),
+  );
+  return recs.sort((a, b) => str(a[fields.name]).localeCompare(str(b[fields.name])));
+}
+
 export async function getTeachers(): Promise<RawRecord[]> {
   const { module, fields } = ZOHO_MODULES.teachers;
   const recs = await search(module, `(${fields.status}:equals:Active)`);

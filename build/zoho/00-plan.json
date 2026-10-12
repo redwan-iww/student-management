@@ -8,6 +8,7 @@
       "Students"
     ],
     "team_based": [
+      "Rooms",
       "Teachers",
       "Terms",
       "Holidays",
@@ -34,13 +35,14 @@
       "step": 2,
       "action": "createModules",
       "file": "modules.json",
-      "count": 9
+      "count": 10
     },
     {
       "step": 3,
       "action": "createFields (scalar pass)",
       "files": [
         "fields/Contacts.json",
+        "fields/Rooms.json",
         "fields/Teachers.json",
         "fields/Terms.json",
         "fields/Holidays.json",
@@ -77,7 +79,7 @@
       "step": 6,
       "action": "validation rules / custom functions",
       "file": "validations.json",
-      "count": 9
+      "count": 10
     },
     {
       "step": 7,
@@ -102,6 +104,11 @@
       "entity": "households",
       "module": "Contacts",
       "strategy": "extend_standard"
+    },
+    {
+      "entity": "rooms",
+      "module": "Rooms",
+      "strategy": "create"
     },
     {
       "entity": "teachers",

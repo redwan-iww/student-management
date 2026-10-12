@@ -12,6 +12,7 @@ drift check.
 |---|---|---|---|
 | `households` | `Contacts` | extend_standard |  |
 | `students` | `Students` | extend_custom | CustomModule45 (id 4731441000029976123) in demo3: status visible, custom, api-supported, stock system fields only. Re-verified 2026-09-19. |
+| `rooms` | `Rooms` | create |  |
 | `teachers` | `Teachers` | create |  |
 | `terms` | `Terms` | create |  |
 | `holidays` | `Holidays` | create |  |
@@ -77,6 +78,16 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `medical_notes` | `Medical_Notes` | textarea |  |
 | `photo` | `Record_Image` | profileimage | ✓ |
 | `active_enrollments_count` | `Active_Enrollments_Count` | rollup summary |  |
+
+### Rooms — `rooms`
+
+| Field | Zoho api_name | Zoho data_type | Stock? |
+|---|---|---|:-:|
+| `name` | `Name` | text | ✓ |
+| `room_code` | `Room_Code` | text |  |
+| `seats` | `Seats` | integer |  |
+| `status` | `Status` | picklist |  |
+| `notes` | `Room_Notes` | textarea |  |
 
 ### Teachers — `teachers`
 
@@ -162,6 +173,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 | `section_label` | `Section_Label` | text |  |
 | `primary_teacher` | `Primary_Teacher` | lookup → `Teachers` |  |
 | `room` | `Room` | text |  |
+| `classroom` | `Classroom` | lookup → `Rooms` |  |
 | `capacity` | `Capacity` | integer |  |
 | `meeting_days` | `Meeting_Days` | multiselectpicklist |  |
 | `start_time` | `Start_Time` | text (HH:MM — Zoho has no time type) |  |
@@ -225,6 +237,7 @@ Strategies: `extend_standard` = stock Zoho module, add custom fields only ·
 
 ## Things Zoho cannot express natively
 
+- **Check** `Rooms`.`rooms_seats_positive` — `seats > 0` — implement as a Zoho validation rule.
 - **Check** `Terms`.`term_dates_ordered` — `end_date >= start_date` — implement as a Zoho validation rule.
 - **Check** `Holidays`.`holiday_dates_ordered` — `end_date IS NULL OR end_date >= start_date` — implement as a Zoho validation rule.
 - **Composite unique** `Admissions` (student + course + term) — no native composite unique field. Enforce with a custom function that COQL-counts matches on create/edit and rejects when > 0.
@@ -248,6 +261,7 @@ Lookups need their target module to exist, so modules are created in this order:
 
 ```
 Contacts
+  -> Rooms
   -> Teachers
   -> Terms
   -> Holidays

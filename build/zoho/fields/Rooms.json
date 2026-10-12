@@ -1,0 +1,67 @@
+{
+  "_entity": "rooms",
+  "module": "Rooms",
+  "strategy": "create",
+  "_comment": "Send `scalar_fields` first (ZohoCRM_createFields), then `lookup_fields` once every target module exists. Stock fields already present in Zoho are omitted.",
+  "scalar_fields": [
+    {
+      "field_label": "Room Code",
+      "api_name": "Room_Code",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "A stable handle. Renaming a room on a sign should not orphan its timetable."
+      },
+      "data_type": "text",
+      "length": 20,
+      "unique": {
+        "case_sensitive": false
+      },
+      "_entity_field": "room_code"
+    },
+    {
+      "field_label": "Seats",
+      "api_name": "Seats",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "How many people fit. Seeded on 2026-10-12 from the largest class then timetabled in each room, which is a floor rather than a measurement."
+      },
+      "data_type": "integer",
+      "length": 9,
+      "_entity_field": "seats"
+    },
+    {
+      "field_label": "Status",
+      "api_name": "Status",
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Available",
+          "actual_value": "Available",
+          "sequence_number": 1
+        },
+        {
+          "display_value": "Out of Use",
+          "actual_value": "Out of Use",
+          "sequence_number": 2
+        }
+      ],
+      "default_value": "Available",
+      "_entity_field": "status"
+    },
+    {
+      "field_label": "Room Notes",
+      "api_name": "Room_Notes",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Relabelled and renamed: Zoho reserves Notes, so a field labelled it is rejected outright. Same treatment as households.notes."
+      },
+      "data_type": "textarea",
+      "textarea": {
+        "type": "small"
+      },
+      "_entity_field": "notes"
+    }
+  ],
+  "lookup_fields": [],
+  "relabel_stock_fields": []
+}

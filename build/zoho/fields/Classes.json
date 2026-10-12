@@ -29,6 +29,10 @@
     {
       "field_label": "Room",
       "api_name": "Room",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "Superseded by classroom. Left in place because removing a Zoho field is not reversible and the historical value is worth keeping."
+      },
       "data_type": "text",
       "length": 60,
       "_entity_field": "room"
@@ -193,6 +197,22 @@
         "display_label": "Classes"
       },
       "_entity_field": "primary_teacher"
+    },
+    {
+      "field_label": "Classroom",
+      "api_name": "Classroom",
+      "tooltip": {
+        "name": "info_icon",
+        "value": "The room as a record. Two classes wanting it at one hour is a clash the lesson generator reports; a class larger than its seats is another."
+      },
+      "data_type": "lookup",
+      "lookup": {
+        "module": {
+          "api_name": "Rooms"
+        },
+        "display_label": "Classes"
+      },
+      "_entity_field": "classroom"
     }
   ],
   "relabel_stock_fields": []

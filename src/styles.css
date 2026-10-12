@@ -3252,6 +3252,23 @@ select.field { cursor: pointer; }
    truncated "will be called off" is not. */
 .gen-day-what { flex: 1 1 auto; }
 
+/* A lesson wanting a room another class is already in. A warning, not a
+   refusal: nothing in the schema forbids it, the room names are free text and
+   may be wrong, and whoever is looking at this knows the building. */
+.gen-clash {
+  margin-left: var(--s1);
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  color: var(--warn);
+  font-size: .66rem;
+  font-style: normal;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.is-clash { color: var(--warn); }
+
 .gen-key {
   display: flex;
   flex-wrap: wrap;

@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE -- do not edit. Source: schema/model.yaml (npm run gen:docs) -->
 
-11 entities. Rollup fields are derived — they exist as a Zoho
+12 entities. Rollup fields are derived — they exist as a Zoho
 rollup summary field, never as stored data.
 
 ## Household — `households`
@@ -63,6 +63,24 @@ Zoho module `Students` (extend_custom)
 | `medical_notes` | textarea |  |  | `Medical_Notes` |  |
 | `photo` | image |  |  | `Record_Image` |  |
 | `active_enrollments_count` | rollup(count of `admissions`) |  |  | _(rollup)_ |  |
+
+## Room — `rooms`
+
+Where a class is taught. A record rather than the line of text it used to be, because two things depend on a room having an identity: telling one class that another is already in it, and telling a class that it has more students than the room has seats. Free text could do neither -- "Room 201" and "room 201" were two rooms to the timetable and one to the school.
+
+Zoho module `Rooms` (create)
+
+| Field | Type | Req | Unique | Zoho api_name | Notes |
+|---|---|:-:|:-:|---|---|
+| `name` | text | ✓ |  | `Name` |  |
+| `room_code` | text |  | ✓ | `Room_Code` | A stable handle. Renaming a room on a sign should not orphan its timetable. |
+| `seats` | integer |  |  | `Seats` | How many people fit. Seeded on 2026-10-12 from the largest class then timetabled in each room, which is a floor rather than a measurement. |
+| `status` | enum `room_status` |  |  | `Status` | default `Available` |
+| `notes` | textarea |  |  | `Room_Notes` | Relabelled and renamed: Zoho reserves Notes, so a field labelled it is rejected outright. Same treatment as households.notes. |
+
+**Constraints**
+
+- `rooms_seats_positive` — check `seats > 0`
 
 ## Teacher — `teachers`
 
@@ -183,7 +201,8 @@ Zoho module `Classes` (create)
 | `term` | reference → `terms` | ✓ |  | `Term` |  |
 | `section_label` | text |  |  | `Section_Label` | e.g. 'A', 'B', 'Evening' |
 | `primary_teacher` | reference → `teachers` |  |  | `Primary_Teacher` |  |
-| `room` | text |  |  | `Room` |  |
+| `room` | text |  |  | `Room` | Superseded by classroom. Left in place because removing a Zoho field is not reversible and the historical value is worth keeping. |
+| `classroom` | reference → `rooms` |  |  | `Classroom` | The room as a record. Two classes wanting it at one hour is a clash the lesson generator reports; a class larger than its seats is another. |
 | `capacity` | integer | ✓ |  | `Capacity` | default `20` |
 | `meeting_days` | multi_enum `weekday` |  |  | `Meeting_Days` | The weekly pattern that class_sessions rows are generated from. |
 | `start_time` | time |  |  | `Start_Time` |  |
@@ -290,6 +309,7 @@ Zoho module `Attendance` (create)
 - `admission_stage` — `Admitted`, `Placed`, `Completed`, `Dropped`, `Withdrawn`
 - `admission_source` — `Walk In`, `Website`, `Referral`, `Social Media`, `Agent`, `Event`, `Other`
 - `class_status` — `Draft`, `Scheduled`, `Running`, `Completed`, `Cancelled`
+- `room_status` — `Available`, `Out of Use`
 - `weekday` — `Monday`, `Tuesday`, `Wednesday`, `Thursday`, `Friday`, `Saturday`, `Sunday`
 - `holiday_kind` — `Public Holiday`, `Religious Holiday`, `School Closure`, `Term Break`, `Exam Period`, `Other`
 - `session_status` — `Scheduled`, `Held`, `Cancelled`, `Rescheduled`, `Makeup`
