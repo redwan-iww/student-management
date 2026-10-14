@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader, ButtonBusy, useDelayed } from '../components/Loader';
 import {
-  Avatar, Badge, Banner, Button, Card, Chip, DateField, Drawer, EmptyState, Icon, ToolbarSlotProvider,
+  Avatar, Badge, Banner, Button, Card, Chip, DateField, Drawer, EmptyState, Icon, ToolbarSlotProvider, toUk,
 } from '../components/ui';
 import { GenerateSessions } from '../components/GenerateSessions';
 import { allocationTone, classTone, effectiveClassStatus, shortDays } from '../components/status';
@@ -914,10 +914,10 @@ function ClassStaffing({
                     <Badge tone={allocStatus.tone}>{allocStatus.label}</Badge>
                   </td>
                   <td className="muted">
-                    <span className="cell-mono">{str(a[AL.effective_from], "—")}</span>
+                    <span className="cell-mono">{toUk(str(a[AL.effective_from])) || "—"}</span>
                   </td>
                   <td className="muted">
-                    <span className="cell-mono">{str(a[AL.effective_to], "—")}</span>
+                    <span className="cell-mono">{toUk(str(a[AL.effective_to])) || "—"}</span>
                   </td>
                   <td className="actions">
                     {!ended && (
